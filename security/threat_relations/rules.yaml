@@ -1,0 +1,87 @@
+# Threat-relation rules: the model ID, entity and relation labels, the alias table, which entity
+# types each relation may join, and every threshold the recipe uses.
+# The thresholds are starting points we did not tune. Check them on your own reports.
+
+models:
+  relations: knowledgator/gliner-relex-large-v1.0   # entities and relations in one extract call
+
+# Entity labels sent to the model. The alias table below overrides the model's label for any
+# name it lists; the model's label is used only for names the table does not know.
+entity_labels: [threat actor, malware, vulnerability, sector, software, campaign]
+
+# Relation labels sent to the model, and the entity types each one may join (head -> tail).
+# A relation whose types fit only the other way round is turned round; one that fits neither
+# way is dropped with a reason.
+relations:
+  uses:
+    head: [threat actor, campaign]
+    tail: [malware, software]
+  exploits:
+    head: [threat actor, malware, campaign]
+    tail: [vulnerability]
+  targets:
+    head: [threat actor, malware, campaign]
+    tail: [sector, software]
+  attributed to:
+    head: [malware, campaign]
+    tail: [threat actor]
+  alias of:   # never merges by itself: a new alias goes to review until it is in the table
+    head: [threat actor, malware]
+    tail: [threat actor, malware]
+
+# A malware family or campaign belongs to one actor. If the reports name two actors for the
+# same family, every one of those edges is flagged as conflicting.
+single_valued: [attributed to]
+
+# Patterns (Python regex, case-insensitive) that negate a claim. A relation whose sentence matches
+# one is not an edge: it is kept as a denial, and an edge that another report denies is
+# conflicting.
+negation_patterns:
+  - '\bno evidence\b'
+  - '\bnot\b'
+  - "n't\\b"
+  - '\bnever\b'
+  - '\bunrelated\b'
+  - '\bruled out\b'
+
+# Words the model tags as entities that are never graph nodes. Matched like alias names.
+not_entities: [operators, investigators, researchers, attackers, victims, defenders, we, they]
+
+# Types whose names must be a CVE ID or an alias-table entry. The model reads phrases such as
+# "code overlap" or "outbound connections" as vulnerabilities; those relations are dropped.
+listed_types_only: [vulnerability]
+
+# Canonical name, type and aliases. Names are matched case-insensitively after trimming
+# punctuation and a leading "the". CVE IDs need no entry: they are upper-cased.
+aliases:
+  - name: Velvet Gorse
+    type: threat actor
+    aliases: [Gorse Moth, TA-Gorse]
+  - name: Saltmarsh Kettle
+    type: threat actor
+    aliases: [Reedcutter]
+  - name: Thornpipe
+    type: malware
+    aliases: [Thornpipe backdoor, Thornpipe implant]
+  - name: Murkbell
+    type: malware
+    aliases: [Murkbell stealer, Murkbell credential stealer]
+  - name: Quillstep
+    type: malware
+    aliases: [Quillstep loader]
+  - name: water utilities
+    type: sector
+    aliases: [water utility, water sector]
+  - name: port operators
+    type: sector
+    aliases: [port operator, harbour operators, ports]
+  - name: Halvard Gateway
+    type: software
+    aliases: [Halvard Gateway appliances, unpatched Halvard Gateway appliances]
+
+thresholds:
+  entity_threshold: 0.40      # entity span score sent to the model (relex needs at least 0.1)
+  relation_threshold: 0.70    # relation score sent to the model; the model card says 0.7-0.9
+  min_sources: 2              # distinct publishers an edge needs to be "corroborated"
+  batch_size: 16              # paragraphs per SIE call
+  max_words_per_window: 200   # paragraphs longer than this are split on sentences

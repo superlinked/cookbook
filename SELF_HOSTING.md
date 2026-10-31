@@ -23,7 +23,9 @@ for every model it calls. Grouped:
 
 | Images | Recipes |
 | --- | --- |
+| `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging) |
 | `cuda12-sglang` | [copilot_prompt_screening](security/copilot_prompt_screening) |
+| `cuda12-default` + `cuda12-transformers5` | [phishing_triage](security/phishing_triage) |
 
 Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB).
 

@@ -1,0 +1,75 @@
+# The SOC team's triage rules, the blocklist and every threshold the recipe uses.
+# Nobody tuned the thresholds; they're starting points. Check them against your own reported mail.
+# All domains and IPs here are reserved example names (RFC 2606) and documentation ranges
+# (RFC 5737); replace them with your own.
+
+models:
+  verdict: fastino/GLiNER2.5-Decide     # phishing | spam | benign, with a probability for each
+  entities: fastino/gliner2-large-v1    # sender, URL, domain, payment request, urgency spans
+
+# The question GLiNER2.5-Decide answers. Each verdict's description becomes one option.
+# The question and options share the 512-token window with the email, so keep them short.
+question: Is this email that a user reported a phishing attempt, spam, or a benign email?
+
+verdicts:
+  phishing: >-
+    tries to steal credentials or money: fake login or password reset, shared-document lure,
+    impersonated executive or vendor asking for a payment, wire transfer or gift cards
+  spam: unsolicited bulk marketing or advertising with an unsubscribe link, but no attempt to steal
+  benign: a legitimate message from a known colleague, internal team or real business contact
+
+# gliner2-large-v1 labels, as {output field: entity label}.
+# URLs, domains and IPs are pulled by regex first; the model's url/domain spans only add
+# values the regex missed, and only when the exact text appears in the email.
+entity_labels:
+  sender: sender name
+  url: url
+  domain: domain name
+  payment_request: payment request
+  urgency: urgency or deadline
+
+# Our own mail domains. A sender here is internal; these domains are never blocklist candidates.
+internal_domains: [larkfield.example.com]
+
+# Shared webmail providers: thousands of real users send from these, so the domain is never a
+# blocklist candidate. The sender address on it is. (mailbox.example.net stands in for one.)
+shared_mail_domains: [mailbox.example.net]
+
+# The team's blocklist. In production this is your mail gateway or TIP export; here it lives in
+# rules.yaml so the data/ folder holds only the five reported emails.
+blocklist:
+  domains:
+    - free-giftcards.example.org
+    - parcel-redelivery.example.net
+  ips:
+    - 203.0.113.45
+  urls: []
+
+# Text aimed at an AI reviewer rather than at the person reading the email. Case-insensitive
+# regular expressions, matched on the whole message including hidden HTML.
+injection_patterns:
+  - ignore (all |any )?(previous|prior|above) instructions
+  - (classify|mark|label|treat) (this|the) (email|message) as (benign|safe|legitimate|clean)
+  - (note|message|instructions?) (to|for) (the )?(ai|assistant|model|llm|classifier)
+  - do not (report|flag|extract) (any )?(links|urls|iocs)
+
+# HTML styles that hide text from the person reading the email.
+hidden_html_styles: ["display:none", "visibility:hidden", "font-size:0", "color:#ffffff", "color:#fff;"]
+
+thresholds:
+  min_verdict_score: 0.60     # top verdict probability below this: analyst
+  min_verdict_margin: 0.20    # top-1 minus top-2 probability below this: analyst
+  min_entity_score: 0.40      # gliner2 drops spans scoring below this
+  lookalike_max_edits: 2      # a sender domain this many edits from an internal one is a look-alike
+  max_words_per_window: 150   # email text is split into windows of this many words (both models
+                              # read 512 tokens; the Decide question and options take part of it)
+  batch_size: 25              # windows per SIE call
+
+# What the deterministic checks do to the model's verdict.
+policy:
+  blocklist_hit_verdict: phishing      # any IOC on the blocklist makes the email phishing
+  injection_verdict: phishing          # an email that tries to instruct an AI reviewer is phishing
+  injection_to_analyst: true           # ...and an analyst sees it whatever the model said
+  # A benign or spam verdict goes to an analyst when any of these deterministic signals fire.
+  suspicious_signals: [lookalike_domain, display_name_claims_internal, reply_to_mismatch,
+                       ip_url, payment_request_external]
