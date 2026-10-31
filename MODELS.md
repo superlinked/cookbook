@@ -13,12 +13,12 @@ model card before you rely on it.
 ## Swaps we ran
 
 On 31 Oct 2026 we swapped one model at a time in each recipe's `rules.yaml` and ran the recipe on
-SIE Cloud with nothing else changed. Each recipe README's "Try another model" section has the
-details. The short version:
+SIE Cloud with nothing else changed. A row that says a swap did not run was checked but not run.
+Each recipe README's "Try another model" section has the details. The short version:
 
 | Default | Swap | How it went |
 | --- | --- | --- |
-| `Qwen/Qwen3Guard-Gen-4B` | `ibm-granite/granite-guardian-3.0-2b` | Not a drop-in: it answers Yes/No, not "Safety: ...". |
+| `Qwen/Qwen3Guard-Gen-4B` | `ibm-granite/granite-guardian-3.0-2b` | Did not run: it is not a drop-in, because it answers Yes/No, not "Safety: ...". |
 
 ## Other models
 

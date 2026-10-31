@@ -25,20 +25,12 @@ for every model it calls. Grouped:
 | --- | --- |
 | `cuda12-sglang` | [copilot_prompt_screening](security/copilot_prompt_screening) |
 
-Two things to know before you start:
-
-- **`Qwen/Qwen3-Embedding-4B` has no published image in v0.10.1.** Its default profile needs the
-  `sglang-embedding` bundle, which SIE does not publish. Where a recipe uses it, set
-  `Qwen/Qwen3-Embedding-8B` in `rules.yaml` instead; it runs on `cuda12-default`. The two models
-  have different vectors, so similarity thresholds may need a new check.
-- **`Qwen/Qwen3.8-27B-FP8` needs a big GPU.** SIE smoke-tested it on an H100 80GB, an H200 and an
-  RTX PRO 6000. The `cuda13` image also needs NVIDIA driver 580 or newer. Every other model in
-  these recipes passed on an NVIDIA L4 (24 GB).
+Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB).
 
 ## One image: one container
 
 A recipe whose models all share one image runs against a single container. You need Docker, the
-NVIDIA Container Toolkit and a GPU from the table above.
+NVIDIA Container Toolkit and a GPU that runs your models (see above).
 
 ```bash
 docker run --gpus all -p 8080:8080 \
@@ -64,7 +56,7 @@ A recipe that calls models from two or more images needs one SIE endpoint that r
 to a server running the right image. That is what the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 does. A gateway takes every request and sends it to a worker pool per image, and each pool can
-scale to zero. This values file enables the pools that every recipe here needs:
+scale to zero. This values file turns on a pool for each SIE image:
 
 ```yaml
 # values-cookbook.yaml

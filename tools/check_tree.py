@@ -35,7 +35,7 @@ REQUIRED = (
     ".python-version",
     ".env.example",
 )
-# A recipe imports only its own modules and installed packages.
+# A recipe must not import another recipe (by its industry folder) or the internal research package.
 CROSS_IMPORT = re.compile(
     rb"^\s*(?:from|import)\s+(?:sie_cloud_research|" + "|".join(INDUSTRIES).encode() + rb")\b", re.M
 )
@@ -46,9 +46,15 @@ FORBIDDEN = (b"sie-" + b"internal", b"sie_cloud" + b"_research", b"verified-" + 
 
 
 def recipes() -> list[Path]:
-    return sorted(
-        path.parent for path in ROOT.glob("*/*/recipe.py") if path.parts[-3] in INDUSTRIES
-    )
+    """Every folder two levels down with a recipe.py or a pyproject.toml, under any top folder.
+
+    Finding them by either file, under any industry, lets the checks below flag a recipe that is
+    missing one or that sits under an industry not listed above, instead of skipping it.
+    """
+    found = {
+        path.parent for name in ("recipe.py", "pyproject.toml") for path in ROOT.glob(f"*/*/{name}")
+    }
+    return sorted(folder for folder in found if not folder.parts[-2].startswith("."))
 
 
 def tracked_files() -> list[Path]:
@@ -67,6 +73,8 @@ def problems() -> list[str]:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     for recipe in recipes():
         rel = recipe.relative_to(ROOT).as_posix()
+        if recipe.parts[-2] not in INDUSTRIES:
+            found.append(f"{rel}: {recipe.parts[-2]!r} is not in INDUSTRIES in tools/check_tree.py")
         found += [f"{rel}: missing {name}" for name in REQUIRED if not (recipe / name).is_file()]
         pyproject = recipe / "pyproject.toml"
         if pyproject.is_file():

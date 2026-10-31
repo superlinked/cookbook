@@ -37,7 +37,7 @@ All the data in these recipes is synthetic or comes from public datasets named i
 - **[MODELS.md](MODELS.md)** lists the open models the recipes use, with licenses, and what
   happened when we swapped each one for another model.
 - Every recipe README has a **Try another model** section. Each model is one line in that
-  recipe's `rules.yaml`, so trying another is a one-line change.
+  recipe's `rules.yaml`, so trying one that answers in the same format is a one-line change.
 - **[SELF_HOSTING.md](SELF_HOSTING.md)** runs the recipes on your own SIE, with a `docker run`
   command or a Helm cluster. Set `SIE_BASE_URL` in `.env`; nothing else changes.
 
@@ -57,7 +57,9 @@ requests (one request can carry many items).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). In short: a new folder under its industry with
 `recipe.py`, `rules.yaml`, `README.md`, a `pyproject.toml` that lists only what the recipe
-imports, and a `uv.lock`. `uvx pre-commit run --all-files` runs the same checks as CI.
+imports, and a `uv.lock`. `uvx pre-commit run --all-files` runs the repo-wide checks; CI also
+runs the per-recipe checks listed in
+[CONTRIBUTING.md](CONTRIBUTING.md#before-you-open-a-pull-request).
 [Open an issue](https://github.com/superlinked/cookbook/issues/new/choose) to ask for a recipe.
 
 ## Future work

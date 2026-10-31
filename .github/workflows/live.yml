@@ -76,4 +76,4 @@ jobs:
           name: live-${{ steps.name.outputs.artifact }}
           path: ${{ matrix.recipe }}/runs/live/
           retention-days: 14
-          if-no-files-found: ignore
+          if-no-files-found: warn

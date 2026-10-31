@@ -12,7 +12,7 @@ Or open the repo in GitHub Codespaces, which has both.
 git clone https://github.com/<your-user>/cookbook.git
 cd cookbook
 cp .env.example .env            # then set SIE_API_KEY
-uvx pre-commit install          # ruff, file hygiene, actionlint and tree checks on commit
+uvx pre-commit install          # ruff, file hygiene, actionlint, tree and lock checks on commit
 ```
 
 ## Add a recipe

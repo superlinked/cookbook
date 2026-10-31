@@ -21,7 +21,11 @@ def main(paths: list[str]) -> int:
         if subprocess.run(["uv", "lock", "--check", "--quiet"], cwd=folder, check=False).returncode
     ]
     for folder in failed:
-        print(f"{folder.relative_to(ROOT)}: uv.lock is out of date; run `uv lock`", file=sys.stderr)
+        print(
+            f"{folder.relative_to(ROOT)}: `uv lock --check` failed (uv's error is above); "
+            "if uv.lock is out of date, run `uv lock`",
+            file=sys.stderr,
+        )
     return 1 if failed else 0
 
 
