@@ -22,10 +22,7 @@ Each recipe README's "Try another model" section has the details. The short vers
 
 | Default | Swap | How it went |
 | --- | --- | --- |
-| `fastino/gliner2-large-v1` | `fastino/gliner2-base-v1` | Close on simple fields (routing, phishing, work orders) and better on inspection_reports. Misses fields in forms and clinical notes (visit_notes missed an allergy conflict). |
-| `numind/NuNER_Zero` | `urchade/gliner_multi-v2.1`, `numind/NuNER_Zero-span` | Identical on news_entity_tagging with gliner_multi. Worse on threat reports, where the 0.50 threshold was set for NuNER_Zero. |
 | `Qwen/Qwen3Guard-Gen-4B` | `ibm-granite/granite-guardian-3.0-2b` | Did not run: it is not a drop-in, because it answers Yes/No, not "Safety: ...". |
-| `fastino/GLiNER2.5-Decide`, `knowledgator/gliner-relex-large-v1.0`, `TomoroAI/tomoro-colqwen3-embed-4b` | none | SIE Cloud has no same-API alternative yet; the other tomoro profiles returned HTTP 503. |
 
 ## Other models
 
