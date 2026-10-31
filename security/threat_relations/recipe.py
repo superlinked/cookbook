@@ -17,12 +17,13 @@ SIE pipeline:
                                                      attributed to / alias of relations
            (Python)                                  check spans; merge names by the alias table;
                                                      check relation types (turn round or drop);
-                                                     a negated sentence is a denial, not an
-                                                     edge; build the graph with every source;
-                                                     flag single-source, conflicting and
-                                                     unknown-entity edges for review
+                                                     a sentence that negates the claim is a
+                                                     denial, not an edge; build the graph with
+                                                     every source; set each edge's status and
+                                                     queue conflicting and unknown-entity edges
+                                                     for review
 Output:    graph.json (nodes, edges with sources and status, denials, dropped relations, review
-           items), graph.mmd (Mermaid) and edges.csv (one row per edge).
+           items, unread reports), graph.mmd (Mermaid) and edges.csv (one row per edge).
 Why SIE:   One model finds entities and relations together. Otherwise you'd need an NER model
            plus a relation classifier, or an LLM per sentence. The labels and relation types are
            plain words in rules.yaml. Merging names, checking types and flagging edges is plain
@@ -214,8 +215,8 @@ class AliasTable:
         """The canonical node for a name: the table, then a CVE ID, then the model's label."""
         if canon := self.by_key.get(name_key(text)):
             return canon
-        if CVE.match(text.strip()):
-            return Canon(text.strip().upper(), "vulnerability", True)
+        if CVE.match(cve := text.strip().strip(" .,;:()\"'")):
+            return Canon(cve.upper(), "vulnerability", True)
         if model_label is None:
             return None
         return Canon(" ".join(text.strip().strip(" .,;:").split()), model_label, False)
@@ -242,6 +243,7 @@ class Claim:
     tail: Canon
     source: Source
     negated: bool
+    split: bool = False  # head and tail are in different sentences
     note: str = ""
 
 
@@ -255,34 +257,49 @@ class Dropped:
     reason: str
 
 
-def window_labels(window: str, result: dict[str, Any], rules: dict[str, Any]) -> dict[str, str]:
-    """Model label per entity text, for spans that match the window text and use our labels."""
+def window_labels(
+    window: str, result: dict[str, Any], rules: dict[str, Any]
+) -> tuple[dict[str, str], list[str]]:
+    """Model label per entity text, plus a note for each span that fails the checks.
+
+    A span must carry one of our labels and its text must be exactly the window text at its
+    offsets.
+    """
     labels: dict[str, str] = {}
+    notes: list[str] = []
     allowed = set(rules["entity_labels"])
     for raw in result.get("entities") or []:
         start, end, text = raw.get("start"), raw.get("end"), str(raw.get("text", ""))
         label = str(raw.get("label", ""))
         if label in allowed and start is not None and end is not None and window[start:end] == text:
             labels.setdefault(name_key(text), label)
-    return labels
+        else:
+            notes.append(f"invalid span from the model dropped: {raw!r}")
+    return labels, notes
 
 
-def claim_sentence(window: str, head: str, tail: str) -> str:
-    """The sentence that states the claim: the first with both names, else the span between them."""
+def claim_sentence(window: str, head: str, tail: str) -> tuple[str, bool]:
+    """The sentence that states the claim, and whether head and tail are in different sentences.
+
+    That is the first sentence with both names, else the span between them, else the window.
+    """
     spans = sentences(window)
     with_head = [i for i, (s, e) in enumerate(spans) if head in window[s:e]]
     with_tail = [i for i, (s, e) in enumerate(spans) if tail in window[s:e]]
     if both := sorted(set(with_head) & set(with_tail)):
         s, e = spans[both[0]]
-        return window[s:e]
+        return window[s:e], False
     if not with_head or not with_tail:
-        return window
+        return window, True
     first, last = sorted((with_head[0], with_tail[0]))
-    return window[spans[first][0] : spans[last][1]]
+    return window[spans[first][0] : spans[last][1]], True
 
 
 def is_negated(sentence: str, rules: dict[str, Any]) -> bool:
-    return any(re.search(p, sentence, re.IGNORECASE) for p in rules["negation_patterns"])
+    """True when a negation pattern matches; {verb} in a pattern stands for any relation verb."""
+    verbs = "(?:" + "|".join(map(re.escape, rules["negation"]["verbs"])) + r")\b"
+    patterns = [p.replace("{verb}", verbs) for p in rules["negation"]["patterns"]]
+    return any(re.search(p, sentence, re.IGNORECASE) for p in patterns)
 
 
 def orient(
@@ -313,9 +330,9 @@ def unusable_end(canon: Canon, text: str, rules: dict[str, Any]) -> str:
 
 def window_claims(
     report: Report, window: str, result: dict[str, Any], table: AliasTable, rules: dict[str, Any]
-) -> tuple[list[Claim], list[Dropped]]:
-    """Checked claims from one window's relations, plus every relation dropped and why."""
-    labels = window_labels(window, result, rules)
+) -> tuple[list[Claim], list[Dropped], list[str]]:
+    """Checked claims from one window's relations, every relation dropped and why, and notes."""
+    labels, notes = window_labels(window, result, rules)
     claims: list[Claim] = []
     dropped: list[Dropped] = []
     for raw in result.get("relations") or []:
@@ -333,7 +350,7 @@ def window_claims(
                     checked,
                 )
             )
-    return claims, dropped
+    return claims, dropped, notes
 
 
 def check_relation(
@@ -363,9 +380,10 @@ def check_relation(
     if oriented is None:
         return f"{head.type} -> {tail.type} does not fit '{relation}'"
     note = "" if oriented[0] is head else "turned round to fit the relation's types"
-    sentence = claim_sentence(window, head_text, tail_text)
+    sentence, split = claim_sentence(window, head_text, tail_text)
     source = Source(report.id, report.publisher, report.published, sentence, score)
-    return Claim(oriented[0], relation, oriented[1], source, is_negated(sentence, rules), note)
+    negated = is_negated(sentence, rules)
+    return Claim(oriented[0], relation, oriented[1], source, negated, split, note)
 
 
 # --- 5. Graph ---------------------------------------------------------------------------------
@@ -400,6 +418,7 @@ class Graph:
     denials: list[Claim]
     dropped: list[Dropped]
     review: list[str]
+    unread: list[str] = field(default_factory=list)  # report IDs with a paragraph not read
 
 
 def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, Any]) -> Graph:
@@ -408,10 +427,14 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
     - single_source: fewer distinct publishers than min_sources (two reports from one
       publisher are one source).
     - conflicting: a single-valued relation (attributed to) points to two different tails, or
-      another report denies the edge.
+      a report (any report, the same one included) denies the edge.
     - review: an end of the edge is not in the alias table.
+
+    A negated claim whose head and tail sit in different sentences is neither an edge nor a
+    denial: the negation may be about something else, so it goes to the review list.
     """
     nodes: dict[str, Node] = {}
+    types: dict[str, set[str]] = {}
     edges: dict[tuple[str, str, str], Edge] = {}
     denials: list[Claim] = []
     review: list[str] = []
@@ -422,10 +445,18 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
                 " is not in the alias table; not merged"
             )
             continue
+        if claim.negated and claim.split:
+            review.append(
+                f"{claim.source.report}: {claim.head.name} {claim.relation} {claim.tail.name}"
+                f" is in a negated passage across sentences; not an edge or a denial:"
+                f" {claim.source.sentence!r}"
+            )
+            continue
         if claim.negated:
             denials.append(claim)
             continue
         for end in (claim.head, claim.tail):
+            types.setdefault(end.name, set()).add(end.type)
             node = nodes.setdefault(end.name, Node(end.name, end.type, end.known))
             if claim.source.report not in node.mentions:
                 node.mentions.append(claim.source.report)
@@ -460,6 +491,11 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
         unknown = [n for n in (edge.head, edge.tail) if not nodes[n].known]
         edge.flags += conflict
         edge.flags += [f"{name} is not in the alias table" for name in unknown]
+        edge.flags += [
+            f"{name} typed as {' and '.join(sorted(types[name]))} in different claims"
+            for name in (edge.head, edge.tail)
+            if len(types[name]) > 1
+        ]
         if len(edge.publishers) < min_sources:
             edge.flags.append(
                 f"only {len(edge.publishers)} publisher(s): {', '.join(edge.publishers)}"
@@ -503,7 +539,8 @@ def mermaid(graph: Graph) -> str:
     lines = ["flowchart LR"]
     for node in graph.nodes:
         left, right = shapes.get(node.type, ("[", "]"))
-        label = f"{node.name}<br/><i>{node.type}</i>" + ("" if node.known else " ?")
+        name = node.name.replace('"', "#quot;")
+        label = f"{name}<br/><i>{node.type}</i>" + ("" if node.known else " ?")
         lines.append(f'    {node_id(node.name)}{left}"{label}"{right}')
     red: list[int] = []
     for index, edge in enumerate(graph.edges):
@@ -528,22 +565,36 @@ def map_relations(client: SIEClient, reports: list[Report], rules: dict[str, Any
         for report_id, parts in windows.items()
         for number, (_, window) in enumerate(parts, start=1)
     ]
+    table = AliasTable.build(rules)  # a bad alias table fails before any model call
     results = extract_windows(client, items, rules) if items else {}
-    table = AliasTable.build(rules)
     claims: list[Claim] = []
     dropped: list[Dropped] = []
     review: list[str] = []
+    unread: list[str] = []
     for report in reports:
         for number, (_, window) in enumerate(windows[report.id], start=1):
             result = results[f"{report.id}#p{number}"]
-            if error := result.get("error"):
+            error = result.get("error")
+            if not error and not {"entities", "relations"} <= result.keys():
+                error = "the reply has no entities or relations"
+            if error:
                 review.append(f"{report.id} paragraph {number} was not read: {error}")
+                if report.id not in unread:
+                    unread.append(report.id)
                 continue
-            found, lost = window_claims(report, window, result, table, rules)
+            found, lost, notes = window_claims(report, window, result, table, rules)
             claims += found
             dropped += lost
+            review += [f"{report.id} paragraph {number}: {note}" for note in notes]
     graph = build_graph(claims, dropped, rules)
     graph.review = review + graph.review
+    graph.unread = unread
+    for edge in graph.edges:
+        edge.flags += [
+            f"report {report_id} partly unread"
+            for report_id in unread
+            if any(source.report == report_id for source in edge.sources)
+        ]
     return graph
 
 
@@ -562,6 +613,7 @@ def graph_json(graph: Graph) -> dict[str, Any]:
         "denials": [claim(c) for c in graph.denials],
         "dropped": [asdict(d) for d in graph.dropped],
         "review": graph.review,
+        "unread": graph.unread,
     }
 
 
@@ -608,6 +660,8 @@ def main() -> None:
         )
     for item in graph.review:
         print(f"review: {item}")
+    for report_id in graph.unread:
+        print(f"warning: {report_id} was partly unread; its edges carry a flag and may be missing")
     print(f"\n{len(graph.nodes)} nodes, {len(graph.edges)} edges, {len(graph.review)} review items")
     print(f"outputs: {output / 'graph.json'}, {output / 'graph.mmd'}, {output / 'edges.csv'}")
 

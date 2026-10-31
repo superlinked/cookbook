@@ -33,16 +33,22 @@ relations:
 # same family, every one of those edges is flagged as conflicting.
 single_valued: [attributed to]
 
-# Patterns (Python regex, case-insensitive) that negate a claim. A relation whose sentence matches
-# one is not an edge: it is kept as a denial, and an edge that another report denies is
-# conflicting.
-negation_patterns:
-  - '\bno evidence\b'
-  - '\bnot\b'
-  - "n't\\b"
-  - '\bnever\b'
-  - '\bunrelated\b'
-  - '\bruled out\b'
+# Negation: Python regex, case-insensitive, matched on the sentence that holds both names. Each
+# pattern ties the negation to the claim, so a "not" elsewhere in the sentence ("Velvet Gorse,
+# not Saltmarsh Kettle, used Thornpipe", "a CVE Halvard has not patched") doesn't count.
+# {verb} stands for any word in verbs. A matching claim is not an edge: it is kept as a denial,
+# and an edge that any report denies (the same report included) is conflicting. When head and
+# tail are in different sentences, a match sends the claim to review instead.
+negation:
+  patterns:
+    - '\bno (?:evidence|indication|sign)s? (?:that|of)\b'
+    - '\bno (?:link|connection) (?:between|to)\b'
+    - '\b(?:do|does|did|is|are|was|were|has|have|had|can|ca)(?:\s*not|n[''’]t)(?: been| be)? {verb}'
+    - '\bnever (?:been )?{verb}'
+    - '\bunrelated to\b'
+    - '\bruled out\b'
+  verbs: [use, uses, used, using, deploy, deploys, deployed, target, targets, targeted, exploit,
+          exploits, exploited, attribute, attributed, link, linked, tie, tied, connect, connected]
 
 # Words the model tags as entities that are never graph nodes. Matched like alias names.
 not_entities: [operators, investigators, researchers, attackers, victims, defenders, we, they]

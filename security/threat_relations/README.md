@@ -12,10 +12,10 @@ needs to see which edges rest on one publisher and which ones contradict each ot
 
 - [`data/reports.jsonl`](./data/reports.jsonl) holds five short reports from three fictional
   publishers (Brindle Point Security, Dunmore Intel, Northfold CERT), one JSON object per line
-  with publisher, date, title and text.
+  with `id`, `publisher`, `published` (the date), `title` and `text`.
 - [`rules.yaml`](./rules.yaml) holds the model ID, the entity and relation labels, the alias
-  table, which entity types each relation may join, the negation patterns, the generic words and
-  the thresholds.
+  table, which entity types each relation may join, the negation patterns and verbs, the
+  generic words and the thresholds.
 
 **Pipeline.**
 
@@ -25,20 +25,25 @@ needs to see which edges rest on one publisher and which ones contradict each ot
 | Entities + relations | `extract` + `labels` + `options.relation_labels` | `knowledgator/gliner-relex-large-v1.0` | threat actor, malware, vulnerability, sector, software, campaign; uses, exploits, targets, attributed to, alias of |
 | Names | Python | | Merge names by the alias table, which also sets the type; CVE IDs are upper-cased; generic words ("operators") and vulnerabilities that are not a CVE ID or a table entry are dropped |
 | Types | Python | | Each relation must join the types in `rules.yaml`. One that fits only the other way round is turned round (and flagged); one that fits neither way is dropped with a reason |
-| Negation | Python | | A relation whose sentence says "no evidence", "not", "never" and so on is a denial, not an edge |
+| Negation | Python | | A relation whose sentence negates the claim itself ("no evidence that", "never used", "did not deploy", "has not been linked") is a denial, not an edge. A stray "not" ("Velvet Gorse, not Saltmarsh Kettle, used Thornpipe") doesn't count. If head and tail sit in different sentences, a negation sends the claim to review instead |
 | Graph | Python | | One edge per (head, relation, tail), carrying every source: report, publisher, date, sentence, score |
-| Flags | Python | | `single_source`: fewer than 2 publishers (two reports from one publisher count once). `conflicting`: a family attributed to two actors, or an edge another report denies. `review`: an end that is not in the alias table. A proposed `alias of` is never merged; it goes to review |
+| Flags | Python | | `single_source`: fewer than 2 publishers (two reports from one publisher count once). `conflicting`: a family attributed to two actors, or an edge that any report denies (the same report included). `review`: an end that is not in the alias table. A proposed `alias of` is never merged; it goes to review |
 
 One gotcha: the model's `relations` give the head and tail as plain text, with no type. The code
 looks each end up in the alias table, and for a name the table doesn't know, it uses the label
-the model gave that same text in the same window.
+the model gave that same text in the same window. So an unknown name can get a different type
+in another window; its edges then carry a "typed as A and B in different claims" flag. An entity
+span whose text doesn't match the window at its offsets is dropped with a note in the review
+list.
 
 **Output.**
 
 - `graph.json` has the nodes (name, type, known, mentions), the edges (status, flags, sources
-  with the sentence), the denials, the dropped relations with the reason, and the review list.
-- `graph.mmd` is a Mermaid flowchart. Solid arrows are corroborated, dashed arrows rest on one
-  publisher, red arrows are conflicting or need review, and `?` marks a name not in the table.
+  with the sentence), the denials, the dropped relations with the reason, the review list, and
+  `unread`: the reports with a paragraph SIE didn't read. Every edge from such a report gets a
+  "report R-0x partly unread" flag, and the run prints a warning, because edges may be missing.
+- `graph.mmd` is a Mermaid flowchart. Solid arrows are corroborated, dashed arrows are every
+  other status, red arrows are conflicting or need review, and `?` marks a name not in the table.
 - `edges.csv` has one row per edge.
 
 ```
@@ -112,9 +117,11 @@ Treat the planted cases as a demo of how the recipe behaves. They say nothing ab
   name points to two different entries.
 - The labels and relation rules are `entity_labels`, plus `relations` with the allowed head and
   tail types. `single_valued` lists the relations that may have only one tail per head.
-- Negations and generic words live in `negation_patterns` (regex), `not_entities` and
-  `listed_types_only`. If your reports use a generic word ours don't (e.g. "intruders" where
-  ours say "attackers"), add it to `not_entities`.
+- Negations live in `negation`: `patterns` (regex, where `{verb}` stands for any word in
+  `verbs`). If your reports deny a link with a verb ours don't use (e.g. "leveraged"), add it to
+  `verbs`. Generic words live in `not_entities`: if your reports use one ours don't (e.g.
+  "intruders" where ours say "attackers"), add it there.
+- `listed_types_only` names the types whose names must be a CVE ID or an alias-table entry.
 - The thresholds are `entity_threshold`, `relation_threshold` (the model card suggests 0.7 to
   0.9), `min_sources`, `max_words_per_window` and `batch_size`. Treat them as starting points and
   check them on your own reports.
