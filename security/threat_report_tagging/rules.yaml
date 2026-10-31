@@ -17,8 +17,9 @@ labels:
   tool: tool
 
 # The alias table: one canonical name per actor or malware family, with the names other
-# vendors and feeds use for it. Matching ignores case, a leading "the" and trailing words from
-# `generic_words`, so "Mothvine Loader" and "the Mothvine loader" both read as Mothvine.
+# vendors and feeds use for it. Looking a mention up ignores case, a leading "the" and trailing
+# words from `generic_words`, so "Mothvine Loader" and "the Mothvine loader" both read as
+# Mothvine. The recipe's own search of the text for names the model missed is exact case.
 # If one alias sits under two canonical names, that's a real-world collision, and a
 # mention of it goes to review instead of being merged with either. A canonical name itself
 # goes under one section only (actors, malware or tool_techniques); the recipe refuses to start
@@ -60,8 +61,9 @@ policy:
   ambiguous_alias: true    # an alias listed under two canonical names
   unmapped_tool: true      # a tool with no ATT&CK mapping in tool_techniques
   live_ioc: true           # a URL written live (http://, https://) instead of defanged
-  malformed_indicator: true  # a hex run that is not an MD5, SHA-1 or SHA-256 length, or a
-                             # CVE ID with too few digits
+  malformed_indicator: true  # a hex run that is not an MD5, SHA-1 or SHA-256 length, a
+                             # defanged IP that isn't a valid address, or a CVE ID with too
+                             # few digits
 
 thresholds:
   min_entity_score: 0.50       # NuNER Zero span score; lower spans are not returned

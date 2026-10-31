@@ -148,7 +148,13 @@ URL_RE = re.compile(r"\b(?:hxxps?|https?)(?:\[:\]|:)//[^\s<>\"']+", re.IGNORECAS
 CVE_RE = re.compile(r"\bCVE-(\d{4})-(\d+)\b", re.IGNORECASE)
 DOT = r"(?:\[\.\]|\(\.\)|\.)"
 IP_RE = re.compile(rf"(?<![\w.\[])\d{{1,3}}(?:{DOT}\d{{1,3}}){{3}}(?![\w\[]|\.\d)")
-DOMAIN_RE = re.compile(rf"(?<![\w.\[@-])(?:[a-z0-9-]+{DOT})+[a-z]{{2,}}\b", re.IGNORECASE)
+# A domain never starts right after a dot, defanged or not, so "a[.]b[.]example[.]com" is one.
+DOMAIN_RE = re.compile(
+    rf"(?<![\w.@-])(?<!\[\.\])(?<!\(\.\))(?:[a-z0-9-]+{DOT})+[a-z]{{2,}}\b", re.IGNORECASE
+)
+EMAIL_RE = re.compile(
+    rf"(?<![\w.+-])[\w.+-]+(?:@|\[@\])((?:[a-z0-9-]+{DOT})+[a-z]{{2,}})\b", re.IGNORECASE
+)
 TRAILING = ".,;:)]'\""
 
 
@@ -159,6 +165,7 @@ class Indicator:
     start: int
     end: int
     live_in_source: bool = False
+    malformed: bool = False
     note: str = ""
 
 
@@ -170,10 +177,11 @@ def refang(value: str) -> str:
 def defang(value: str) -> str:
     """Write hxxp and [.] so the indicator can go into a ticket without becoming a link.
 
-    Every http or https scheme becomes hxxp or hxxps, including one inside a query string, and
-    every dot in host, path and query becomes [.]. A port stays as it is.
+    Every http or https scheme becomes hxxp or hxxps, including one inside a query string and
+    one with its colon percent-encoded (http%3a), and every dot in host, path and query becomes
+    [.]. A port stays as it is.
     """
-    value = re.sub(r"\bhttp(s?)(?=:)", r"hxxp\1", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bhttp(s?)(?=:|%3a)", r"hxxp\1", value, flags=re.IGNORECASE)
     return value.replace(".", "[.]")
 
 
@@ -181,16 +189,24 @@ def _is_defanged(raw: str) -> bool:
     return refang(raw) != raw
 
 
-def find_indicators(text: str, rules: dict[str, Any]) -> tuple[list[Indicator], list[str]]:
-    """Find every indicator by regex, with a review reason for each live or malformed one.
+def _is_live_url(raw: str) -> bool:
+    """A browser opens it: http:// or https:// and a host with nothing defanged."""
+    m = re.match(r"https?://([^/?#]*)", raw, re.IGNORECASE)
+    return m is not None and not _is_defanged(m.group(1))
+
+
+def find_indicators(text: str, rules: dict[str, Any]) -> list[Indicator]:
+    """Find every indicator by regex, marking the ones written live or malformed.
 
     URLs come first and mask their span, so a CVE, hash or domain inside a URL is not counted
-    twice.
+    twice. Emails come next: a defanged email gives its whole domain, so
+    user@evil[.]example[.]com is evil[.]example[.]com and not example[.]com.
     Bare domains and IPs count only when defanged: "build 4.2.0.118" and "cfg.dat" are not
-    network indicators. A URL written live is kept (defanged in the output) and flagged.
+    network indicators. A URL is live when its scheme and host are written as a browser opens
+    them (https://evil.example/login[.]php is live); it's kept, defanged in the output.
+    A defanged IP that isn't a valid address is kept as malformed, like a short hash.
     """
     found: list[Indicator] = []
-    reasons: list[str] = []
     taken: list[tuple[int, int]] = []
 
     def free(start: int, end: int) -> bool:
@@ -202,19 +218,21 @@ def find_indicators(text: str, rules: dict[str, Any]) -> tuple[list[Indicator], 
 
     for m in URL_RE.finditer(text):
         raw = m.group().rstrip(TRAILING)
-        live = not _is_defanged(raw)
         indicator = Indicator("url", defang(refang(raw)), m.start(), m.start() + len(raw))
-        if live:
+        if _is_live_url(raw):
             indicator.live_in_source, indicator.note = True, "written live in the report"
-            reasons.append(f"live URL in the report: {indicator.value}")
         add(indicator)
+    for m in EMAIL_RE.finditer(text):
+        raw = m.group(1).rstrip(TRAILING)
+        if free(m.start(), m.end()) and _is_defanged(raw):
+            add(Indicator("domain", defang(refang(raw).lower()), m.start(), m.start(1) + len(raw)))
     for m in CVE_RE.finditer(text):
         if not free(m.start(), m.end()):
             continue
         cve = m.group().upper()
         if len(m.group(2)) < 4:
-            reasons.append(f"malformed CVE ID {cve}: the sequence number needs 4 or more digits")
-            add(Indicator("cve", cve, m.start(), m.end(), note="malformed"))
+            note = "the sequence number needs 4 or more digits"
+            add(Indicator("cve", cve, m.start(), m.end(), malformed=True, note=note))
         else:
             add(Indicator("cve", cve, m.start(), m.end()))
     min_hex = int(rules["thresholds"]["min_hex_run"])
@@ -225,8 +243,8 @@ def find_indicators(text: str, rules: dict[str, Any]) -> tuple[list[Indicator], 
         if kind := HASH_TYPES.get(len(value)):
             add(Indicator(kind, value, m.start(), m.end()))
         else:
-            reasons.append(f"malformed hash {value} ({len(value)} hex characters)")
-            add(Indicator("hash", value, m.start(), m.end(), note="malformed"))
+            note = f"{len(value)} hex characters, not an MD5, SHA-1 or SHA-256 length"
+            add(Indicator("hash", value, m.start(), m.end(), malformed=True, note=note))
     for m in IP_RE.finditer(text):
         raw = m.group()
         if not free(m.start(), m.end()) or not _is_defanged(raw):
@@ -234,6 +252,8 @@ def find_indicators(text: str, rules: dict[str, Any]) -> tuple[list[Indicator], 
         try:
             ip = str(ipaddress.ip_address(refang(raw)))
         except ValueError:
+            note = "not a valid IPv4 address"
+            add(Indicator("ip", defang(refang(raw)), m.start(), m.end(), malformed=True, note=note))
             continue
         add(Indicator("ip", defang(ip), m.start(), m.end()))
     for m in DOMAIN_RE.finditer(text):
@@ -242,7 +262,7 @@ def find_indicators(text: str, rules: dict[str, Any]) -> tuple[list[Indicator], 
             continue
         domain = refang(raw).lower()
         add(Indicator("domain", defang(domain), m.start(), m.start() + len(raw)))
-    return sorted(found, key=lambda i: i.start), reasons
+    return sorted(found, key=lambda i: i.start)
 
 
 # --- 2. Windows -------------------------------------------------------------------------------
@@ -288,8 +308,7 @@ def tag_windows(
 ) -> dict[str, dict[str, Any]]:
     """Send the windows to NuNER Zero in batches; return its result per window id.
 
-    A window with nothing in it comes back as ``entities: []``, not an error. A reply with no
-    ``entities`` list at all is treated as an error for that window (see ``tag_reports``).
+    A window with nothing in it comes back as ``entities: []``, not an error.
     """
     model, labels = rules["models"]["entities"], list(rules["labels"].values())
     options = {"threshold": rules["thresholds"]["min_entity_score"]}
@@ -318,10 +337,10 @@ def model_entities(
 ) -> tuple[list[Entity], list[str]]:
     """Keep the model spans that check out, moved to report offsets, and note the invalid ones.
 
-    A span must carry one of our labels and its text must be exactly the window text at its
-    offsets. A span on top of a CVE, hash or IOC is dropped: those come from regex. So is a
-    span that is not a name: one in ``ignore_mentions`` ("MD5") or made only of generic words
-    ("threat group").
+    A span must carry one of our labels and a score, and its text must be exactly the window
+    text at its offsets. A span on top of a CVE, hash or IOC is dropped: those come from regex.
+    So is a span that is not a name: one in ``ignore_mentions`` ("MD5") or made only of generic
+    words ("threat group").
     """
     kinds = {label: kind for kind, label in rules["labels"].items()}
     ignored = {m.casefold() for m in rules["ignore_mentions"]}
@@ -330,8 +349,8 @@ def model_entities(
     notes: list[str] = []
     for raw in result["entities"]:
         start, end, text = raw.get("start"), raw.get("end"), str(raw.get("text", ""))
-        kind = kinds.get(str(raw.get("label", "")))
-        if kind is None or start is None or end is None or window[start:end] != text:
+        kind, score = kinds.get(str(raw.get("label", ""))), raw.get("score")
+        if kind is None or None in (start, end, score) or window[start:end] != text:
             notes.append(f"invalid span from the model dropped: {raw!r}")
             continue
         start, end = offset + start, offset + end
@@ -340,7 +359,7 @@ def model_entities(
         words = text.casefold().split()
         if text.strip().casefold() in ignored or all(w in generic for w in words):
             continue
-        entities.append(Entity(kind, text, start, end, float(raw["score"]), "model"))
+        entities.append(Entity(kind, text, start, end, float(score), "model"))
     return entities, notes
 
 
@@ -519,20 +538,18 @@ def tag_reports(
     policy = rules["policy"]
     tagged: list[TaggedReport] = []
     for report in reports:
-        indicators, ioc_reasons = find_indicators(report.text, rules)
+        indicators = find_indicators(report.text, rules)
         reasons: list[str] = []
-        for reason in ioc_reasons:
-            live = reason.startswith("live URL")
-            if policy["live_ioc" if live else "malformed_indicator"]:
-                reasons.append(reason)
+        for ind in indicators:
+            if ind.live_in_source and policy["live_ioc"]:
+                reasons.append(f"live URL in the report: {ind.value}")
+            if ind.malformed and policy["malformed_indicator"]:
+                reasons.append(f"malformed {ind.type} {ind.value}: {ind.note}")
         found: list[Entity] = []
         for number, (offset, window) in enumerate(windows[report.id], start=1):
             result = results[f"{report.id}#w{number}"]
             if error := result.get("error"):
                 reasons.append(f"window {number} was not tagged: {error}")
-                continue
-            if not isinstance(result.get("entities"), list):
-                reasons.append(f"window {number} was not tagged: the reply has no entities list")
                 continue
             entities, notes = model_entities(window, offset, result, indicators, rules)
             found += entities

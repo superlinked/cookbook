@@ -19,7 +19,7 @@ wrongly, you've pinned the activity on the wrong actor.
 
 | Step | SIE call | Model | Why |
 |---|---|---|---|
-| Indicators | Python | | CVE IDs, MD5/SHA-1/SHA-256 by length, defanged URLs, domains and IPs by regex; live URLs, malformed hashes and CVE IDs flagged |
+| Indicators | Python | | CVE IDs, MD5/SHA-1/SHA-256 by length, defanged URLs, domains, IPs and email domains by regex; live URLs, malformed hashes, IPs and CVE IDs flagged |
 | Split | Python | | Sentences packed into windows of at most 150 words (NuNER Zero reads 384 tokens) |
 | Tag | `extract` + `labels` | `numind/NuNER_Zero` | `threat actor`, `malware` and `tool` spans, zero-shot |
 | Check spans | Python | | Each span must equal the text at its offsets; spans on an indicator, or that are not names ("MD5", "threat group"), are dropped |
@@ -29,17 +29,18 @@ wrongly, you've pinned the activity on the wrong actor.
 
 **Why NuNER Zero and not gliner2-large-v1.** The job is plain span tagging with three labels.
 There's no structure to fill, so `output_schema` adds nothing. When NuNER Zero finds nothing, it
-returns `entities: []`. When gliner2-large-v1 finds nothing, SIE Cloud answers its `extract`
-call with `output_schema` with an HTTP 500, and that fails the whole batch. NuNER Zero's labels
-are plain words in `rules.yaml`. The alias table already knows the familiar names, so what you
-really need the model for is the names the table doesn't know yet (e.g. "Velvet Ostrich", "Chisel").
-Those are exactly the ones an analyst has to see.
+returns `entities: []`. When a GLiNER2 model finds no spans, SIE Cloud answers with an HTTP 500
+instead of an empty list, with or without `output_schema`, and that fails the whole batch. That's
+our inference from how SIE behaves: `security/phishing_triage` hits the same 500 on a plain
+`labels` call. NuNER Zero's labels are plain words in `rules.yaml`. The alias table already
+knows the familiar names, so what you really need the model for is the names the table doesn't
+know yet (e.g. "Velvet Ostrich", "Chisel"). Those are exactly the ones an analyst has to see.
 
 **Output.** `tags.json` holds every report with its canonical actors, malware and tools, its
 ATT&CK techniques, every mention (offsets, score, and whether it came from the `model` or the
 `table`), its indicators and its status, `tagged` or `review`. `entities.csv` has one row per
 mention, and `iocs.csv` has one row per indicator, always defanged (every `http` becomes
-`hxxp` and every dot becomes `[.]`, the port stays):
+`hxxp`, even one percent-encoded inside a query, and every dot becomes `[.]`, the port stays):
 
 ```
 report_id,kind,mention,start,end,source,score,canonical,techniques,status,reason
@@ -49,6 +50,11 @@ R-03,actor,Grey Lantern,63,75,model,1.0,,,review,ambiguous alias: 'Grey Lantern'
 report_id,type,value,live_in_source,note
 R-06,url,hxxp://192[.]0[.]2[.]44/q[.]ps1,True,written live in the report
 ```
+
+A URL counts as live when its scheme and host are written the way a browser opens them, so
+`https://evil.example/login[.]php` is live even though its path is defanged. A defanged email
+gives its whole domain: `user@evil[.]example[.]com` is `evil[.]example[.]com`, not
+`example[.]com`.
 
 When a name is in the alias table, the table decides whether it's an actor, malware or a tool,
 whatever label the model gave it. In R-02 above, the model called `LX-0417` malware, and the
@@ -118,8 +124,8 @@ Everything below lives in `rules.yaml` unless it says otherwise.
   [attack.mitre.org](https://attack.mitre.org/).
 - `policy` turns each review reason on or off. A name reason that's off (unknown actor or
   malware, ambiguous alias, unmapped tool) is recorded as `new` and doesn't send the report to
-  review. An indicator reason that's off (live URL, malformed indicator) is dropped; the
-  indicator row still keeps its note.
+  review. An indicator reason that's off (live URL, malformed hash, IP or CVE ID) is dropped;
+  the indicator row still keeps its note.
 - `labels`, `generic_words` and `ignore_mentions` control what the model looks for and which of
   its spans get thrown away as not being names. You can change the label words the model sees,
   but not the keys: the code reads `actor`, `malware` and `tool`, and any other set of keys
@@ -136,7 +142,7 @@ nothing else, and ran the recipe on SIE Cloud on 31 Oct 2026.
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `entities` | `numind/NuNER_Zero-span` | 3 tagged, 5 to review (default: 4 and 4). R-01, R-02, R-04, R-06 and R-08 came out the same. On R-03 it tagged "PowerShell scripts" as a tool, so T1059.001 was lost and a second review reason added. On R-05 it tagged "RDP" instead of "Corvane VPN". The R-07 near miss went to review over a tool "SvcHealth". |
-| `entities` | `urchade/gliner_multi-v2.1` | 2 tagged, 6 to review. Same R-03 "PowerShell scripts" problem. On R-05 it did not tag "Corvane VPN", so only Chisel went to review. It tagged "Defenders" (R-07) and "The IT team" (R-08) as actors, so both clean reports went to review. The 0.50 `min_entity_score` was set for NuNER Zero, and these spans passed it. |
+| `entities` | `urchade/gliner_multi-v2.1` | 2 tagged, 6 to review. Same R-03 "PowerShell scripts" problem. On R-05 it did not tag "Corvane VPN", so only Chisel went to review. It tagged "Defenders" (R-07) and "The IT team" (R-08) as actors, so both clean reports went to review. The 0.50 `min_entity_score` was chosen with NuNER Zero in mind, and these spans passed it. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
@@ -163,8 +169,9 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 - Reports, actor and malware names, victims, products and CVE IDs: synthetic, written for this
   recipe. Another recipe ([`security/threat_relations`](../../security/threat_relations))
   uses its own fictional names.
-- `data/attack_techniques.csv`: technique IDs, names and tactics from
-  [MITRE ATT&CK Enterprise](https://attack.mitre.org/). © The MITRE Corporation. This work is
+- `data/attack_techniques.csv`: nine technique IDs, names and tactics copied from the
+  [MITRE ATT&CK Enterprise](https://attack.mitre.org/) matrix. We didn't record which ATT&CK
+  version they came from, so check them against the current release. © The MITRE Corporation. This work is
   reproduced and distributed with the permission of The MITRE Corporation, under the
   [ATT&CK terms of use](https://attack.mitre.org/resources/legal-and-branding/terms-of-use/),
   which allow reuse with this attribution.
