@@ -9,7 +9,8 @@ models:
 
 guard:
   max_completion_tokens: 64            # the verdict is about ten tokens
-  # What each guard verdict means for the prompt. A missing or unreadable verdict is "review".
+  # What each guard verdict means for the prompt. A missing or unreadable verdict always goes to
+  # "review" (set in recipe.py, not here).
   verdicts:
     Safe: allow
     Controversial: review
@@ -24,7 +25,8 @@ secrets:
   action: block
   patterns:
     aws_access_key_id: '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
-    private_key: '-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----'
+    # The whole block, so the key body is masked too; an unterminated block runs to the end.
+    private_key: '-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----[\s\S]*?(?:-----END (?:[A-Z]+ )*PRIVATE KEY-----|\Z)'
     github_token: '\bgh[pousr]_[A-Za-z0-9]{36}\b'
     slack_token: '\bxox[abprs]-[A-Za-z0-9-]{10,}'
     jwt: '\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
@@ -39,8 +41,8 @@ secrets:
 injection:
   # Prompt-injection markers. A guard model is not a usable injection screen (see README), so
   # these are rules. A marker sends the prompt to review; the guard can still raise it to block.
-  # Matched case-insensitively after NFKC normalisation, removing zero-width characters and
-  # collapsing whitespace.
+  # Matched after NFKC normalisation, removing zero-width characters, collapsing whitespace and
+  # casefolding the text, so write every marker in lowercase.
   action: review
   markers:
     override_instructions: '\b(?:ignore|disregard|forget|override)\b.{0,40}\b(?:previous|prior|above|earlier|all|your|system)\b.{0,20}\b(?:instructions?|rules|prompts?|guidelines)\b'
@@ -49,6 +51,6 @@ injection:
     addressed_to_ai: '\b(?:ai|llm) (?:assistant|model|agent)\s*[:,]'
     hidden_comment: '<!--[\s\S]*?-->'
     conceal: '\bdo not (?:mention|reveal|tell)\b.{0,30}\b(?:this|these)\b'
-  # Invisible or direction-changing characters are a marker on their own (checked before they are
-  # removed for matching).
-  invisible_characters: '[​-‏‪-‮⁠-⁤﻿]'
+  # Invisible characters are a marker on their own (checked before they are removed for
+  # matching): zero-width and direction marks, word joiners, the BOM and Unicode tag characters.
+  invisible_characters: '[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\U000E0000-\U000E007F]'

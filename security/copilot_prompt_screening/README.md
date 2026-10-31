@@ -33,7 +33,7 @@ model in it (this one included) was a useful injection screen. The guard still s
 rules marked, and it can raise them from review to block.
 
 **Output.** `decisions.json`, `decisions.csv` and `decisions.md`, one entry per prompt. Secrets
-are masked in all three, and a prompt with a secret is never sent to SIE:
+are masked in all three, and a prompt with a secret is never sent to SIE. One entry, trimmed:
 
 ```json
 {"prompt": "P-06", "user": "analyst.okafor", "decision": "review",
@@ -83,9 +83,10 @@ Controversial there, but it is the markers that point the reviewer at the hidden
 
 - Add your own token formats (e.g. internal API key prefixes) to `secrets.patterns`, and known
   placeholders to `secrets.allowlist`, in `rules.yaml`. `secrets.action` is `block`; set it to
-  `review` if you would rather mask the secret and let the prompt through.
-- `injection.markers` are regexes over the normalised text. Expect false positives on prompts
-  that *discuss* injection, which is why their action is review and not block.
+  `review` to send the masked prompt to a reviewer instead. The guard is still not called.
+- `injection.markers` are regexes over the normalised, lowercased text, so write them in
+  lowercase. Expect false positives on prompts that *discuss* injection, which is why their
+  action is review and not block.
 - `guard.verdicts` maps Safe / Controversial / Unsafe to an action. A stricter team maps
   Controversial to block. All of these are starting points.
 - In your copilot, call `screen()` before the model sees a prompt. A real deployment also

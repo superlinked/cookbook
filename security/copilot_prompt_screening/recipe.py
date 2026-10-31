@@ -8,19 +8,23 @@ Problem:   Analysts paste logs, configs and reported emails into the copilot. So
            ("explain this CVE", "write a detection rule") that a blunt keyword filter would block.
 Input:     data/prompts.jsonl (9 prompts sent to the copilot, one JSON object per line).
 SIE pipeline:
-           (Python)                          secrets regex: a credential blocks the prompt before
-                                             any model call, so it is never sent anywhere
-           (Python)                          prompt-injection markers: send the prompt to review
-           generate Qwen/Qwen3Guard-Gen-4B   safety verdict (Safe / Controversial / Unsafe) and
-                                             categories (chat completion, prompt as user message)
-           (Python)                          most severe of the checks decides: block > review >
-                                             allow; an unreadable verdict goes to review
+           (Python)                                 secrets regex: a credential blocks the
+                                                    prompt before any model call, so it is
+                                                    never sent anywhere
+           (Python)                                 prompt-injection markers: send the prompt to
+                                                    review
+           chat_completions Qwen/Qwen3Guard-Gen-4B  safety verdict (Safe / Controversial /
+                                                    Unsafe) and categories, with the prompt as
+                                                    the only user message
+           (Python)                                 most severe of the checks decides: block >
+                                                    review > allow; an unreadable verdict goes
+                                                    to review
 Output:    decisions.json, decisions.csv and decisions.md: per prompt the decision, every rule
            that fired, the guard's verdict and categories, and the reason. Secrets are masked in
            every output.
 Why SIE:   The guard model is one SIE Cloud chat call per prompt. The rules are plain Python and
            data in rules.yaml, so the team can read them and change them.
-Runs on:   SIE Cloud.
+Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL set.
 
     uv run recipe.py
 """
@@ -46,7 +50,7 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 PROMPTS_PATH = DATA_DIR / "prompts.jsonl"
 RULES_PATH = ROOT / "rules.yaml"
-RUNS_DIR = Path("runs")
+RUNS_DIR = ROOT / "runs"
 # Cold models can take minutes to start; every call waits up to this long.
 WAIT_S = 900
 
@@ -85,7 +89,10 @@ def load_prompts(path: Path = PROMPTS_PATH) -> list[Prompt]:
 
 
 def mask(value: str) -> str:
-    """Keep only enough of a secret to find it again: the first 4 and last 2 characters."""
+    """Keep only enough of a secret to find it again: the first 4 and last 2 characters.
+
+    A value of 8 characters or fewer is masked in full.
+    """
     if len(value) <= 8:
         return "*" * len(value)
     return f"{value[:4]}{'*' * (len(value) - 6)}{value[-2:]}"
@@ -168,8 +175,13 @@ def guard(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> str:
     )
     try:
         return str(response["choices"][0]["message"]["content"] or "")
-    except (KeyError, IndexError, TypeError):
-        return ""
+    except (KeyError, IndexError, TypeError) as error:
+        # A response without the chat shape is an SIE or SDK problem, not a model answer: stop
+        # rather than send every prompt to review as if the guard had been unsure.
+        raise RuntimeError(
+            f"{rules['models']['guard']} returned no chat message for {prompt.prompt_id}: "
+            f"{response!r}"
+        ) from error
 
 
 def parse_guard(answer: str) -> tuple[str | None, list[str]]:
@@ -233,7 +245,9 @@ def decide(
 
 def screen(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> dict[str, Any]:
     secrets = find_secrets(prompt.text, rules)
-    findings = [finding for finding, _ in secrets] + find_injection(prompt.text, rules)
+    text = masked_text(prompt.text, secrets)
+    # Injection evidence quotes the prompt, so it is taken from the masked text.
+    findings = [finding for finding, _ in secrets] + find_injection(text, rules)
     answer = ""
     verdict: str | None = None
     categories: list[str] = []
@@ -245,7 +259,7 @@ def screen(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> dict[str
     return {
         "prompt": prompt.prompt_id,
         "user": prompt.user,
-        "text": masked_text(prompt.text, secrets),
+        "text": text,
         "decision": decision,
         "reason": reason,
         "findings": [{"rule": f.rule, "kind": f.kind, "evidence": f.evidence} for f in findings],
