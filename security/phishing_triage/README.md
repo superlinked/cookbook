@@ -7,17 +7,17 @@ by hand, defangs them and checks them against the blocklist. Meanwhile the real 
 the same queue.
 
 **Input.** Five reported emails as `.eml` files in [`data/`](./data). The blocklist, your own
-mail domains and the triage rules live in [`rules.yaml`](./rules.yaml). The data limit is five
-files, so we kept five emails and put the blocklist in `rules.yaml`. In production you'd pull
-it from your mail gateway or threat-intel export instead.
+mail domains and the triage rules live in [`rules.yaml`](./rules.yaml). We kept `data/` to the
+five emails, so the blocklist sits in `rules.yaml` too. In production you'd pull it from your
+mail gateway or threat-intel export instead.
 
 **Pipeline.**
 
 | Step | SIE call | Model | Why |
 |---|---|---|---|
 | Parse the `.eml` | Python (`email`, `html.parser`) | | Headers, link targets, the text the recipient sees, and hidden HTML text kept apart |
-| Pull IOCs | Python (regex, `ipaddress`, `urllib`) | | URLs, domains, IPs and sender addresses. Deterministic, before any model runs |
-| Check headers | Python | | Look-alike domain, display name claiming to be us, Reply-To mismatch, IP URL, hidden HTML text, text aimed at an AI reviewer |
+| Pull IOCs | Python (regex, `ipaddress`, `urllib`) | | URLs (and URLs nested in a URL's query), domains, IPs and sender addresses. Deterministic, before any model runs |
+| Check headers and body | Python | | Look-alike domain, display name claiming to be us, Reply-To mismatch, IP URL, URL with `@` or `\` in its host part, hidden HTML text, text aimed at an AI reviewer |
 | Phishing, spam or benign | `extract` + `output_schema` (one choice question) | `fastino/GLiNER2.5-Decide` | One probability per verdict, from the `rules.yaml` descriptions |
 | Payment request, urgency, sender | `extract` + `labels` | `fastino/gliner2-large-v1` | Short spans the regex can't find. URL and domain spans only add what the regex missed |
 | Decide and route | Python | | Blocklist check, defanging (`hxxp`, `[.]`), team policy. Low score, small margin or doubtful signals go to an analyst |
@@ -25,17 +25,24 @@ it from your mail gateway or threat-intel export instead.
 Both models read 512 tokens. The recipe splits each email's visible text into 150-word
 windows, puts the header into every window, and merges the windows back per email in Python.
 Hidden HTML text never reaches the models. Python searches it for IOCs and instructions and
-raises it as the `hidden_text` signal.
+raises it as the `hidden_text` signal, which sends a `benign` or `spam` verdict to an analyst.
 
 **Output.** Three CSVs:
 
 - `verdicts.csv`: one row per email, with `verdict` (`phishing`, `spam` or `benign`),
   `route` (`auto` or `analyst`), every analyst reason, and the signals, blocklist hits,
-  payment request and urgency spans behind them.
-- `iocs.csv`: every IOC per email, defanged, with its source (`header`, `body`, `html link`
-  or `model`) and whether it is on the blocklist.
+  payment request and urgency spans behind them. `notes` says when SIE answered a window with
+  its empty-result error and the recipe read that as "no entity spans"; the run also prints
+  how many windows that happened to.
+- `iocs.csv`: every IOC per email, defanged (every scheme becomes `hxxp`, every dot `[.]`),
+  with its source (`header`, `body`, `html link` or `model`), whether it is on the blocklist,
+  and whether it is ours (an internal domain, or an IP in `internal_networks` such as our own
+  mail relay).
 - `blocklist_candidates.csv`: external IOCs of phishing verdicts that are not blocked yet.
   `propose` when the verdict was automatic, `pending_analyst` when an analyst confirms first.
+
+A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so
+a spreadsheet shows a sender like `=cmd@...` instead of running it.
 
 ```
 email,...,verdict,route,analyst_reasons,...
@@ -55,8 +62,8 @@ answered `phishing` (0.91). The model can't follow the instruction, but the inst
 still talk it into the label. That's why the models read only what the recipient sees, and the
 hidden text becomes a signal of its own. On top of that, a regex looks for text aimed at an AI
 reviewer, and a match forces `phishing` and sends the email to an analyst. Both models are
-small encoders, one SIE Cloud call per batch, and you host nothing. If you're working with
-long threat reports rather than emails, see the
+small encoders, one SIE Cloud call per model per batch, and you host nothing. If you're
+working with long threat reports rather than emails, see the
 [threat-report ATT&CK mapper](https://github.com/superlinked/sie/tree/main/examples/threat-report-attck-mapper).
 
 ## Run it
@@ -98,9 +105,11 @@ measure of accuracy.
 
 ## What to change
 
-- Put your own `blocklist`, `internal_domains` and `shared_mail_domains` (webmail providers
-  whose domain is never proposed, only the address) in `rules.yaml`. If you'd rather not keep
-  a copy, load them from your gateway in `on_blocklist` and `is_internal`.
+- Put your own `blocklist`, `internal_domains`, `internal_networks` (your relays' IPs, so
+  they never become blocklist candidates) and `shared_mail_domains` (webmail providers whose
+  domain is never proposed, only the address) in `rules.yaml`. If you'd rather not keep a
+  copy, load them from your gateway where the recipe reads them: `on_blocklist`,
+  `is_internal` and `blocklist_candidates`.
 - `question` and `verdicts` in `rules.yaml` set what Decide chooses between. They share its
   512-token window with the email, so keep each description to one line.
 - `policy` sets what a blocklist hit or a hidden instruction does to the verdict, and which

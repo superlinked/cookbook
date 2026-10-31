@@ -2,9 +2,9 @@
 
 Every person, company and address below is fictional. The company is "Larkfield Analytics"
 (larkfield.example.com). Every domain is under the reserved example.com / example.net /
-example.org names or the reserved .test / .invalid TLDs (RFC 2606), and every IP address is
-in a documentation range (RFC 5737: 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). Nothing
-here resolves to a real site. There are no attachments.
+example.org names (RFC 2606), and every IP address is in a documentation range (RFC 5737:
+192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). Nothing here resolves to a real site. There
+are no attachments.
 
 Each file is one email as the "report phishing" button forwards it to the SOC mailbox:
 
@@ -27,7 +27,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 REPORTER = "Priya Nandakumar <priya.nandakumar@larkfield.example.com>"
-SOC = "SOC Phishing Reports <report-phishing@larkfield.example.com>"
 
 
 @dataclass(frozen=True)
