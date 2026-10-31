@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: uv
+    directories: ["/*/*"]
+    schedule:
+      interval: monthly
+    groups:
+      recipes:
+        patterns: ["*"]
+    ignore:
+      # make_data.py scripts rebuild PDFs and images byte for byte only on Pillow 12.
+      - dependency-name: pillow
+        versions: [">=13"]

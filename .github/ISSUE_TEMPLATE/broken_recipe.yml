@@ -1,0 +1,34 @@
+name: A recipe is broken
+description: A recipe fails, or its output no longer matches its README.
+labels: ["bug"]
+body:
+  - type: input
+    id: recipe
+    attributes:
+      label: Recipe folder
+      placeholder: security/copilot_prompt_screening
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Where did it run?
+      options:
+        - SIE Cloud
+        - My own SIE (docker run)
+        - My own SIE (Helm cluster)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command, what you expected, and what you got. Paste the error or the output that differs from the README. Leave out your API key.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: Output of `git rev-parse --short HEAD`.

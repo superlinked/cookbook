@@ -1,0 +1,34 @@
+name: Recipe request
+description: Ask for a recipe for a job your team does, or propose one you want to write.
+labels: ["recipe request"]
+body:
+  - type: input
+    id: industry
+    attributes:
+      label: Industry
+      placeholder: insurance
+    validations:
+      required: true
+  - type: textarea
+    id: job
+    attributes:
+      label: The job
+      description: Who does it, how often, what goes in and what should come out.
+    validations:
+      required: true
+  - type: textarea
+    id: models
+    attributes:
+      label: Models you have in mind
+      description: Optional. Open models from the SIE catalog (https://github.com/superlinked/sie/tree/main/packages/sie_server/models) or ones you want SIE to add.
+  - type: textarea
+    id: data
+    attributes:
+      label: Data
+      description: A public dataset with a license that allows redistribution, or how synthetic data could stand in for the real thing.
+  - type: checkboxes
+    id: write
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to write this recipe myself.

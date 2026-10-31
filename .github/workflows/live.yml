@@ -1,0 +1,79 @@
+name: Live
+
+# Runs recipes against SIE Cloud. Manual only: it spends credits and needs the SIE_API_KEY secret.
+on:
+  workflow_dispatch:
+    inputs:
+      recipes:
+        description: Recipe folders, space separated (e.g. "security/copilot_prompt_screening"), or "all"
+        required: true
+        default: security/copilot_prompt_screening
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    name: Live / Select
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      recipes: ${{ steps.select.outputs.recipes }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+      - id: select
+        env:
+          REQUESTED: ${{ inputs.recipes }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, subprocess
+          known = json.loads(subprocess.check_output(["python3", "tools/check_tree.py", "--list-json"]))
+          requested = os.environ["REQUESTED"].split()
+          chosen = known if requested == ["all"] else requested
+          unknown = sorted(set(chosen) - set(known))
+          if unknown:
+              raise SystemExit(f"unknown recipes: {unknown}")
+          print(f"recipes={json.dumps(chosen)}")
+          PY
+
+  run:
+    name: Live / ${{ matrix.recipe }}
+    needs: select
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        recipe: ${{ fromJSON(needs.select.outputs.recipes) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.recipe }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.recipe }}/uv.lock
+      - run: uv run --frozen recipe.py --output runs/live
+        env:
+          SIE_API_KEY: ${{ secrets.SIE_API_KEY }}
+      - id: name
+        env:
+          RECIPE: ${{ matrix.recipe }}
+        run: echo "artifact=${RECIPE//\//-}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: live-${{ steps.name.outputs.artifact }}
+          path: ${{ matrix.recipe }}/runs/live/
+          retention-days: 14
+          if-no-files-found: warn
