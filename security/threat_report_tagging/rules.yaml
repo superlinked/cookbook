@@ -8,7 +8,9 @@ models:
   entities: numind/NuNER_Zero   # tags threat actor, malware and tool spans
 
 # Entity labels sent to NuNER Zero, as {our kind: model label}. The model card asks for
-# lower-case labels. CVEs, hashes and network IOCs are found by regex, not by the model.
+# lower-case labels. Change the label words on the right freely, but the keys are fixed: the
+# code reads actor, malware and tool, and the recipe stops at start if the keys differ.
+# CVEs, hashes and network IOCs are found by regex, not by the model.
 labels:
   actor: threat actor
   malware: malware
@@ -18,7 +20,9 @@ labels:
 # vendors and feeds use for it. Matching ignores case, a leading "the" and trailing words from
 # `generic_words`, so "Mothvine Loader" and "the Mothvine loader" both read as Mothvine.
 # If one alias sits under two canonical names, that's a real-world collision, and a
-# mention of it goes to review instead of being merged with either.
+# mention of it goes to review instead of being merged with either. A canonical name itself
+# goes under one section only (actors, malware or tool_techniques); the recipe refuses to start
+# if it finds one in two.
 actors:
   Ashen Heron: [LX-0417, Grey Lantern]
   Copper Moth: [LX-0522, Grey Lantern]

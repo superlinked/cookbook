@@ -23,23 +23,23 @@ wrongly, you've pinned the activity on the wrong actor.
 | Split | Python | | Sentences packed into windows of at most 150 words (NuNER Zero reads 384 tokens) |
 | Tag | `extract` + `labels` | `numind/NuNER_Zero` | `threat actor`, `malware` and `tool` spans, zero-shot |
 | Check spans | Python | | Each span must equal the text at its offsets; spans on an indicator, or that are not names ("MD5", "threat group"), are dropped |
-| Fill misses | Python | | Alias-table names and mapped tools written in the text, matched exactly |
+| Fill misses | Python | | Alias-table names and mapped tools written in the text, matched exactly; a match inside an indicator is dropped |
 | Normalise | Python | | Every mention through the alias table to one canonical name; tools to ATT&CK technique IDs |
-| Escalate | Python | | Unknown actor or malware, an alias listed under two names, a tool with no mapping, a live URL or a malformed indicator: the report goes to review with the reason |
+| Escalate | Python | | Unknown actor or malware, an alias listed under two names, a tool with no mapping, a live URL, a malformed indicator, an invalid model span or a window the model failed to tag: the report goes to review with the reason |
 
 **Why NuNER Zero and not gliner2-large-v1.** The job is plain span tagging with three labels.
 There's no structure to fill, so `output_schema` adds nothing. When NuNER Zero finds nothing, it
-returns `entities: []`. gliner2-large-v1 with `output_schema` answers the same empty result
-with an HTTP 500, and that fails the whole batch (see
-[`healthcare/referral_intake`](../../healthcare/referral_intake)). NuNER Zero's labels are plain
-words in `rules.yaml`. The alias table already knows the familiar names, so what you really
-need the model for is the names the table doesn't know yet (e.g. "Velvet Ostrich", "Chisel").
+returns `entities: []`. When gliner2-large-v1 finds nothing, SIE Cloud answers its `extract`
+call with `output_schema` with an HTTP 500, and that fails the whole batch. NuNER Zero's labels
+are plain words in `rules.yaml`. The alias table already knows the familiar names, so what you
+really need the model for is the names the table doesn't know yet (e.g. "Velvet Ostrich", "Chisel").
 Those are exactly the ones an analyst has to see.
 
 **Output.** `tags.json` holds every report with its canonical actors, malware and tools, its
 ATT&CK techniques, every mention (offsets, score, and whether it came from the `model` or the
 `table`), its indicators and its status, `tagged` or `review`. `entities.csv` has one row per
-mention, and `iocs.csv` has one row per indicator, always defanged:
+mention, and `iocs.csv` has one row per indicator, always defanged (every `http` becomes
+`hxxp` and every dot becomes `[.]`, the port stays):
 
 ```
 report_id,kind,mention,start,end,source,score,canonical,techniques,status,reason
@@ -47,7 +47,7 @@ R-02,actor,LX-0417,0,7,model,0.96875,Ashen Heron,,tagged,model said malware; the
 R-03,actor,Grey Lantern,63,75,model,1.0,,,review,ambiguous alias: 'Grey Lantern' is listed under Ashen Heron and Copper Moth
 
 report_id,type,value,live_in_source,note
-R-06,url,hxxp://192[.]0[.]2[.]44/q.ps1,True,written live in the report
+R-06,url,hxxp://192[.]0[.]2[.]44/q[.]ps1,True,written live in the report
 ```
 
 When a name is in the alias table, the table decides whether it's an actor, malware or a tool,
@@ -109,7 +109,9 @@ Everything below lives in `rules.yaml` unless it says otherwise.
 
 - The alias table is `actors` and `malware`: one canonical name each, with the aliases other
   vendors use. If two groups share an alias, list it under both names, and every mention of it
-  goes to review. In production, export this table from your threat-intel platform.
+  goes to review. A canonical name can sit under only one of `actors`, `malware` and
+  `tool_techniques`; list it under two and the recipe refuses to start. In production, export
+  this table from your threat-intel platform.
 - The tool mapping is `tool_techniques`. Every technique ID must be in
   `data/attack_techniques.csv`, or the recipe refuses to start. If you need more techniques,
   swap the CSV for the full ATT&CK Enterprise catalog from
@@ -119,7 +121,9 @@ Everything below lives in `rules.yaml` unless it says otherwise.
   review. An indicator reason that's off (live URL, malformed indicator) is dropped; the
   indicator row still keeps its note.
 - `labels`, `generic_words` and `ignore_mentions` control what the model looks for and which of
-  its spans get thrown away as not being names.
+  its spans get thrown away as not being names. You can change the label words the model sees,
+  but not the keys: the code reads `actor`, `malware` and `tool`, and any other set of keys
+  stops the recipe at start.
 - `min_entity_score`, `max_words_per_window`, `min_hex_run` and `batch_size` are starting
   points. Check them on your own reports.
 - `models` holds the model ID.

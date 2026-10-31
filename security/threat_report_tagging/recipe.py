@@ -58,7 +58,7 @@ RUNS_DIR = ROOT / "runs"
 WAIT_S = 900
 
 ACTOR, MALWARE, TOOL = "actor", "malware", "tool"
-TAGGED, REVIEW = "tagged", "review"
+TAGGED, REVIEW, NEW = "tagged", "review", "new"
 ENTITY_FIELDS = (
     "report_id",
     "kind",
@@ -74,6 +74,8 @@ ENTITY_FIELDS = (
 )
 IOC_FIELDS = ("report_id", "type", "value", "live_in_source", "note")
 HASH_TYPES = {32: "md5", 40: "sha1", 64: "sha256"}
+# A CSV cell starting with one of these opens as a formula in a spreadsheet.
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
 # --- Inputs -----------------------------------------------------------------------------------
@@ -117,7 +119,14 @@ def jsonable(value: Any) -> Any:
 
 
 def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
-    return cast(dict[str, Any], yaml.safe_load(path.read_text(encoding="utf-8")))
+    """Read rules.yaml. The `labels` keys are fixed: the code reads actor, malware and tool."""
+    rules = cast(dict[str, Any], yaml.safe_load(path.read_text(encoding="utf-8")))
+    keys = sorted(rules.get("labels") or {})
+    if keys != sorted((ACTOR, MALWARE, TOOL)):
+        raise ValueError(
+            f"labels in {path.name} must have exactly the keys actor, malware and tool, got {keys}"
+        )
+    return rules
 
 
 def load_reports(path: Path = REPORTS_PATH) -> list[Report]:
@@ -145,7 +154,7 @@ TRAILING = ".,;:)]'\""
 
 @dataclass
 class Indicator:
-    type: str  # cve | md5 | sha1 | sha256 | url | domain | ip
+    type: str  # cve | md5 | sha1 | sha256 | hash (malformed) | url | domain | ip
     value: str  # CVE upper-case, hash lower-case, network IOCs defanged
     start: int
     end: int
@@ -158,12 +167,13 @@ def refang(value: str) -> str:
     return value.replace("[.]", ".").replace("(.)", ".").replace("[:]", ":")
 
 
-def defang(kind: str, value: str) -> str:
-    """Write hxxp:// and [.] so the indicator can go into a ticket without becoming a link."""
-    if kind == "url":
-        scheme, _, rest = value.partition("://")
-        host, slash, path = rest.partition("/")
-        return f"{re.sub(r'^http', 'hxxp', scheme)}://{host.replace('.', '[.]')}{slash}{path}"
+def defang(value: str) -> str:
+    """Write hxxp and [.] so the indicator can go into a ticket without becoming a link.
+
+    Every http or https scheme becomes hxxp or hxxps, including one inside a query string, and
+    every dot in host, path and query becomes [.]. A port stays as it is.
+    """
+    value = re.sub(r"\bhttp(s?)(?=:)", r"hxxp\1", value, flags=re.IGNORECASE)
     return value.replace(".", "[.]")
 
 
@@ -174,7 +184,8 @@ def _is_defanged(raw: str) -> bool:
 def find_indicators(text: str, rules: dict[str, Any]) -> tuple[list[Indicator], list[str]]:
     """Find every indicator by regex, with a review reason for each live or malformed one.
 
-    URLs come first and mask their span, so a domain inside a URL is not counted twice.
+    URLs come first and mask their span, so a CVE, hash or domain inside a URL is not counted
+    twice.
     Bare domains and IPs count only when defanged: "build 4.2.0.118" and "cfg.dat" are not
     network indicators. A URL written live is kept (defanged in the output) and flagged.
     """
@@ -192,12 +203,14 @@ def find_indicators(text: str, rules: dict[str, Any]) -> tuple[list[Indicator], 
     for m in URL_RE.finditer(text):
         raw = m.group().rstrip(TRAILING)
         live = not _is_defanged(raw)
-        indicator = Indicator("url", defang("url", refang(raw)), m.start(), m.start() + len(raw))
+        indicator = Indicator("url", defang(refang(raw)), m.start(), m.start() + len(raw))
         if live:
             indicator.live_in_source, indicator.note = True, "written live in the report"
             reasons.append(f"live URL in the report: {indicator.value}")
         add(indicator)
     for m in CVE_RE.finditer(text):
+        if not free(m.start(), m.end()):
+            continue
         cve = m.group().upper()
         if len(m.group(2)) < 4:
             reasons.append(f"malformed CVE ID {cve}: the sequence number needs 4 or more digits")
@@ -222,13 +235,13 @@ def find_indicators(text: str, rules: dict[str, Any]) -> tuple[list[Indicator], 
             ip = str(ipaddress.ip_address(refang(raw)))
         except ValueError:
             continue
-        add(Indicator("ip", defang("ip", ip), m.start(), m.end()))
+        add(Indicator("ip", defang(ip), m.start(), m.end()))
     for m in DOMAIN_RE.finditer(text):
         raw = m.group().rstrip(TRAILING)
         if not free(m.start(), m.start() + len(raw)) or not _is_defanged(raw):
             continue
         domain = refang(raw).lower()
-        add(Indicator("domain", defang("domain", domain), m.start(), m.start() + len(raw)))
+        add(Indicator("domain", defang(domain), m.start(), m.start() + len(raw)))
     return sorted(found, key=lambda i: i.start), reasons
 
 
@@ -275,7 +288,8 @@ def tag_windows(
 ) -> dict[str, dict[str, Any]]:
     """Send the windows to NuNER Zero in batches; return its result per window id.
 
-    A window with nothing in it comes back as ``entities: []``, not an error.
+    A window with nothing in it comes back as ``entities: []``, not an error. A reply with no
+    ``entities`` list at all is treated as an error for that window (see ``tag_reports``).
     """
     model, labels = rules["models"]["entities"], list(rules["labels"].values())
     options = {"threshold": rules["thresholds"]["min_entity_score"]}
@@ -314,7 +328,7 @@ def model_entities(
     generic = {w.casefold() for w in rules["generic_words"]}
     entities: list[Entity] = []
     notes: list[str] = []
-    for raw in result.get("entities") or []:
+    for raw in result["entities"]:
         start, end, text = raw.get("start"), raw.get("end"), str(raw.get("text", ""))
         kind = kinds.get(str(raw.get("label", "")))
         if kind is None or start is None or end is None or window[start:end] != text:
@@ -362,8 +376,14 @@ class AliasTable:
         generic = frozenset(w.casefold() for w in rules["generic_words"])
         by_key: dict[str, list[Canonical]] = {}
         surfaces: dict[str, str] = {}
+        kind_of: dict[str, str] = {}  # canonical name -> the one kind it is listed under
 
         def add(surface: str, entry: Canonical) -> None:
+            if kind_of.setdefault(entry.name, entry.kind) != entry.kind:
+                raise ValueError(
+                    f"{entry.name} is listed as both {kind_of[entry.name]} and {entry.kind} "
+                    "in rules.yaml; keep it under one"
+                )
             listed = by_key.setdefault(normalize(surface, generic), [])
             if entry not in listed:
                 listed.append(entry)
@@ -386,17 +406,21 @@ class AliasTable:
         return self.by_key.get(normalize(mention, self.generic_words), ())
 
 
-def table_mentions(text: str, table: AliasTable) -> list[Entity]:
+def table_mentions(text: str, table: AliasTable, indicators: list[Indicator]) -> list[Entity]:
     """Every alias-table name or mapped tool written in the text, exact case, whole words.
 
     The model can miss a name it has never seen ("LX-0417") or a short second mention. Names
-    already in the table need no model to find them; longer names win.
+    already in the table need no model to find them; longer names win. A match inside a CVE,
+    hash or IOC is dropped, as for model spans, so "ngrok" in hxxps://a1b2[.]ngrok[.]io is a
+    domain and not the tool.
     """
     found: list[Entity] = []
+    taken = [(i.start, i.end) for i in indicators]
     for surface, kind in table.surfaces:
         for m in re.finditer(r"(?<![\w-])" + re.escape(surface) + r"(?![\w-])", text):
-            if not any(m.start() < e.end and e.start < m.end() for e in found):
+            if not any(m.start() < e and s < m.end() for s, e in taken):
                 found.append(Entity(kind, surface, m.start(), m.end(), None, "table"))
+                taken.append((m.start(), m.end()))
     return found
 
 
@@ -430,7 +454,7 @@ def resolve(report_id: str, entity: Entity, table: AliasTable, rules: dict[str, 
     """Look one mention up in the alias table and tag it, or say why an analyst should look.
 
     One canonical name: tagged, with that name, its kind and its techniques. No name or two
-    names: a reason, and review if `policy` turns that reason on (otherwise "new").
+    names: a reason, and review if `policy` turns that reason on (otherwise new).
     """
     tag = Tag(
         report_id, entity.kind, entity.text, entity.start, entity.end, entity.source, entity.score
@@ -456,7 +480,7 @@ def resolve(report_id: str, entity: Entity, table: AliasTable, rules: dict[str, 
     else:
         tag.reason = f"{entity.kind} {entity.text!r} is not in the alias table"
         flagged = policy[f"unknown_{entity.kind}"]
-    tag.status = REVIEW if flagged else "new"
+    tag.status = REVIEW if flagged else NEW
     return tag
 
 
@@ -507,10 +531,13 @@ def tag_reports(
             if error := result.get("error"):
                 reasons.append(f"window {number} was not tagged: {error}")
                 continue
+            if not isinstance(result.get("entities"), list):
+                reasons.append(f"window {number} was not tagged: the reply has no entities list")
+                continue
             entities, notes = model_entities(window, offset, result, indicators, rules)
             found += entities
             reasons += notes
-        entities = merge_entities(found, table_mentions(report.text, table))
+        entities = merge_entities(found, table_mentions(report.text, table, indicators))
         tags = [resolve(report.id, entity, table, rules) for entity in entities]
         reasons += [f"{tag.mention}: {tag.reason}" for tag in tags if tag.status == REVIEW]
 
@@ -536,6 +563,14 @@ def tag_reports(
     return tagged
 
 
+def csv_safe(row: dict[str, Any]) -> dict[str, Any]:
+    """Quote a cell that a spreadsheet would run as a formula ("=HYPERLINK(...)") with a '."""
+    return {
+        key: f"'{value}" if isinstance(value, str) and value.startswith(FORMULA_START) else value
+        for key, value in row.items()
+    }
+
+
 def write_outputs(output_dir: Path, tagged: list[TaggedReport]) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = [asdict(report) for report in tagged]
@@ -549,20 +584,22 @@ def write_outputs(output_dir: Path, tagged: list[TaggedReport]) -> None:
             for tag in report.tags:
                 row = asdict(tag)
                 row["techniques"] = ";".join(tag.techniques)
-                writer.writerow(row)
+                writer.writerow(csv_safe(row))
     with (output_dir / "iocs.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=IOC_FIELDS)
         writer.writeheader()
         for report in tagged:
             for ind in report.indicators:
                 writer.writerow(
-                    {
-                        "report_id": report.id,
-                        "type": ind.type,
-                        "value": ind.value,
-                        "live_in_source": ind.live_in_source,
-                        "note": ind.note,
-                    }
+                    csv_safe(
+                        {
+                            "report_id": report.id,
+                            "type": ind.type,
+                            "value": ind.value,
+                            "live_in_source": ind.live_in_source,
+                            "note": ind.note,
+                        }
+                    )
                 )
 
 
