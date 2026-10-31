@@ -1,0 +1,54 @@
+# The security team's screening rules and every setting the recipe uses.
+# Patterns and actions are starting points. Check them on your own copilot traffic.
+
+models:
+  # Reads each prompt and answers "Safety: Safe|Unsafe|Controversial" plus "Categories: ...".
+  # The model's chat template wraps the prompt in its moderation policy; we send the prompt as
+  # the only user message.
+  guard: Qwen/Qwen3Guard-Gen-4B
+
+guard:
+  max_completion_tokens: 64            # the verdict is about ten tokens
+  # What each guard verdict means for the prompt. A missing or unreadable verdict is "review".
+  verdicts:
+    Safe: allow
+    Controversial: review
+    Unsafe: block
+
+# The three outcomes, most severe first. The final decision is the most severe one any check gives.
+decisions: [block, review, allow]
+
+secrets:
+  # A prompt that contains a credential is blocked BEFORE any model call: the secret must not
+  # reach the copilot, its logs or the guard. The user is told to remove it and rotate it.
+  action: block
+  patterns:
+    aws_access_key_id: '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
+    private_key: '-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----'
+    github_token: '\bgh[pousr]_[A-Za-z0-9]{36}\b'
+    slack_token: '\bxox[abprs]-[A-Za-z0-9-]{10,}'
+    jwt: '\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
+    # key = value pairs whose key names a secret. Group 1 is the value.
+    secret_assignment: '(?i)\b(?:aws_secret_access_key|secret(?:_key)?|password|passwd|api[_-]?key|access[_-]?token|client[_-]?secret)\s*[:=]\s*["'']?([^\s"'']{8,})'
+  # Published placeholder values (AWS documentation examples). A match on one of these is not a
+  # secret.
+  allowlist:
+    - AKIAIOSFODNN7EXAMPLE
+    - wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+injection:
+  # Prompt-injection markers. A guard model is not a usable injection screen (see README), so
+  # these are rules. A marker sends the prompt to review; the guard can still raise it to block.
+  # Matched case-insensitively after NFKC normalisation, removing zero-width characters and
+  # collapsing whitespace.
+  action: review
+  markers:
+    override_instructions: '\b(?:ignore|disregard|forget|override)\b.{0,40}\b(?:previous|prior|above|earlier|all|your|system)\b.{0,20}\b(?:instructions?|rules|prompts?|guidelines)\b'
+    role_switch: '\byou are now\b|\b(?:developer|god|dan|jailbreak) mode\b|\bact as (?:an? )?(?:unrestricted|unfiltered)\b'
+    reveal_prompt: '\b(?:print|reveal|show|repeat|output)\b.{0,30}\b(?:system prompt|hidden instructions|your instructions|initial prompt)\b'
+    addressed_to_ai: '\b(?:ai|llm) (?:assistant|model|agent)\s*[:,]'
+    hidden_comment: '<!--[\s\S]*?-->'
+    conceal: '\bdo not (?:mention|reveal|tell)\b.{0,30}\b(?:this|these)\b'
+  # Invisible or direction-changing characters are a marker on their own (checked before they are
+  # removed for matching).
+  invisible_characters: '[​-‏‪-‮⁠-⁤﻿]'

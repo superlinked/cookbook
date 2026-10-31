@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: SIE itself (server, SDK, Helm chart)
+    url: https://github.com/superlinked/sie/issues
+    about: Bugs and questions about SIE go to the SIE repository.
+  - name: Security vulnerability
+    url: https://github.com/superlinked/cookbook/security/advisories/new
+    about: Report vulnerabilities privately, not in a public issue.
