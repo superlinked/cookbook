@@ -33,22 +33,34 @@ relations:
 # same family, every one of those edges is flagged as conflicting.
 single_valued: [attributed to]
 
-# Negation: Python regex, case-insensitive, matched on the sentence that holds both names. Each
-# pattern ties the negation to the claim, so a "not" elsewhere in the sentence ("Velvet Gorse,
-# not Saltmarsh Kettle, used Thornpipe", "a CVE Halvard has not patched") doesn't count.
-# {verb} stands for any word in verbs. A matching claim is not an edge: it is kept as a denial,
-# and an edge that any report denies (the same report included) is conflicting. When head and
-# tail are in different sentences, a match sends the claim to review instead.
+# Negation: Python regex, case-insensitive. The scope is the claim's own text in one sentence:
+# up to lookback_words words before the earlier name (not past a , ; or :) through to the later
+# name. A pattern that matches in the scope denies the claim, and {verb} there stands only for
+# this relation's verbs (verbs[relation]) plus every_relation. So "Velvet Gorse used Thornpipe but
+# did not exploit CVE-2099-41877" denies nothing about "uses", and "Velvet Gorse, not Saltmarsh
+# Kettle, used Thornpipe" matches no pattern. A denied claim is not an edge: it is kept as a
+# denial, and an edge that any report denies (the same report included) is conflicting.
+# When unsure, the claim goes to review as neither edge nor denial: a pattern (with any verb)
+# matches from the sentence start to the later name but doesn't deny the claim, or the names sit
+# in different sentences and a pattern matches in the text up to the later name, or the names
+# share several sentences that disagree. A negation after the later name is ignored.
 negation:
+  lookback_words: 4
   patterns:
     - '\bno (?:evidence|indication|sign)s? (?:that|of)\b'
     - '\bno (?:link|connection) (?:between|to)\b'
-    - '\b(?:do|does|did|is|are|was|were|has|have|had|can|ca)(?:\s*not|n[''’]t)(?: been| be)? {verb}'
+    - '\b(?:do|does|did|is|are|was|were|has|have|had|can|ca|wo|could|would|will)(?:\s*not|n[''’]t)(?: been| be)? {verb}'
     - '\bnever (?:been )?{verb}'
     - '\bunrelated to\b'
     - '\bruled out\b'
-  verbs: [use, uses, used, using, deploy, deploys, deployed, target, targets, targeted, exploit,
-          exploits, exploited, attribute, attributed, link, linked, tie, tied, connect, connected]
+  verbs:   # one list per relation in `relations`
+    uses: [use, uses, used, using, deploy, deploys, deployed, deploying]
+    exploits: [exploit, exploits, exploited, exploiting]
+    targets: [target, targets, targeted, targeting]
+    attributed to: [attribute, attributes, attributed, attributing]
+    alias of: []
+  every_relation: [link, links, linked, linking, tie, ties, tied, tying, connect, connects,
+                   connected, connecting]
 
 # Words the model tags as entities that are never graph nodes. Matched like alias names.
 not_entities: [operators, investigators, researchers, attackers, victims, defenders, we, they]
@@ -90,4 +102,4 @@ thresholds:
   relation_threshold: 0.70    # relation score sent to the model; the model card says 0.7-0.9
   min_sources: 2              # distinct publishers an edge needs to be "corroborated"
   batch_size: 16              # paragraphs per SIE call
-  max_words_per_window: 200   # paragraphs longer than this are split on sentences
+  max_words_per_window: 200   # longer paragraphs are split on sentences, long sentences on words

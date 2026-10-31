@@ -17,8 +17,9 @@ SIE pipeline:
                                                      attributed to / alias of relations
            (Python)                                  check spans; merge names by the alias table;
                                                      check relation types (turn round or drop);
-                                                     a sentence that negates the claim is a
-                                                     denial, not an edge; build the graph with
+                                                     a negation between the two names is a
+                                                     denial, not an edge, and one nearby sends
+                                                     the claim to review; build the graph with
                                                      every source; set each edge's status and
                                                      queue conflicting and unknown-entity edges
                                                      for review
@@ -65,6 +66,8 @@ CORROBORATED, SINGLE_SOURCE, CONFLICTING, REVIEW = (
     "review",
 )
 EDGE_FIELDS = ("head", "relation", "tail", "status", "publishers", "reports", "flags")
+# A spreadsheet runs a cell that starts with one of these as a formula.
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 
 # --- Inputs -----------------------------------------------------------------------------------
@@ -121,24 +124,28 @@ def sentences(text: str) -> list[tuple[int, int]]:
 def paragraph_windows(text: str, max_words: int) -> list[tuple[int, str]]:
     """Split a report into (offset, window) pairs: one per paragraph, long ones split on sentences.
 
-    The model only links two names inside the same window, so a claim has to fit in one.
+    The model only links two names inside the same window, so a claim has to fit in one. A
+    single sentence longer than max_words is cut on words.
     """
     windows: list[tuple[int, str]] = []
     for para in re.finditer(r"[^\n]+(?:\n(?!\s*\n)[^\n]+)*", text):
-        start = para.start()
-        if len(para.group().split()) <= max_words:
-            windows.append((start, para.group()))
+        start, body = para.start(), para.group()
+        if len(body.split()) <= max_words:
+            windows.append((start, body))
             continue
-        current: tuple[int, int] | None = None
-        for s, e in sentences(para.group()):
-            if current and len(para.group()[current[0] : e].split()) <= max_words:
-                current = (current[0], e)
+        pieces: list[tuple[int, int]] = []
+        for s, e in sentences(body):
+            words = list(re.finditer(r"\S+", body[s:e]))
+            for i in range(0, len(words), max_words):
+                chunk = words[i : i + max_words]
+                pieces.append((s + chunk[0].start(), s + chunk[-1].end()))
+        packed: list[tuple[int, int]] = []
+        for s, e in pieces:
+            if packed and len(body[packed[-1][0] : e].split()) <= max_words:
+                packed[-1] = (packed[-1][0], e)
             else:
-                if current:
-                    windows.append((start + current[0], para.group()[current[0] : current[1]]))
-                current = (s, e)
-        if current:
-            windows.append((start + current[0], para.group()[current[0] : current[1]]))
+                packed.append((s, e))
+        windows += [(start + s, body[s:e]) for s, e in packed]
     return windows
 
 
@@ -176,11 +183,16 @@ def extract_windows(
 # --- 3. Names: the alias table ----------------------------------------------------------------
 
 
-def name_key(name: str) -> str:
-    """Casefold, drop a leading "the", a possessive and edge punctuation, collapse spaces."""
+def clean_name(name: str) -> str:
+    """Drop a leading "the", a possessive and edge punctuation, and collapse spaces."""
     name = re.sub("['\\u2019]s$", "", name.strip().strip(" .,;:()\"'"))
     name = re.sub(r"^the\s+", "", name, flags=re.IGNORECASE)
-    return " ".join(name.casefold().split())
+    return " ".join(name.split())
+
+
+def name_key(name: str) -> str:
+    """The lookup key for a name: clean_name, casefolded."""
+    return clean_name(name).casefold()
 
 
 CVE = re.compile(r"^CVE-\d{4}-\d{4,}$", re.IGNORECASE)
@@ -196,6 +208,9 @@ class Canon:
 @dataclass(frozen=True)
 class AliasTable:
     by_key: dict[str, Canon]
+    # Names the table doesn't know, by name_key: the first spelling seen is the node's name,
+    # so "Foo", "FOO" and "Foo's" become one node.
+    unknown: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def build(cls, rules: dict[str, Any]) -> AliasTable:
@@ -219,7 +234,8 @@ class AliasTable:
             return Canon(cve.upper(), "vulnerability", True)
         if model_label is None:
             return None
-        return Canon(" ".join(text.strip().strip(" .,;:").split()), model_label, False)
+        name = self.unknown.setdefault(name_key(text), clean_name(text))
+        return Canon(name, model_label, False)
 
 
 # --- 4. Relations in one window ---------------------------------------------------------------
@@ -242,8 +258,8 @@ class Claim:
     relation: str
     tail: Canon
     source: Source
-    negated: bool
-    split: bool = False  # head and tail are in different sentences
+    denied: bool  # a negation is tied to this claim: a denial, not an edge
+    doubt: str = ""  # why a negation nearby makes the claim unsure: neither edge nor denial
     note: str = ""
 
 
@@ -278,28 +294,97 @@ def window_labels(
     return labels, notes
 
 
-def claim_sentence(window: str, head: str, tail: str) -> tuple[str, bool]:
-    """The sentence that states the claim, and whether head and tail are in different sentences.
+Span = tuple[int, int]
 
-    That is the first sentence with both names, else the span between them, else the window.
+
+@dataclass(frozen=True)
+class Place:
+    """One place the claim may sit: the earlier name, the later name, and their sentence(s)."""
+
+    first: Span
+    second: Span
+    sentence: Span  # from the first name's sentence to the second name's
+    split: bool  # the names are in different sentences
+
+
+def claim_places(window: str, head: str, tail: str) -> list[Place]:
+    """Where the claim may sit: the closest pair of names in each sentence holding both.
+
+    The model's relations carry text, not offsets, so a name that occurs twice gives more than
+    one place. With no sentence holding both, it is the closest pair across sentences.
     """
-    spans = sentences(window)
-    with_head = [i for i, (s, e) in enumerate(spans) if head in window[s:e]]
-    with_tail = [i for i, (s, e) in enumerate(spans) if tail in window[s:e]]
-    if both := sorted(set(with_head) & set(with_tail)):
-        s, e = spans[both[0]]
-        return window[s:e], False
-    if not with_head or not with_tail:
-        return window, True
-    first, last = sorted((with_head[0], with_tail[0]))
-    return window[spans[first][0] : spans[last][1]], True
+    spans = sentences(window) or [(0, len(window))]
+
+    def sentence_of(pos: int) -> int:
+        return max([i for i, (s, _) in enumerate(spans) if s <= pos], default=0)
+
+    def found(text: str) -> list[Span]:
+        return [m.span() for m in re.finditer(re.escape(text), window)]
+
+    pairs = [(min(h, t), max(h, t)) for h in found(head) for t in found(tail)]
+    pairs = sorted(
+        [(a, b) for a, b in pairs if a[1] <= b[0]] or pairs, key=lambda p: p[1][0] - p[0][0]
+    )
+    places: dict[tuple[int, int], Place] = {}
+    for first, second in pairs:
+        i, j = sentence_of(first[0]), sentence_of(second[0])
+        places.setdefault((i, j), Place(first, second, (spans[i][0], spans[j][1]), i != j))
+    if one_sentence := [p for p in places.values() if not p.split]:
+        return sorted(one_sentence, key=lambda p: p.sentence)
+    return [min(places.values(), key=lambda p: p.second[0] - p.first[0])]
 
 
-def is_negated(sentence: str, rules: dict[str, Any]) -> bool:
-    """True when a negation pattern matches; {verb} in a pattern stands for any relation verb."""
-    verbs = "(?:" + "|".join(map(re.escape, rules["negation"]["verbs"])) + r")\b"
-    patterns = [p.replace("{verb}", verbs) for p in rules["negation"]["patterns"]]
-    return any(re.search(p, sentence, re.IGNORECASE) for p in patterns)
+def negation_patterns(rules: dict[str, Any], verbs: list[str]) -> list[re.Pattern[str]]:
+    """The negation patterns, with {verb} standing for any of these verbs."""
+    alternatives = "(?:" + "|".join(map(re.escape, verbs)) + r")\b"
+    return [
+        re.compile(p.replace("{verb}", alternatives), re.IGNORECASE)
+        for p in rules["negation"]["patterns"]
+    ]
+
+
+def negation_at(
+    window: str, place: Place, relation: str, rules: dict[str, Any]
+) -> tuple[bool, str]:
+    """Whether the claim at this place is denied, and why it is unsure ("" when sure).
+
+    The scope runs from up to lookback_words words before the earlier name (not past a , ; or :)
+    to the later name. A pattern in the scope whose {verb} is one of this relation's verbs (or
+    every_relation's) denies the claim. Any other negation from the sentence start up to the
+    later name, or any negation there at all when the names sit in different sentences, makes
+    the claim unsure. A negation after the later name is about something else and is ignored.
+    """
+    negation = rules["negation"]
+    all_verbs = [v for vs in negation["verbs"].values() for v in vs] + negation["every_relation"]
+    own_verbs = negation["verbs"][relation] + negation["every_relation"]
+    start = place.sentence[0]
+    nearby = any(
+        p.search(window[start : place.second[0]]) for p in negation_patterns(rules, all_verbs)
+    )
+    if place.split:
+        return False, "a negation in a passage across sentences" if nearby else ""
+    clause = re.split(r"[,;:]", window[start : place.first[0]])[-1]
+    lookback = clause.split()[-negation["lookback_words"] :] if negation["lookback_words"] else []
+    scope = " ".join(lookback) + " " + window[place.first[0] : place.second[0]]
+    if any(p.search(scope) for p in negation_patterns(rules, own_verbs)):
+        return True, ""
+    return False, "a negation near the claim that is not tied to it" if nearby else ""
+
+
+def check_negation(
+    window: str, head: str, tail: str, relation: str, rules: dict[str, Any]
+) -> tuple[bool, str, str]:
+    """Whether the claim is denied, why it is unsure ("" when sure), and its sentence.
+
+    When the names share more than one sentence and the sentences disagree, it is unsure.
+    """
+    places = claim_places(window, head, tail)
+    verdicts = {negation_at(window, place, relation, rules) for place in places}
+    s, e = places[0].sentence
+    if len(verdicts) > 1:
+        return False, "sentences that disagree on a negation", window[s:e]
+    denied, doubt = verdicts.pop()
+    return denied, doubt, window[s:e]
 
 
 def orient(
@@ -380,10 +465,9 @@ def check_relation(
     if oriented is None:
         return f"{head.type} -> {tail.type} does not fit '{relation}'"
     note = "" if oriented[0] is head else "turned round to fit the relation's types"
-    sentence, split = claim_sentence(window, head_text, tail_text)
+    denied, doubt, sentence = check_negation(window, head_text, tail_text, relation, rules)
     source = Source(report.id, report.publisher, report.published, sentence, score)
-    negated = is_negated(sentence, rules)
-    return Claim(oriented[0], relation, oriented[1], source, negated, split, note)
+    return Claim(oriented[0], relation, oriented[1], source, denied, doubt, note)
 
 
 # --- 5. Graph ---------------------------------------------------------------------------------
@@ -402,7 +486,7 @@ class Edge:
     head: str
     relation: str
     tail: str
-    status: str = CORROBORATED
+    status: str = REVIEW  # build_graph sets the real status
     sources: list[Source] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
 
@@ -430,8 +514,8 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
       a report (any report, the same one included) denies the edge.
     - review: an end of the edge is not in the alias table.
 
-    A negated claim whose head and tail sit in different sentences is neither an edge nor a
-    denial: the negation may be about something else, so it goes to the review list.
+    A claim with a negation nearby that check_negation couldn't tie to it is neither an edge
+    nor a denial: it goes to the review list.
     """
     nodes: dict[str, Node] = {}
     types: dict[str, set[str]] = {}
@@ -445,14 +529,13 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
                 " is not in the alias table; not merged"
             )
             continue
-        if claim.negated and claim.split:
+        if claim.doubt:
             review.append(
                 f"{claim.source.report}: {claim.head.name} {claim.relation} {claim.tail.name}"
-                f" is in a negated passage across sentences; not an edge or a denial:"
-                f" {claim.source.sentence!r}"
+                f" has {claim.doubt}; not an edge or a denial: {claim.source.sentence!r}"
             )
             continue
-        if claim.negated:
+        if claim.denied:
             denials.append(claim)
             continue
         for end in (claim.head, claim.tail):
@@ -526,27 +609,24 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
 # --- 6. Mermaid -------------------------------------------------------------------------------
 
 
-def node_id(name: str) -> str:
-    return "n_" + re.sub(r"\W+", "_", name).strip("_").lower()
-
-
 def mermaid(graph: Graph) -> str:
     """A Mermaid flowchart: solid arrows are corroborated, the rest dashed, red when in doubt.
 
     Red marks conflicting and review edges, and "?" marks a name the alias table does not know.
     """
     shapes = {"threat actor": ("([", "])"), "malware": ("[[", "]]"), "vulnerability": ("{{", "}}")}
+    node_id = {node.name: f"n{index}" for index, node in enumerate(graph.nodes)}
     lines = ["flowchart LR"]
     for node in graph.nodes:
         left, right = shapes.get(node.type, ("[", "]"))
         name = node.name.replace('"', "#quot;")
         label = f"{name}<br/><i>{node.type}</i>" + ("" if node.known else " ?")
-        lines.append(f'    {node_id(node.name)}{left}"{label}"{right}')
+        lines.append(f'    {node_id[node.name]}{left}"{label}"{right}')
     red: list[int] = []
     for index, edge in enumerate(graph.edges):
         arrow = "-->" if edge.status == CORROBORATED else "-.->"
         label = f"{edge.relation} ({len(edge.publishers)})"
-        lines.append(f'    {node_id(edge.head)} {arrow}|"{label}"| {node_id(edge.tail)}')
+        lines.append(f'    {node_id[edge.head]} {arrow}|"{label}"| {node_id[edge.tail]}')
         if edge.status in (CONFLICTING, REVIEW):
             red.append(index)
     if red:
@@ -566,6 +646,8 @@ def map_relations(client: SIEClient, reports: list[Report], rules: dict[str, Any
         for number, (_, window) in enumerate(parts, start=1)
     ]
     table = AliasTable.build(rules)  # a bad alias table fails before any model call
+    if missing := sorted(set(rules["relations"]) - set(rules["negation"]["verbs"])):
+        raise ValueError(f"negation verbs missing for relation(s): {', '.join(missing)}")
     results = extract_windows(client, items, rules) if items else {}
     claims: list[Claim] = []
     dropped: list[Dropped] = []
@@ -574,10 +656,7 @@ def map_relations(client: SIEClient, reports: list[Report], rules: dict[str, Any
     for report in reports:
         for number, (_, window) in enumerate(windows[report.id], start=1):
             result = results[f"{report.id}#p{number}"]
-            error = result.get("error")
-            if not error and not {"entities", "relations"} <= result.keys():
-                error = "the reply has no entities or relations"
-            if error:
+            if error := result.get("error"):
                 review.append(f"{report.id} paragraph {number} was not read: {error}")
                 if report.id not in unread:
                     unread.append(report.id)
@@ -595,6 +674,9 @@ def map_relations(client: SIEClient, reports: list[Report], rules: dict[str, Any
             for report_id in unread
             if any(source.report == report_id for source in edge.sources)
         ]
+        # An unread paragraph may deny or contradict an edge from any report.
+        if unread and edge.status == CORROBORATED:
+            edge.flags.append(f"provisional: {', '.join(unread)} partly unread")
     return graph
 
 
@@ -617,6 +699,12 @@ def graph_json(graph: Graph) -> dict[str, Any]:
     }
 
 
+def csv_safe(value: Any) -> str:
+    """A leading ' on a cell a spreadsheet would run as a formula; anything else as written."""
+    text = str(value)
+    return "'" + text if text.startswith(FORMULA_START) else text
+
+
 def write_outputs(output_dir: Path, graph: Graph) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "graph.json").write_text(
@@ -627,17 +715,16 @@ def write_outputs(output_dir: Path, graph: Graph) -> None:
         writer = csv.DictWriter(handle, fieldnames=EDGE_FIELDS)
         writer.writeheader()
         for edge in graph.edges:
-            writer.writerow(
-                {
-                    "head": edge.head,
-                    "relation": edge.relation,
-                    "tail": edge.tail,
-                    "status": edge.status,
-                    "publishers": ";".join(edge.publishers),
-                    "reports": ";".join(sorted({s.report for s in edge.sources})),
-                    "flags": "; ".join(edge.flags),
-                }
-            )
+            row = {
+                "head": edge.head,
+                "relation": edge.relation,
+                "tail": edge.tail,
+                "status": edge.status,
+                "publishers": ";".join(edge.publishers),
+                "reports": ";".join(sorted({s.report for s in edge.sources})),
+                "flags": "; ".join(edge.flags),
+            }
+            writer.writerow({key: csv_safe(value) for key, value in row.items()})
 
 
 def main() -> None:
@@ -661,7 +748,11 @@ def main() -> None:
     for item in graph.review:
         print(f"review: {item}")
     for report_id in graph.unread:
-        print(f"warning: {report_id} was partly unread; its edges carry a flag and may be missing")
+        print(
+            f"warning: {report_id} was partly unread; its edges carry a flag and may be missing,"
+            " and the status of any other edge may be wrong too (corroborated edges are flagged"
+            " provisional)"
+        )
     print(f"\n{len(graph.nodes)} nodes, {len(graph.edges)} edges, {len(graph.review)} review items")
     print(f"outputs: {output / 'graph.json'}, {output / 'graph.mmd'}, {output / 'edges.csv'}")
 

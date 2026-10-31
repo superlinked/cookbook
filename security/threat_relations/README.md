@@ -21,18 +21,22 @@ needs to see which edges rest on one publisher and which ones contradict each ot
 
 | Step | SIE call | Model | Why |
 |---|---|---|---|
-| Split | Python | | One window per paragraph (split on sentences above 200 words). A relation is read inside one window |
+| Split | Python | | One window per paragraph (split on sentences above 200 words, and a longer sentence on words). A relation is read inside one window |
 | Entities + relations | `extract` + `labels` + `options.relation_labels` | `knowledgator/gliner-relex-large-v1.0` | threat actor, malware, vulnerability, sector, software, campaign; uses, exploits, targets, attributed to, alias of |
 | Names | Python | | Merge names by the alias table, which also sets the type; CVE IDs are upper-cased; generic words ("operators") and vulnerabilities that are not a CVE ID or a table entry are dropped |
 | Types | Python | | Each relation must join the types in `rules.yaml`. One that fits only the other way round is turned round (and flagged); one that fits neither way is dropped with a reason |
-| Negation | Python | | A relation whose sentence negates the claim itself ("no evidence that", "never used", "did not deploy", "has not been linked") is a denial, not an edge. A stray "not" ("Velvet Gorse, not Saltmarsh Kettle, used Thornpipe") doesn't count. If head and tail sit in different sentences, a negation sends the claim to review instead |
+| Negation | Python | | Patterns are checked only from a few words before the first name to the second name, and a verb in a pattern must be one of this relation's verbs. A match there ("no evidence that", "never used", "did not deploy", "has not been linked") makes the claim a denial, not an edge. A negation after the second name ("used Thornpipe but did not exploit...") doesn't count, and neither does a bare "not" ("Velvet Gorse, not Saltmarsh Kettle, used Thornpipe"). Any other negation earlier in the sentence, one across sentences, or sentences that disagree send the claim to review |
 | Graph | Python | | One edge per (head, relation, tail), carrying every source: report, publisher, date, sentence, score |
 | Flags | Python | | `single_source`: fewer than 2 publishers (two reports from one publisher count once). `conflicting`: a family attributed to two actors, or an edge that any report denies (the same report included). `review`: an end that is not in the alias table. A proposed `alias of` is never merged; it goes to review |
 
 One gotcha: the model's `relations` give the head and tail as plain text, with no type. The code
 looks each end up in the alias table, and for a name the table doesn't know, it uses the label
 the model gave that same text in the same window. So an unknown name can get a different type
-in another window; its edges then carry a "typed as A and B in different claims" flag. An entity
+in another window; its edges then carry a "typed as A and B in different claims" flag. Unknown
+names are matched like table names (case, a leading "the" and a possessive don't count), so
+"Ashen Lark", "ASHEN LARK" and "Ashen Lark's" are one node, named as first seen. The relations
+also carry no offsets, so when a name occurs twice the negation check looks at every sentence
+that holds both names, and sends the claim to review if those sentences disagree. An entity
 span whose text doesn't match the window at its offsets is dropped with a note in the review
 list.
 
@@ -41,10 +45,13 @@ list.
 - `graph.json` has the nodes (name, type, known, mentions), the edges (status, flags, sources
   with the sentence), the denials, the dropped relations with the reason, the review list, and
   `unread`: the reports with a paragraph SIE didn't read. Every edge from such a report gets a
-  "report R-0x partly unread" flag, and the run prints a warning, because edges may be missing.
+  "report R-0x partly unread" flag. The unread paragraph might also deny or contradict an edge
+  from another report, so every corroborated edge gets a "provisional" flag, and the run prints
+  a warning that edges may be missing and that statuses elsewhere may be wrong too.
 - `graph.mmd` is a Mermaid flowchart. Solid arrows are corroborated, dashed arrows are every
   other status, red arrows are conflicting or need review, and `?` marks a name not in the table.
-- `edges.csv` has one row per edge.
+- `edges.csv` has one row per edge. A cell that starts with `=`, `+`, `-`, `@`, a tab or a
+  carriage return gets a leading `'`, so a spreadsheet won't run it as a formula.
 
 ```
 head,relation,tail,status,publishers,reports,flags
@@ -117,9 +124,11 @@ Treat the planted cases as a demo of how the recipe behaves. They say nothing ab
   name points to two different entries.
 - The labels and relation rules are `entity_labels`, plus `relations` with the allowed head and
   tail types. `single_valued` lists the relations that may have only one tail per head.
-- Negations live in `negation`: `patterns` (regex, where `{verb}` stands for any word in
-  `verbs`). If your reports deny a link with a verb ours don't use (e.g. "leveraged"), add it to
-  `verbs`. Generic words live in `not_entities`: if your reports use one ours don't (e.g.
+- Negations live in `negation`: `patterns` (regex), `verbs` (one list per relation; `{verb}`
+  in a pattern stands for the claim's relation verbs plus `every_relation`) and
+  `lookback_words` (how far before the first name a pattern may start). If your reports deny a
+  link with a verb ours don't use (e.g. "leveraged"), add it to that relation's list. A new
+  relation needs a `verbs` entry, or the recipe refuses to run. Generic words live in `not_entities`: if your reports use one ours don't (e.g.
   "intruders" where ours say "attackers"), add it there.
 - `listed_types_only` names the types whose names must be a CVE ID or an alias-table entry.
 - The thresholds are `entity_threshold`, `relation_threshold` (the model card suggests 0.7 to
@@ -131,8 +140,7 @@ Treat the planted cases as a demo of how the recipe behaves. They say nothing ab
 
 Each model is one line under `models:` in `rules.yaml`. As of 31 Oct 2026, SIE Cloud has no
 other relation extraction model for `relations`, so there's nothing to swap in here yet.
-[MODELS.md](../../MODELS.md) lists every model these recipes use, including the ones you can
-self-host.
+[MODELS.md](../../MODELS.md) lists every model these recipes use and links SIE's full catalog.
 
 ## Run it on your own SIE
 
