@@ -129,6 +129,7 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: the pipeline
+- `selfcheck.py`: plain asserts on the rules, no SIE call (`uv run --frozen python selfcheck.py`)
 - `rules.yaml`: model, secret patterns and allowlist, injection markers, verdict actions
 - `data/prompts.jsonl`: the 9 planted prompts
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
