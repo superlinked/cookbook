@@ -51,7 +51,10 @@ requests (one request can carry many items).
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
+| [Triage reported phishing and pull IOCs](security/phishing_triage) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 1 s |
 | [Screen prompts to your security copilot](security/copilot_prompt_screening) | Qwen3Guard-Gen-4B | 8 | 10 s |
+| [Tag actors, malware and tools in threat reports](security/threat_report_tagging) | NuNER_Zero | 1 | 1 s |
+| [Map how threats relate across reports](security/threat_relations) | gliner-relex-large-v1.0 | 1 | 1 s |
 
 ## Contributing a recipe
 

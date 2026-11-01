@@ -1,0 +1,1101 @@
+"""Triage emails reported as phishing, pull their IOCs and propose blocklist entries.
+
+Use case:  Triage of the "report phishing" mailbox.
+Who:       SOC analysts.
+Problem:   Users report every odd email, so most of the queue is spam or benign mail. Analysts
+           open each one, decide, copy the links and domains out by hand and check them against
+           the blocklist before the real phish get any attention.
+Input:     Reported emails as .eml files in data/; the blocklist, internal domains and team
+           rules in rules.yaml.
+SIE pipeline:
+           extract  fastino/GLiNER2.5-Decide  phishing | spam | benign, with a probability for
+                                              each (one choice question from rules.yaml)
+           extract  fastino/gliner2-large-v1  sender name, payment request and urgency spans
+                                              (plus URLs and domains the regex missed)
+Output:    verdicts.csv (verdict, route auto | analyst and why), iocs.csv (every URL, domain,
+           IP and sender, defanged, with blocklist hits) and blocklist_candidates.csv.
+Why SIE:   The classifier returns a label and probabilities, never text, so an instruction
+           in an email can't make it write anything or drop an IOC. Text can still move its
+           probabilities, so it reads only the visible text; hidden text and instructions aimed
+           at an AI are caught in Python. Two small encoders, one SIE Cloud call per model
+           per batch.
+Runs on:   SIE Cloud.
+
+    uv run recipe.py
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import ipaddress
+import os
+import re
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from email import message_from_bytes, policy
+from email.utils import getaddresses, parseaddr
+from html.parser import HTMLParser
+from pathlib import Path
+from typing import Any, cast
+from urllib.parse import unquote
+
+import yaml
+from dotenv import load_dotenv
+from sie_sdk import SIEClient
+from sie_sdk.client.errors import ServerError
+from sie_sdk.types import Item
+
+ROOT = Path(__file__).resolve().parent
+DATA_DIR = ROOT / "data"
+RULES_PATH = ROOT / "rules.yaml"
+RUNS_DIR = ROOT / "runs"
+# Cold models can take minutes to start; every call waits up to this long.
+WAIT_S = 900
+
+QUESTION_ID = "verdict"
+# The verdict names and span columns the code uses. load_rules checks that `verdicts` and
+# `entity_labels` in rules.yaml have exactly these keys, so a rename there fails at load.
+PHISHING, SPAM, BENIGN = VERDICTS = ("phishing", "spam", "benign")
+UNKNOWN = "unknown"  # the verdict when the model gave none (an analyst always sees it)
+SPAN_COLUMNS = (SENDER, URL, DOMAIN, PAYMENT, URGENCY) = (
+    "sender",
+    "url",
+    "domain",
+    "payment_request",
+    "urgency",
+)
+# When a GLiNER2 call finds no spans at all, SIE Cloud has answered HTTP 500 with this message
+# instead of an empty list. That's our reading of the runs we watched, not documented SIE
+# behavior. Sending the same batch again gives the same 500, so we call again one item at a
+# time, read an item that still fails as "no spans found", and send its email to an analyst.
+EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"
+
+VERDICT_FIELDS = (
+    "email",
+    "from",
+    "reply_to",
+    "subject",
+    "model_verdict",
+    "score",
+    "margin",
+    "second_verdict",
+    "verdict",
+    "route",
+    "analyst_reasons",
+    "signals",
+    "blocklist_hits",
+    "injection",
+    "payment_request",
+    "urgency",
+    "sender_name",
+)
+IOC_FIELDS = ("email", "type", "defanged", "source", "on_blocklist", "internal")
+CANDIDATE_FIELDS = ("type", "defanged", "email", "status")
+
+# Anything that starts like an http(s) URL, including broken forms (http:/x, https:\\x) and
+# defanged ones quoted whole (hxxp://evil[.]example/x). normal_host decides if it is plain. No
+# \b in front: text glued to a URL (at<span>https://...) still leaves the URL to find.
+URL_RE = re.compile(r"(?:https?|hxxps?):[/\\][^\s<>\"'()]*", re.IGNORECASE)
+# A plain URL: http(s)://, a dotted host name or IPv4, an optional port, then path, query and
+# fragment with no whitespace or backslash. ASCII only, so no look-alike Unicode letters.
+NORMAL_URL_RE = re.compile(
+    r"https?://(?P<host>[a-z0-9-]+(?:\.[a-z0-9-]+)+)(?::\d{1,5})?(?:[/?#][^\s\\]*)?",
+    re.IGNORECASE | re.ASCII,
+)
+IP_RE = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\.?\d)")
+# Punctuation that ends the sentence, not the URL: ASCII marks, smart quotes, an ellipsis, a
+# dash, a closing guillemet, and a possessive 's after a curly apostrophe.
+TRAILING_RE = re.compile(
+    r"(?:[.,;:!?*|\]\u201c\u201d\u2018\u2019\u2026\u2014\u2013\u00bb]|\u2019s)+$"
+)
+# Spreadsheets run a cell that starts with one of these as a formula; such cells get a leading '.
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+# --- Parse the .eml (stdlib only) -------------------------------------------------------------
+
+
+# A scheme-less link a mail client makes clickable (www.evil.example/reset); read as http://.
+WWW_RE = re.compile(r"(?<![\w.@/:-])www\.[^\s<>\"'()]*", re.IGNORECASE)
+# The signal names the code raises; load_rules checks the policy lists in rules.yaml use them.
+SIGNALS = (
+    "lookalike_domain",
+    "display_name_claims_internal",
+    "reply_to_mismatch",
+    "ip_url",
+    "obfuscated_url",
+    "unusual_html",
+    "unusual_mime",
+    "payment_request_external",
+    "hidden_text",
+)
+
+
+def links_in(text: str) -> list[str]:
+    """Every http(s) URL in free text, plus each www. link as http://."""
+    return URL_RE.findall(text) + ["http://" + url for url in WWW_RE.findall(text)]
+
+
+def _declarations(css: str) -> list[tuple[str, str]]:
+    """(property, value) for each CSS declaration, lowercased, without spaces or !important."""
+    found = []
+    for declaration in re.split(r"[;{}]", re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)):
+        prop, _, value = declaration.partition(":")
+        found.append((prop.strip().lower(), re.sub(r"\s+|!important", "", value.lower())))
+    return found
+
+
+class _HtmlText(HTMLParser):
+    """The visible text of an HTML part, its link targets, its hidden text, and what's unusual.
+
+    It reads inline styles only. Whatever it would need a CSS engine or a mail client's quirks
+    to get right goes into `unusual`, and the email goes to an analyst.
+
+    display, visibility, opacity and max-height (with overflow:hidden) hide everything inside
+    the tag. font-size and color hide only text whose nearest declared value is the hidden one,
+    so a child that sets font-size:13px is visible again, as in a mail client. A relative or
+    inherited value (150%, 2em, inherit) doesn't reset it.
+    """
+
+    VOID = frozenset({"br", "img", "hr", "meta", "link", "input", "wbr", "source", "col"})
+    # Block tags and <br> start a new line. Inline tags (span, b, a, ...) add nothing, so
+    # be<span>nign</span> still reads "benign", as the recipient sees it.
+    BREAKS = frozenset(
+        {"p", "div", "br", "hr", "tr", "td", "th", "li", "ul", "ol", "table", "blockquote",
+         "pre", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "header", "footer"}
+    )  # fmt: skip
+    # Never shown in the message body.
+    SKIP = frozenset({"head", "title", "style", "script"})
+    # Tags that belong in <head>. Any other tag, or text, closes an unclosed <head>, as a
+    # browser does.
+    HEAD = frozenset({"head", "title", "style", "script", "meta", "link", "base", "noscript"})
+
+    def __init__(self, rules: dict[str, Any]) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hidden_styles = {
+            prop: re.compile(pattern, re.IGNORECASE)
+            for prop, pattern in rules["hidden_html_styles"].items()
+        }
+        self.inherits = re.compile(rules["inherited_style_values"], re.IGNORECASE)
+        self.odd = rules["unusual_html"]
+        # (tag, hides its content, font-size hides, color hides); None when the tag doesn't set it
+        self.stack: list[tuple[str, bool, bool | None, bool | None]] = []
+        self.parts: list[str] = []
+        self.hidden: list[str] = []
+        self.links: list[str] = []
+        self.unusual: list[str] = []
+
+    def _style(self, css: str) -> dict[str, bool]:
+        """Each hidden_html_styles property `css` sets, and whether its value hides text."""
+        found = {}
+        for prop, value in _declarations(css):
+            pattern = self.hidden_styles.get(prop)
+            if pattern and pattern.fullmatch(value):
+                found[prop] = True
+            elif pattern and not self.inherits.fullmatch(value):
+                found[prop] = False
+        return found
+
+    def _entry(
+        self, tag: str, values: dict[str, str | None]
+    ) -> tuple[str, bool, bool | None, bool | None]:
+        style = self._style(values.get("style") or "")
+        size, color = style.pop("font-size", None), style.pop("color", None)
+        if not style.pop("overflow", False):
+            style.pop("max-height", None)
+        font_white = tag == "font" and self._style(f"color:{values.get('color')}").get("color")
+        if "hidden" in values or tag == "template" or font_white:
+            self.unusual.append(f"<{tag}> hidden without an inline style")
+            return tag, True, size, color
+        return tag, tag in self.SKIP or any(style.values()), size, color
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        # href, and any attribute ending in it (SVG's xlink:href) is a link too.
+        hrefs = [str(value).strip() for name, value in attrs if name.endswith("href") and value]
+        self.links += hrefs
+        if len(hrefs) > 1:
+            self.unusual.append(f"<{tag}> with {len(hrefs)} hrefs")
+        for href in hrefs:
+            if not re.fullmatch(self.odd["link"], href, re.IGNORECASE):
+                self.unusual.append(f"link {href!r}")
+        refresh = tag == "meta" and str(values.get("http-equiv")).lower() == "refresh"
+        if tag in self.odd["tags"] or refresh:
+            self.unusual.append(f"<{tag}>")
+        if tag not in self.HEAD:
+            self._close_head()
+        self._boundary(tag)
+        if tag not in self.VOID:
+            self.stack.append(self._entry(tag, values))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in self.VOID:  # a browser ignores the "/", so <div/> stays open
+            self.unusual.append(f"self-closed <{tag}/>")
+        self.handle_starttag(tag, attrs)
+
+    def handle_comment(self, data: str) -> None:
+        # Outlook shows what's inside <!--[if mso]> ... <![endif]-->; other clients don't. We
+        # read neither way: a comment with markup or a link goes to an analyst, and its text is
+        # kept with the hidden text, so its links still become IOCs.
+        if "[if" in data.lower() or "<" in data or links_in(data):
+            self.unusual.append("HTML comment with markup or a link")
+            self.hidden += ["\n", data, "\n"]
+
+    def unknown_decl(self, data: str) -> None:
+        self.unusual.append(f"<![{data[:20]}...]>")
+
+    def _hidden_now(self) -> bool:
+        """Text here is hidden: a tag above hides it, or the nearest font-size or color does."""
+        if any(entry[1] for entry in self.stack):
+            return True
+        for index in (2, 3):
+            declared = [entry[index] for entry in self.stack if entry[index] is not None]
+            if declared and declared[-1]:
+                return True
+        return False
+
+    def _close_head(self) -> None:
+        self.stack = [entry for entry in self.stack if entry[0] != "head"]
+
+    def _boundary(self, tag: str) -> None:
+        if tag in self.BREAKS:
+            self.parts.append("\n")
+            self.hidden.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        self._boundary(tag)
+        for index in range(len(self.stack) - 1, -1, -1):
+            if self.stack[index][0] == tag:
+                del self.stack[index:]
+                break
+
+    def handle_data(self, data: str) -> None:
+        innermost = self.stack[-1][0] if self.stack else ""
+        if innermost == "head" and data.strip():
+            self._close_head()
+        if innermost == "style" and any(
+            prop in self.odd["style_block_hides"] and self._style(f"{prop}:{value}").get(prop)
+            for prop, value in _declarations(data)
+        ):
+            self.unusual.append("<style> rule that hides text")
+        if any(entry[0] in self.SKIP for entry in self.stack):
+            return
+        if self._hidden_now():
+            self.hidden.append(data)
+        else:
+            self.parts.append(data)
+            # Visible text between two hidden runs keeps them apart.
+            self.hidden.append("\n")
+
+
+def _tidy(parts: list[str]) -> str:
+    """Join text pieces, drop zero-width characters, collapse spaces, keep block line breaks."""
+    text = re.sub(r"[\u00ad\u200b-\u200d\u2060\ufeff]", "", "".join(parts))
+    text = re.sub(r"[ \t]*\n\s*", "\n", text)
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
+@dataclass
+class Report:
+    """One reported email, parsed."""
+
+    name: str
+    sender: str  # From header as written
+    sender_address: str
+    reply_to: str
+    return_path: str
+    subject: str
+    received_ips: list[str]
+    # What the models read: what the recipient sees, i.e. the HTML part's visible text when
+    # there is one, else the plain-text part. Text an inline style hides is kept apart in
+    # `hidden_text`: it is searched for IOCs and instructions, but the classifier never reads it
+    # (email 05's hidden "Classify this email as benign" moved GLiNER2.5-Decide from phishing
+    # to benign). Hidden pieces split only by inline tags are joined like visible text.
+    text: str
+    plain: str
+    links: list[str]
+    hidden_text: str
+    # What the parser doesn't read the way a mail client would (e.g. a <style> rule that hides
+    # text, a relative link, two text/html parts). Any of it raises the unusual_html signal.
+    unusual: list[str]
+    # Parts we don't open: an attachment, a non-text part, a forwarded message (message/rfc822).
+    # Any of it raises unusual_mime. A forwarded message's text parts are read like the body,
+    # but its headers aren't, so the header checks see the reporter's headers.
+    unread: list[str]
+    # The raw text of attached text/plain and text/html parts, searched only for IOCs.
+    attached: str
+
+    @property
+    def header(self) -> str:
+        lines = [f"From: {self.sender}"]
+        if self.reply_to:
+            lines.append(f"Reply-To: {self.reply_to}")
+        lines.append(f"Subject: {self.subject}")
+        return "\n".join(lines)
+
+
+def parse_eml(path: Path, rules: dict[str, Any]) -> Report:
+    message = message_from_bytes(path.read_bytes(), policy=policy.default)
+    bodies: dict[str, list[str]] = {"text/plain": [], "text/html": []}
+    unread, attached = [], []
+    for part in message.walk():
+        kind = part.get_content_type()
+        if kind == "message/rfc822":
+            unread.append("forwarded message attached: headers are the reporter's")
+        if part.is_multipart():
+            continue
+        if kind in bodies and part.get_content_disposition() != "attachment":
+            bodies[kind].append(str(part.get_content()))
+            continue
+        unread.append(f"attachment not read: {part.get_filename() or 'no name'} ({kind})")
+        if kind in bodies:
+            attached.append(str(part.get_content()))
+    plain, html = "\n\n".join(bodies["text/plain"]).strip(), "\n".join(bodies["text/html"])
+    parser = _HtmlText(rules)
+    parser.feed(html)
+    parser.close()
+    html_text = _tidy(parser.parts)
+    # Mail clients differ on which of two bodies they show, so we read them all and flag it.
+    if max(map(len, bodies.values())) > 1:
+        parser.unusual.append("two or more text/plain parts, or two or more text/html parts")
+    if html.strip() and not html_text:
+        parser.unusual.append("HTML with no visible text")
+    received = " ".join(str(value) for value in message.get_all("Received") or [])
+    return Report(
+        name=path.stem,
+        sender=str(message.get("From", "")),
+        sender_address=parseaddr(str(message.get("From", "")))[1].lower(),
+        reply_to=str(message.get("Reply-To", "")),
+        return_path=parseaddr(str(message.get("Return-Path", "")))[1].lower(),
+        subject=str(message.get("Subject", "")),
+        received_ips=[ip for ip in IP_RE.findall(received) if _is_ip(ip)],
+        text=html_text or plain,
+        plain=plain,
+        links=parser.links,
+        hidden_text=_tidy(parser.hidden),
+        unusual=parser.unusual,
+        unread=unread,
+        attached="\n".join(attached),
+    )
+
+
+def make_client() -> SIEClient:
+    """Build an SIE client from the API key and SIE_BASE_URL in the environment or `.env`."""
+    load_dotenv()
+    api_key = os.environ.get("SIE_API_KEY", "").strip()
+    base_url = os.environ.get("SIE_BASE_URL", "").strip()
+    if not api_key and not base_url:
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+    base_url = base_url or "https://api.superlinked.com"
+    return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
+
+
+def jsonable(value: Any) -> Any:
+    """Turn SDK results (numpy arrays, nested dicts and lists) into plain JSON values."""
+    if hasattr(value, "tolist"):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {str(key): jsonable(child) for key, child in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [jsonable(child) for child in value]
+    return value
+
+
+def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
+    """rules.yaml, checked to name exactly the verdicts and span columns the code uses."""
+    rules = cast(dict[str, Any], yaml.safe_load(path.read_text(encoding="utf-8")))
+    for key, expected in (("verdicts", VERDICTS), ("entity_labels", SPAN_COLUMNS)):
+        if set(rules[key]) != set(expected):
+            raise ValueError(f"{path.name}: {key} must have keys {list(expected)}")
+    for key in ("blocklist_hit_verdict", "injection_verdict"):
+        if rules["policy"][key] not in VERDICTS:
+            raise ValueError(f"{path.name}: policy.{key} must be one of {list(VERDICTS)}")
+    for key in ("analyst_signals", "suspicious_signals"):
+        if unknown := set(rules["policy"][key]) - set(SIGNALS):
+            raise ValueError(f"{path.name}: policy.{key} has unknown signals {sorted(unknown)}")
+    return rules
+
+
+def load_reports(rules: dict[str, Any], data_dir: Path = DATA_DIR) -> list[Report]:
+    return [parse_eml(path, rules) for path in sorted(data_dir.glob("*.eml"))]
+
+
+# --- Deterministic IOCs -----------------------------------------------------------------------
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _domain_of(address: str) -> str:
+    return address.rsplit("@", 1)[-1].lower() if "@" in address else ""
+
+
+def _clean_url(url: str) -> str:
+    """Drop trailing punctuation and refang a URL quoted defanged (hxxp, [.]); "" for no host."""
+    url = TRAILING_RE.sub("", url).replace("[.]", ".")
+    url = re.sub(r"^hxxp", "http", url, flags=re.IGNORECASE)
+    return "" if re.fullmatch(r"https?:[/\\]*", url, re.IGNORECASE) else url
+
+
+def defang(kind: str, value: str) -> str:
+    """hxxp:// and [.] so an IOC can be pasted into a ticket without becoming a live link.
+
+    Control characters and spaces go first (a browser skips them, so ht<tab>tp:// still opens).
+    Then every http(s) scheme becomes hxxp(s), including one nested in a URL or written into a
+    sender's local part, and every dot becomes [.]. A sender's last @ becomes [@]. The port
+    stays as it is.
+    """
+    value = re.sub(r"[\x00-\x20\x7f]", "", value)
+    value = re.sub(r"http(s?)(?=:|%3a)", r"hxxp\1", value, flags=re.IGNORECASE)
+    value = value.replace(".", "[.]")
+    if kind == "sender":
+        local, _, domain = value.rpartition("@")
+        return f"{local}[@]{domain}"
+    return value
+
+
+def defang_text(text: str) -> str:
+    """Free text (a header, a reason) with every URL and www. link in it defanged."""
+    pattern = f"{URL_RE.pattern}|{WWW_RE.pattern}"
+    return re.sub(pattern, lambda m: defang("url", m.group(0)), text, flags=re.IGNORECASE)
+
+
+def is_http_link(link: str) -> bool:
+    """An href a browser opens as http(s), once it drops the spaces and control characters."""
+    return re.match(r"https?:", re.sub(r"[\x00-\x20]", "", link), re.IGNORECASE) is not None
+
+
+def normal_host(url: str) -> str:
+    """The host of a plain http(s) URL, or "" for any other URL.
+
+    We don't try to read the host the way a browser would from userinfo, backslashes, extra
+    slashes, a trailing dot, percent-encoding or an integer, hex or octal IP. Such a URL has
+    no host here, gets the obfuscated_url signal and goes to an analyst.
+    """
+    match = NORMAL_URL_RE.fullmatch(url)
+    host = match["host"].lower() if match else ""
+    if host.replace(".", "").isdigit():
+        return host if _is_ip(host) else ""
+    return host if host.rsplit(".", 1)[-1][:1].isalpha() else ""
+
+
+def with_nested(url: str, rounds: int) -> tuple[list[str], bool]:
+    """The URL plus every URL in its path, query or fragment, and whether no step hid a host.
+
+    The rest of each URL (e.g. a redirect's ?u=https%3A...) is percent-decoded up to `rounds`
+    times. Only the URLs in the fully decoded form are kept and searched in turn, each once.
+    A URL in a partly decoded form is only checked: if it isn't plain, the bool is False. A
+    redirect hop decodes once, so ?u=https%3A%2F%2Fgood.example%252F@evil.example sends the
+    browser to evil.example, though the fully decoded form reads good.example/@evil.example.
+    """
+    found, plain = ([url] if url else []), True
+    for current in found:  # the loop also reaches the URLs appended while it runs
+        rest = current.partition(":")[2]
+        for level in range(rounds + 1):
+            # A query's next parameter ends a nested URL.
+            inner = [_clean_url(u) for piece in rest.split("&") for u in URL_RE.findall(piece)]
+            if level == rounds or unquote(rest) == rest:
+                found += [u for u in dict.fromkeys(inner) if u and u not in found]
+                break
+            plain = plain and all(normal_host(u) for u in inner if u)
+            rest = unquote(rest)
+    return found, plain
+
+
+def body_urls(report: Report, rules: dict[str, Any]) -> tuple[list[tuple[str, str]], bool]:
+    """Every URL in the email as (url, source), nested ones included, and whether all are plain
+    at every decode level. The IOCs and the obfuscated_url and ip_url signals both read this:
+    the plain part, the visible and hidden HTML text, attached text parts, the link targets,
+    and the From, Reply-To and Subject headers. A www. link counts as http://.
+    """
+    raw = [(link, "html link") for link in report.links if is_http_link(link)]
+    raw += [(url, "body") for url in links_in(_all_text(report))]
+    raw += [(url, "header") for url in links_in(report.header)]
+    found: list[tuple[str, str]] = []
+    every_level_plain = True
+    for url, source in raw:
+        urls, plain = with_nested(_clean_url(url), rules["thresholds"]["url_decode_rounds"])
+        found += [(nested, source) for nested in urls]
+        every_level_plain = every_level_plain and plain
+    return found, every_level_plain
+
+
+@dataclass(frozen=True)
+class Ioc:
+    kind: str  # url | domain | ip | sender
+    value: str
+    source: str  # body | html link | header | model
+
+
+def regex_iocs(report: Report, rules: dict[str, Any]) -> list[Ioc]:
+    """Every URL, domain, IP and sender address plain Python can find; no model involved.
+
+    Every http(s) link is a url IOC, plain or not; only a plain one adds its host.
+    """
+    found: dict[tuple[str, str], Ioc] = {}
+
+    def add(kind: str, value: str, source: str) -> None:
+        value = value.strip().lower() if kind != "url" else value.strip()
+        if value and (kind, value) not in found:
+            found[(kind, value)] = Ioc(kind, value, source)
+
+    for address in (report.sender_address, _reply_address(report)):
+        if address:
+            add("sender", address, "header")
+    for address in (report.sender_address, _reply_address(report), report.return_path):
+        if domain := _domain_of(address):
+            add("domain", domain, "header")
+    for ip in report.received_ips:
+        add("ip", ip, "header")
+    for url, source in body_urls(report, rules)[0]:
+        add("url", url, source)
+        if host := normal_host(url):
+            add("ip" if _is_ip(host) else "domain", host, source)
+    for ip in IP_RE.findall(_all_text(report)):
+        if _is_ip(ip):
+            add("ip", ip, "body")
+    return list(found.values())
+
+
+def _all_text(report: Report) -> str:
+    """Everything in the email body, hidden HTML text and attached text parts included: what
+    the regexes search."""
+    return "\n".join([report.plain, report.text, report.hidden_text, report.attached])
+
+
+def _reply_address(report: Report) -> str:
+    addresses = getaddresses([report.reply_to]) if report.reply_to else []
+    return addresses[0][1].lower() if addresses else ""
+
+
+def is_internal(host: str, rules: dict[str, Any]) -> bool:
+    """One of our mail domains, or an IP in `internal_networks` (our own relays)."""
+    host = host.lower()
+    if _is_ip(host):
+        address = ipaddress.ip_address(host)
+        return any(address in ipaddress.ip_network(net) for net in rules["internal_networks"])
+    return any(host == d or host.endswith("." + d) for d in rules["internal_domains"])
+
+
+def _ioc_host(ioc: Ioc) -> str:
+    """The host an IOC points at; "" for a URL that isn't plain."""
+    if ioc.kind == "url":
+        return normal_host(ioc.value)
+    if ioc.kind == "sender":
+        return _domain_of(ioc.value)
+    return ioc.value
+
+
+def ioc_is_internal(ioc: Ioc, rules: dict[str, Any]) -> bool:
+    """The IOC points at one of our hosts (a URL that isn't plain never counts as ours)."""
+    host = _ioc_host(ioc)
+    return bool(host) and is_internal(host, rules)
+
+
+def on_blocklist(ioc: Ioc, rules: dict[str, Any]) -> bool:
+    """The exact URL is listed, or its host is a listed IP or a listed domain or subdomain."""
+    block = rules["blocklist"]
+    domains = [d.lower() for d in block.get("domains") or []]
+    if ioc.kind == "url" and ioc.value in (block.get("urls") or []):
+        return True
+    host = _ioc_host(ioc)
+    return bool(host) and (
+        host in (block.get("ips") or [])
+        or any(host == d or host.endswith("." + d) for d in domains)
+    )
+
+
+# --- Deterministic signals --------------------------------------------------------------------
+
+
+def edit_distance(a: str, b: str) -> int:
+    previous = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, start=1):
+        current = [i]
+        for j, char_b in enumerate(b, start=1):
+            current.append(
+                min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (char_a != char_b))
+            )
+        previous = current
+    return previous[-1]
+
+
+def is_lookalike(domain: str, rules: dict[str, Any]) -> bool:
+    """An external domain with a label, or hyphenated part of one, near our own brand label."""
+    if not domain or is_internal(domain, rules):
+        return False
+    brands = {d.split(".")[0] for d in rules["internal_domains"]}
+    # Each label, and each run of its hyphen-split pieces glued back (lark-field: larkfield).
+    labels = [
+        "".join(pieces[i:j])
+        for pieces in (label.split("-") for label in domain.lower().split("."))
+        for i in range(len(pieces))
+        for j in range(i + 1, len(pieces) + 1)
+    ]
+    limit = rules["thresholds"]["lookalike_max_edits"]
+    return any(edit_distance(label, brand) <= limit for label in labels for brand in brands)
+
+
+def injection_matches(text: str, rules: dict[str, Any]) -> list[str]:
+    text = re.sub(r"\s+", " ", text)
+    found: list[str] = []
+    for pattern in rules["injection_patterns"]:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match and match.group(0) not in found:
+            found.append(match.group(0))
+    return found
+
+
+def signals(report: Report, payment_request: list[str], rules: dict[str, Any]) -> list[str]:
+    """Deterministic header, link and HTML checks that make a verdict doubtful."""
+    sender_domain = _domain_of(report.sender_address)
+    reply_domain = _domain_of(_reply_address(report))
+    external = bool(sender_domain) and not is_internal(sender_domain, rules)
+    limits = rules["thresholds"]
+    found: list[str] = []
+    return_domain = _domain_of(report.return_path)
+    if any(is_lookalike(d, rules) for d in (sender_domain, reply_domain, return_domain)):
+        found.append("lookalike_domain")
+    display = parseaddr(report.sender)[0].lower()
+    brands = {d.split(".")[0] for d in rules["internal_domains"]}
+    if external and any(brand in display for brand in brands):
+        found.append("display_name_claims_internal")
+    if reply_domain and reply_domain != sender_domain:
+        found.append("reply_to_mismatch")
+    # Every URL anywhere in the body, at every decode level. Any that isn't plain is
+    # obfuscated_url: we flag it rather than guess which host a browser would open.
+    urls, every_level_plain = body_urls(report, rules)
+    hosts = [normal_host(url) for url, _ in urls]
+    if any(_is_ip(host) for host in hosts if host):
+        found.append("ip_url")
+    if not all(hosts) or not every_level_plain:
+        found.append("obfuscated_url")
+    if report.unusual:
+        found.append("unusual_html")
+    if report.unread:
+        found.append("unusual_mime")
+    if payment_request and external:
+        found.append("payment_request_external")
+    # Most newsletters hide a short preheader. Hidden text only counts when it holds an
+    # instruction or a URL, or runs longer than a preheader would. The padding newsletters put
+    # after a preheader (&#847;&zwnj;&nbsp; repeated) doesn't count toward the length.
+    hidden = report.hidden_text
+    too_long = len(re.sub(rules["hidden_padding"], "", hidden)) > limits["max_hidden_chars"]
+    if injection_matches(hidden, rules) or links_in(hidden) or too_long:
+        found.append("hidden_text")
+    return found
+
+
+# --- Windows ----------------------------------------------------------------------------------
+
+
+def windows(text: str, max_words: int) -> list[str]:
+    """Consecutive windows of at most ``max_words`` words; both models read 512 tokens."""
+    words = text.split()
+    if not words:
+        return [""]
+    return [" ".join(words[i : i + max_words]) for i in range(0, len(words), max_words)]
+
+
+def window_items(reports: list[Report], max_words: int) -> list[tuple[str, str]]:
+    """(window id, text) for every window; the header goes into every window of its email."""
+    return [
+        (f"{report.name}#{number}", f"{report.header}\n\n{body}")
+        for report in reports
+        for number, body in enumerate(windows(report.text, max_words), start=1)
+    ]
+
+
+def _batches(items: list[tuple[str, str]], size: int) -> list[list[tuple[str, str]]]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+# --- SIE calls --------------------------------------------------------------------------------
+
+
+def verdict_schema(rules: dict[str, Any]) -> dict[str, Any]:
+    return {
+        QUESTION_ID: {
+            "type": "choice",
+            "instructions": rules["question"],
+            "criteria": dict(rules["verdicts"]),
+        }
+    }
+
+
+def classify_windows(
+    client: SIEClient, items: list[tuple[str, str]], rules: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Verdict answer (or error) per window id."""
+    model = rules["models"]["verdict"]
+    schema = verdict_schema(rules)
+    # Windows are sized to fit. An overflow comes back as an error and sends the email to an
+    # analyst.
+    options = {"overflow_policy": "error"}
+    answers: dict[str, dict[str, Any]] = {}
+    for batch in _batches(items, rules["thresholds"]["batch_size"]):
+        results = client.extract(
+            model,
+            [Item(id=item_id, text=text) for item_id, text in batch],
+            output_schema=schema,
+            options=options,
+            provision_timeout_s=WAIT_S,
+        )
+        for (item_id, _), result in zip(batch, results, strict=True):
+            answers[item_id] = jsonable(result)
+    return answers
+
+
+def _extract_spans(
+    client: SIEClient, model: str, batch: list[tuple[str, str]], labels: list[str], opts: Any
+) -> list[Any]:
+    """One batch call; when SIE Cloud answers the empty-result 500, retry item by item."""
+    try:
+        return list(
+            client.extract(
+                model,
+                [Item(id=item_id, text=text) for item_id, text in batch],
+                labels=labels,
+                options=opts,
+                provision_timeout_s=WAIT_S,
+            )
+        )
+    except ServerError as exc:
+        if EMPTY_RESULT_ERROR not in str(exc):
+            raise
+    results: list[Any] = []
+    for item_id, text in batch:
+        try:
+            results.append(
+                client.extract(
+                    model,
+                    Item(id=item_id, text=text),
+                    labels=labels,
+                    options=opts,
+                    provision_timeout_s=WAIT_S,
+                )
+            )
+        except ServerError as exc:
+            if EMPTY_RESULT_ERROR not in str(exc):
+                raise
+            results.append({"id": item_id, "entities": [], "empty_result_error": str(exc)})
+    return results
+
+
+def extract_windows(
+    client: SIEClient, items: list[tuple[str, str]], rules: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Entity spans (or error) per window id."""
+    model = rules["models"]["entities"]
+    labels = list(rules["entity_labels"].values())
+    options = {"threshold": rules["thresholds"]["min_entity_score"]}
+    answers: dict[str, dict[str, Any]] = {}
+    for batch in _batches(items, rules["thresholds"]["batch_size"]):
+        results = _extract_spans(client, model, batch, labels, options)
+        for (item_id, _), result in zip(batch, results, strict=True):
+            answers[item_id] = jsonable(result)
+    return answers
+
+
+# --- Merge windows ----------------------------------------------------------------------------
+
+
+@dataclass
+class Reading:
+    """What the two models said about one email, merged over its windows."""
+
+    probabilities: dict[str, float] = field(default_factory=dict)
+    spans: dict[str, list[str]] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    empty_windows: list[str] = field(default_factory=list)  # got SIE's empty-result 500
+
+
+def _error_text(result: dict[str, Any]) -> str | None:
+    error = result.get("error")
+    if not error:
+        return None
+    if isinstance(error, dict):
+        return f"{error.get('code', 'ERROR')}: {error.get('message', '')}".strip()
+    return str(error)
+
+
+def merge_probabilities(per_window: list[dict[str, float]]) -> dict[str, float]:
+    """Each verdict's highest probability over windows, renormalized.
+
+    Taking the peak keeps the answer of the one window that holds the lure. An average would
+    let the harmless text in the other windows wash it out.
+    """
+    if not per_window:
+        return {}
+    if len(per_window) == 1:
+        return dict(per_window[0])
+    peak = {label: max(window.get(label, 0.0) for window in per_window) for label in per_window[0]}
+    total = sum(peak.values()) or 1.0
+    return {label: value / total for label, value in peak.items()}
+
+
+def read_reports(
+    client: SIEClient, reports: list[Report], rules: dict[str, Any]
+) -> dict[str, Reading]:
+    items = window_items(reports, rules["thresholds"]["max_words_per_window"])
+    verdicts = classify_windows(client, items, rules)
+    spans = extract_windows(client, items, rules)
+    by_label = {label: column for column, label in rules["entity_labels"].items()}
+    texts = dict(items)
+    readings = {report.name: Reading() for report in reports}
+    window_probs: dict[str, list[dict[str, float]]] = {report.name: [] for report in reports}
+    for item_id, _ in items:
+        name = item_id.split("#", 1)[0]
+        reading = readings[name]
+        answer = verdicts[item_id]
+        if error := _error_text(answer):
+            reading.errors.append(f"verdict model: {error}")
+        else:
+            probs = ((answer.get("data") or {}).get(QUESTION_ID) or {}).get("probabilities")
+            # A reply without a probability for exactly our verdicts is an error, not a guess.
+            if isinstance(probs, dict) and set(map(str, probs)) == set(VERDICTS):
+                window_probs[name].append({str(k): float(v) for k, v in probs.items()})
+            else:
+                got = sorted(map(str, probs)) if isinstance(probs, dict) else "no probabilities"
+                reading.errors.append(f"verdict model: unexpected verdicts {got} in {item_id}")
+        entity = spans[item_id]
+        if error := _error_text(entity):
+            reading.errors.append(f"entity model: {error}")
+            continue
+        if "empty_result_error" in entity:
+            reading.empty_windows.append(item_id)
+        window_text = texts[item_id].casefold()
+        ranked = sorted(entity.get("entities") or [], key=lambda e: -float(e.get("score", 0.0)))
+        for span in ranked:
+            column = by_label.get(str(span.get("label")))
+            text = str(span.get("text", "")).strip()
+            # Drop any span whose text isn't in the window, so the model can't invent a value.
+            if not column or not text or text.casefold() not in window_text:
+                continue
+            values = reading.spans.setdefault(column, [])
+            if text.casefold() not in map(str.casefold, values):
+                values.append(text)
+    for name, probs in window_probs.items():
+        readings[name].probabilities = merge_probabilities(probs)
+    return readings
+
+
+def model_iocs(reading: Reading, known: list[Ioc]) -> list[Ioc]:
+    """URLs and domains the model saw that the regex did not; checked to parse first."""
+    have = {(ioc.kind, ioc.value.lower()) for ioc in known}
+    added: list[Ioc] = []
+    for text in reading.spans.get(URL, []):
+        url = _clean_url(text)
+        if not URL_RE.fullmatch(url) or ("url", url.lower()) in have:
+            continue
+        added.append(Ioc("url", url, "model"))
+        have.add(("url", url.lower()))
+    for text in reading.spans.get(DOMAIN, []):
+        domain = TRAILING_RE.sub("", text.strip()).lower()
+        if not re.fullmatch(r"(?:[a-z0-9-]+\.)+[a-z]{2,}", domain) or ("domain", domain) in have:
+            continue
+        added.append(Ioc("domain", domain, "model"))
+        have.add(("domain", domain))
+    return added
+
+
+# --- Decide -----------------------------------------------------------------------------------
+
+
+@dataclass
+class Triage:
+    report: Report
+    row: dict[str, Any]
+    iocs: list[Ioc]
+
+
+def triage(report: Report, reading: Reading, rules: dict[str, Any]) -> Triage:
+    """The verdict and route for one email; every reason it goes to an analyst is listed."""
+    limits, rule = rules["thresholds"], rules["policy"]
+    iocs = regex_iocs(report, rules)
+    iocs += model_iocs(reading, iocs)
+    payment = reading.spans.get(PAYMENT, [])
+    found = signals(report, payment, rules)
+    hits = [ioc for ioc in iocs if on_blocklist(ioc, rules)]
+    injection = injection_matches(_all_text(report), rules)
+    reasons = list(reading.errors) + report.unread
+    if reading.empty_windows:
+        reasons.append(
+            f"entity model gave SIE's empty-result error, read as no spans: "
+            f"{', '.join(reading.empty_windows)}"
+        )
+
+    ranked = sorted(reading.probabilities.items(), key=lambda item: item[1], reverse=True)
+    model_verdict = second = ""
+    score = margin = 0.0
+    if ranked:
+        model_verdict, score = ranked[0]
+        second, second_score = ranked[1] if len(ranked) > 1 else ("", 0.0)
+        margin = score - second_score
+        if score < limits["min_verdict_score"]:
+            reasons.append(
+                f"{model_verdict} scored {score:.2f} < {limits['min_verdict_score']:.2f}"
+            )
+        elif margin < limits["min_verdict_margin"]:
+            reasons.append(
+                f"{model_verdict} {score:.2f} vs {second} {second_score:.2f}: "
+                f"margin {margin:.2f} < {limits['min_verdict_margin']:.2f}"
+            )
+    elif not reasons:
+        reasons.append("no verdict from the model")
+    verdict = model_verdict
+
+    if hits:
+        verdict = rule["blocklist_hit_verdict"]
+        if model_verdict and model_verdict != verdict:
+            reasons.append(f"blocklist hit but the model said {model_verdict}")
+    if injection:
+        verdict = rule["injection_verdict"]
+        if rule["injection_to_analyst"]:
+            reasons.append(f"text aimed at an AI reviewer: {injection[0]!r}")
+    if always := [s for s in found if s in rule["analyst_signals"]]:
+        reasons.append(f"{', '.join(always)}: an analyst checks it whatever the verdict")
+    doubtful = [s for s in found if s in rule["suspicious_signals"] and s not in always]
+    if verdict in {BENIGN, SPAM} and doubtful:
+        reasons.append(f"{verdict} verdict but {', '.join(doubtful)}")
+    if not verdict:
+        verdict = UNKNOWN
+
+    row = {
+        "email": report.name,
+        "from": defang_text(report.sender),
+        "reply_to": defang_text(report.reply_to),
+        "subject": defang_text(report.subject),
+        "model_verdict": model_verdict,
+        "score": f"{score:.3f}" if ranked else "",
+        "margin": f"{margin:.3f}" if ranked else "",
+        "second_verdict": second,
+        "verdict": verdict,
+        "route": "analyst" if reasons else "auto",
+        "analyst_reasons": defang_text("; ".join(reasons)),
+        "signals": "; ".join(found),
+        "blocklist_hits": "; ".join(defang(ioc.kind, ioc.value) for ioc in hits),
+        "injection": "; ".join(injection),
+        "payment_request": defang_text("; ".join(payment)),
+        "urgency": defang_text("; ".join(reading.spans.get(URGENCY, []))),
+        "sender_name": defang_text("; ".join(reading.spans.get(SENDER, []))),
+    }
+    return Triage(report, row, iocs)
+
+
+def ioc_rows(results: list[Triage], rules: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "email": result.report.name,
+            "type": ioc.kind,
+            "defanged": defang(ioc.kind, ioc.value),
+            "source": ioc.source,
+            "on_blocklist": "yes" if on_blocklist(ioc, rules) else "no",
+            "internal": "yes" if ioc_is_internal(ioc, rules) else "no",
+        }
+        for result in results
+        for ioc in result.iocs
+    ]
+
+
+def blocklist_candidates(results: list[Triage], rules: dict[str, Any]) -> list[dict[str, Any]]:
+    """External IOCs of phishing and unknown verdicts that are not blocked yet.
+
+    ``propose`` when the verdict was automatic, ``pending_analyst`` when an analyst has to
+    confirm the verdict first (always the case for unknown). An IOC in several emails gets the
+    strongest status, so ``propose`` wins. Internal domains, IPs in `internal_networks` (our
+    own relays) and shared webmail domains are never proposed (the sender address on a webmail
+    domain is).
+    """
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for result in results:
+        if result.row["verdict"] not in (PHISHING, UNKNOWN):
+            continue
+        status = "propose" if result.row["route"] == "auto" else "pending_analyst"
+        for ioc in result.iocs:
+            key = (ioc.kind, ioc.value.lower())
+            internal = ioc_is_internal(ioc, rules)
+            shared = ioc.kind == "domain" and ioc.value in rules["shared_mail_domains"]
+            done = key in rows and (rows[key]["status"] == "propose" or status != "propose")
+            if done or internal or shared or on_blocklist(ioc, rules):
+                continue
+            rows[key] = {
+                "type": ioc.kind,
+                "defanged": defang(ioc.kind, ioc.value),
+                "email": result.report.name,
+                "status": status,
+            }
+    return list(rows.values())
+
+
+# --- Run --------------------------------------------------------------------------------------
+
+
+@dataclass
+class Outcome:
+    verdicts: list[dict[str, Any]]
+    iocs: list[dict[str, Any]]
+    candidates: list[dict[str, Any]]
+    empty_windows: int  # windows read as "no spans" after SIE's empty-result error
+
+
+def run(client: SIEClient, rules: dict[str, Any], reports: list[Report]) -> Outcome:
+    readings = read_reports(client, reports, rules)
+    results = [triage(report, readings[report.name], rules) for report in reports]
+    return Outcome(
+        [result.row for result in results],
+        ioc_rows(results, rules),
+        blocklist_candidates(results, rules),
+        sum(len(reading.empty_windows) for reading in readings.values()),
+    )
+
+
+def csv_safe(value: Any) -> str:
+    """A leading ' on a cell a spreadsheet would run as a formula; anything else as written."""
+    text = str(value)
+    return "'" + text if text.startswith(FORMULA_START) else text
+
+
+def _write_csv(path: Path, fields: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows({key: csv_safe(value) for key, value in row.items()} for row in rows)
+
+
+def write_outputs(output_dir: Path, outcome: Outcome) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_csv(output_dir / "verdicts.csv", VERDICT_FIELDS, outcome.verdicts)
+    _write_csv(output_dir / "iocs.csv", IOC_FIELDS, outcome.iocs)
+    _write_csv(output_dir / "blocklist_candidates.csv", CANDIDATE_FIELDS, outcome.candidates)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    parser.add_argument("--output", type=Path, help="output directory (default: runs/<timestamp>)")
+    args = parser.parse_args()
+    output = args.output or RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    rules = load_rules()
+    reports = load_reports(rules)
+    with make_client() as client:
+        outcome = run(client, rules, reports)
+    write_outputs(output, outcome)
+    for row in outcome.verdicts:
+        print(f"{row['email']:<34} {row['verdict']:<9} {row['route']:<8} {row['analyst_reasons']}")
+    print(
+        f"\n{outcome.empty_windows} entity windows read as no spans after SIE's empty-result error"
+    )
+    print(f"{len(outcome.iocs)} IOCs, {len(outcome.candidates)} blocklist candidates:")
+    for row in outcome.candidates:
+        print(f"  {row['status']:<16} {row['type']:<7} {row['defanged']}")
+    print(f"\noutputs: {output}")
+
+
+if __name__ == "__main__":
+    main()

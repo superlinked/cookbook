@@ -1,0 +1,74 @@
+# The CTI team's tagging rules: the alias table, the tool-to-ATT&CK mapping, the model ID and
+# every threshold the recipe uses. The thresholds are starting points, not tuned values, so check
+# them against your own reports.
+# Every actor and malware name below is fictional. The tools are real, widely documented
+# admin and offensive-security tools.
+
+models:
+  entities: numind/NuNER_Zero   # tags threat actor, malware and tool spans
+
+# Entity labels sent to NuNER Zero, as {our kind: model label}. The model card asks for
+# lower-case labels. Change the label words on the right freely, but the keys are fixed: the
+# code reads actor, malware and tool, and the recipe stops at start if the keys differ.
+# CVEs, hashes and network IOCs are found by regex, not by the model.
+labels:
+  actor: threat actor
+  malware: malware
+  tool: tool
+
+# The alias table: one canonical name per actor or malware family, with the names other
+# vendors and feeds use for it. Looking a mention up ignores case, a leading "the" and trailing
+# words from `generic_words`, so "Mothvine Loader" and "the Mothvine loader" both read as
+# Mothvine. The recipe's own search of the text for names the model missed is exact case.
+# If one alias sits under two canonical names, that's a real-world collision, and a
+# mention of it goes to review instead of being merged with either. A canonical name itself
+# goes under one section only (actors, malware or tool_techniques); the recipe refuses to start
+# if it finds one in two.
+actors:
+  Ashen Heron: [LX-0417, Grey Lantern]
+  Copper Moth: [LX-0522, Grey Lantern]
+malware:
+  QuillRAT: [QRAT, Quill RAT]
+  Mothvine: [MothVine]
+  SaltGlass: [SaltGlass Locker]
+
+# Words dropped from the end of a name before matching ("SaltGlass ransomware" -> SaltGlass).
+generic_words: [ransomware, loader, backdoor, implant, malware, dropper, stage, family,
+                group, actor, operators, tool, utility, variant, threat]
+
+# Model spans that are never names. A span made only of generic words ("threat group") is
+# dropped too. Both rules were added after the live run, when NuNER Zero tagged "threat group"
+# as an actor and "MD5" as a tool (fitted to the demo data; extend them for your reports).
+ignore_mentions: [MD5, SHA-1, SHA1, SHA-256, SHA256, CVE]
+
+# Tools mapped to ATT&CK Enterprise technique IDs. Every ID must be in
+# data/attack_techniques.csv (a small subset of MITRE ATT&CK; see the README for the terms of
+# use). A tool the model finds that isn't listed here goes to review. We don't guess a
+# technique.
+tool_techniques:
+  Mimikatz: [T1003.001]
+  PsExec: [T1569.002, T1021.002]
+  AdFind: [T1087.002, T1482]
+  rclone: [T1567.002]
+  PowerShell: [T1059.001]
+  vssadmin: [T1490]
+  ngrok: [T1572]
+
+# Which name and indicator reasons send a report to review (true) or are only recorded (false).
+policy:
+  unknown_actor: true      # an actor name that is not in the alias table
+  unknown_malware: true    # a malware name that is not in the alias table
+  ambiguous_alias: true    # an alias listed under two canonical names
+  unmapped_tool: true      # a tool with no ATT&CK mapping in tool_techniques
+  live_ioc: true           # a URL written live (http://, https://) instead of defanged
+  malformed_indicator: true  # a hex run that is not an MD5, SHA-1 or SHA-256 length, a
+                             # defanged IP that isn't a valid address, a CVE ID with too
+                             # few digits, or a defanged domain whose last label isn't
+                             # letters only
+# An invalid model span or a window the model failed to tag always goes to review.
+
+thresholds:
+  min_entity_score: 0.50       # NuNER Zero span score; lower spans are not returned
+  max_words_per_window: 150    # NuNER Zero reads 384 tokens; reports are split on sentences
+  min_hex_run: 24              # hex runs at least this long are hash candidates
+  batch_size: 16               # windows per SIE call

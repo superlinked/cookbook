@@ -8,7 +8,11 @@ model card before you rely on it.
 
 | Model | What the recipes use it for | SIE call | License | Image | Recipes |
 | --- | --- | --- | --- | --- | --- |
+| [`fastino/gliner2-large-v1`](https://huggingface.co/fastino/gliner2-large-v1) | Pull named fields and entities out of text, to a schema | `extract` | Apache 2.0 | `cuda12-default` | [phishing_triage](security/phishing_triage) |
+| [`fastino/GLiNER2.5-Decide`](https://huggingface.co/fastino/GLiNER2.5-Decide) | Answer a typed question about a text (pick one, yes or no) with a probability | `extract` | Apache 2.0 | `cuda12-transformers5` | [phishing_triage](security/phishing_triage) |
+| [`numind/NuNER_Zero`](https://huggingface.co/numind/NuNER_Zero) | Tag entities of any type you name | `extract` | MIT | `cuda12-default` | [threat_report_tagging](security/threat_report_tagging) |
 | [`Qwen/Qwen3Guard-Gen-4B`](https://huggingface.co/Qwen/Qwen3Guard-Gen-4B) | Give a safety verdict and categories for a prompt | `chat_completions` | Apache 2.0 | `cuda12-sglang` | [copilot_prompt_screening](security/copilot_prompt_screening) |
+| [`knowledgator/gliner-relex-large-v1.0`](https://huggingface.co/knowledgator/gliner-relex-large-v1.0) | Find entities and the relations between them | `extract` | Apache 2.0 | `cuda12-default` | [threat_relations](security/threat_relations) |
 
 ## Swaps we ran
 
@@ -18,7 +22,10 @@ Each recipe README's "Try another model" section has the details. The short vers
 
 | Default | Swap | How it went |
 | --- | --- | --- |
+| `fastino/gliner2-large-v1` | `fastino/gliner2-base-v1` | Same verdicts, routes, IOCs and blocklist candidates in phishing_triage; only the urgency spans changed. |
+| `numind/NuNER_Zero` | `urchade/gliner_multi-v2.1`, `numind/NuNER_Zero-span` | Worse on threat reports: 2 and 3 reports tagged instead of 4, with the 0.50 threshold chosen with NuNER_Zero in mind. |
 | `Qwen/Qwen3Guard-Gen-4B` | `ibm-granite/granite-guardian-3.0-2b` | Did not run: it is not a drop-in, because it answers Yes/No, not "Safety: ...". |
+| `fastino/GLiNER2.5-Decide`, `knowledgator/gliner-relex-large-v1.0` | none | SIE Cloud has no same-API alternative yet. |
 
 ## Other models
 
