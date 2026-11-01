@@ -66,24 +66,38 @@ injection_patterns:
 
 # HTML styles that hide text from the person reading the email, as {CSS property: regex}. The
 # regex must match the whole value, after lowercasing and dropping spaces and !important, so
-# background-color:#fff or font-size:0.9em don't count.
+# background-color:#fff or font-size:0.9em don't count. display, visibility, opacity and
+# max-height hide everything inside the tag (max-height only together with overflow:hidden).
+# font-size and color hide text only until a tag inside sets another value (MJML sections set
+# font-size:0 and their text font-size:13px).
 hidden_html_styles:
   display: none
   visibility: hidden
   font-size: '0+(\.0+)?([a-z]+|%)?'
   color: '#fff|#ffffff|white|rgb\(255,255,255\)'
   opacity: '0+(\.0+)?'
+  max-height: '0+(\.0+)?([a-z]+|%)?'
+  overflow: hidden
+# A value that takes the parent's (150%, 2em, inherit): it doesn't reset a hidden font-size or
+# color, so font-size:0 then font-size:150% stays hidden.
+inherited_style_values: '.*((?<!r)em|ex|%)|smaller|larger|inherit|unset|revert|currentcolor'
 
 # HTML we don't try to read the way a mail client would. We don't render CSS, so rather than
 # guess what the recipient sees, any of these raises unusual_html and an analyst looks. So does
-# more than one text/plain or text/html part, a tag with two hrefs, a self-closed <div/>, HTML
-# with no visible text, and text hidden by the hidden attribute, <template> or <font color>.
+# two or more text/plain parts (or text/html parts), a tag with two hrefs, a self-closed
+# <div/>, HTML with no visible text, a comment holding markup or a link (Outlook's
+# <!--[if mso]>), and text hidden by the hidden attribute, <template> or <font color>.
 unusual_html:
-  link: '(https?://|mailto:|tel:)[^\x00-\x1f\x7f]*'  # every href must match this whole
-  tags: [base, area, form]                             # plus <meta http-equiv=refresh>
+  # Every href (and xlink:href, or any attribute ending in href) must match this whole.
+  link: '(https?://|mailto:|tel:|sms:)[^\x00-\x1f\x7f]*'
+  tags: [base, area, form, svg, math]                       # plus <meta http-equiv=refresh>
   # A <style> rule (e.g. .pre { display: none }) that sets one of these to a hidden value
   # above. We can't tell which elements its class hides.
-  style_block_hides: [display, visibility, opacity]
+  style_block_hides: [display, visibility, opacity, font-size, color, max-height]
+
+# Preheader padding newsletters add after a short hidden preheader (&#847;&zwnj;&nbsp; repeated,
+# and whitespace). It doesn't count toward max_hidden_chars.
+hidden_padding: '[\s\u034f\u00ad\u200b-\u200d\u2060\ufeff]'
 
 thresholds:
   min_verdict_score: 0.60     # top verdict probability below this: analyst
@@ -109,8 +123,9 @@ policy:
   # Signals that send the email to an analyst whatever the verdict. obfuscated_url is a URL
   # that isn't a plain http(s) URL; we don't guess which host a browser would open.
   # unusual_html is anything under unusual_html above.
-  analyst_signals: [obfuscated_url, unusual_html]
+  # unusual_mime is an attachment, a non-text part or a forwarded message: we don't open them.
+  analyst_signals: [obfuscated_url, unusual_html, unusual_mime]
   # A benign or spam verdict goes to an analyst when any of these deterministic signals fire.
   suspicious_signals: [lookalike_domain, display_name_claims_internal, reply_to_mismatch,
                        ip_url, obfuscated_url, unusual_html, payment_request_external,
-                       hidden_text]
+                       hidden_text, unusual_mime]

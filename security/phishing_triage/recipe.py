@@ -31,7 +31,6 @@ import csv
 import ipaddress
 import os
 import re
-from collections.abc import Container
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email import message_from_bytes, policy
@@ -117,11 +116,46 @@ FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 # --- Parse the .eml (stdlib only) -------------------------------------------------------------
 
 
+# A scheme-less link a mail client makes clickable (www.evil.example/reset); read as http://.
+WWW_RE = re.compile(r"(?<![\w.@/:-])www\.[^\s<>\"'()]*", re.IGNORECASE)
+# The signal names the code raises; load_rules checks the policy lists in rules.yaml use them.
+SIGNALS = (
+    "lookalike_domain",
+    "display_name_claims_internal",
+    "reply_to_mismatch",
+    "ip_url",
+    "obfuscated_url",
+    "unusual_html",
+    "unusual_mime",
+    "payment_request_external",
+    "hidden_text",
+)
+
+
+def links_in(text: str) -> list[str]:
+    """Every http(s) URL in free text, plus each www. link as http://."""
+    return URL_RE.findall(text) + ["http://" + url for url in WWW_RE.findall(text)]
+
+
+def _declarations(css: str) -> list[tuple[str, str]]:
+    """(property, value) for each CSS declaration, lowercased, without spaces or !important."""
+    found = []
+    for declaration in re.split(r"[;{}]", re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)):
+        prop, _, value = declaration.partition(":")
+        found.append((prop.strip().lower(), re.sub(r"\s+|!important", "", value.lower())))
+    return found
+
+
 class _HtmlText(HTMLParser):
     """The visible text of an HTML part, its link targets, its hidden text, and what's unusual.
 
     It reads inline styles only. Whatever it would need a CSS engine or a mail client's quirks
     to get right goes into `unusual`, and the email goes to an analyst.
+
+    display, visibility, opacity and max-height (with overflow:hidden) hide everything inside
+    the tag. font-size and color hide only text whose nearest declared value is the hidden one,
+    so a child that sets font-size:13px is visible again, as in a mail client. A relative or
+    inherited value (150%, 2em, inherit) doesn't reset it.
     """
 
     VOID = frozenset({"br", "img", "hr", "meta", "link", "input", "wbr", "source", "col"})
@@ -143,33 +177,43 @@ class _HtmlText(HTMLParser):
             prop: re.compile(pattern, re.IGNORECASE)
             for prop, pattern in rules["hidden_html_styles"].items()
         }
+        self.inherits = re.compile(rules["inherited_style_values"], re.IGNORECASE)
         self.odd = rules["unusual_html"]
-        self.stack: list[tuple[str, bool]] = []  # (tag, hides its content)
+        # (tag, hides its content, font-size hides, color hides); None when the tag doesn't set it
+        self.stack: list[tuple[str, bool, bool | None, bool | None]] = []
         self.parts: list[str] = []
         self.hidden: list[str] = []
         self.links: list[str] = []
         self.unusual: list[str] = []
 
-    def _style_hides(self, css: str, props: Container[str]) -> bool:
-        """A declaration in `css` sets one of `props` to a value in hidden_html_styles."""
-        for declaration in re.split(r"[;{}]", re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)):
-            prop, _, value = declaration.partition(":")
-            prop, value = prop.strip().lower(), re.sub(r"\s+|!important", "", value.lower())
+    def _style(self, css: str) -> dict[str, bool]:
+        """Each hidden_html_styles property `css` sets, and whether its value hides text."""
+        found = {}
+        for prop, value in _declarations(css):
             pattern = self.hidden_styles.get(prop)
-            if prop in props and pattern and pattern.fullmatch(value):
-                return True
-        return False
+            if pattern and pattern.fullmatch(value):
+                found[prop] = True
+            elif pattern and not self.inherits.fullmatch(value):
+                found[prop] = False
+        return found
 
-    def _hides(self, tag: str, values: dict[str, str | None]) -> bool:
-        font_color = f"color:{values.get('color')}" if tag == "font" else ""
-        if "hidden" in values or tag == "template" or self._style_hides(font_color, {"color"}):
+    def _entry(
+        self, tag: str, values: dict[str, str | None]
+    ) -> tuple[str, bool, bool | None, bool | None]:
+        style = self._style(values.get("style") or "")
+        size, color = style.pop("font-size", None), style.pop("color", None)
+        if not style.pop("overflow", False):
+            style.pop("max-height", None)
+        font_white = tag == "font" and self._style(f"color:{values.get('color')}").get("color")
+        if "hidden" in values or tag == "template" or font_white:
             self.unusual.append(f"<{tag}> hidden without an inline style")
-            return True
-        return tag in self.SKIP or self._style_hides(values.get("style") or "", self.hidden_styles)
+            return tag, True, size, color
+        return tag, tag in self.SKIP or any(style.values()), size, color
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
-        hrefs = [str(value).strip() for name, value in attrs if name == "href" and value]
+        # href, and any attribute ending in it (SVG's xlink:href) is a link too.
+        hrefs = [str(value).strip() for name, value in attrs if name.endswith("href") and value]
         self.links += hrefs
         if len(hrefs) > 1:
             self.unusual.append(f"<{tag}> with {len(hrefs)} hrefs")
@@ -183,12 +227,33 @@ class _HtmlText(HTMLParser):
             self._close_head()
         self._boundary(tag)
         if tag not in self.VOID:
-            self.stack.append((tag, self._hides(tag, values)))
+            self.stack.append(self._entry(tag, values))
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag not in self.VOID:  # a browser ignores the "/", so <div/> stays open
             self.unusual.append(f"self-closed <{tag}/>")
         self.handle_starttag(tag, attrs)
+
+    def handle_comment(self, data: str) -> None:
+        # Outlook shows what's inside <!--[if mso]> ... <![endif]-->; other clients don't. We
+        # read neither way: a comment with markup or a link goes to an analyst, and its text is
+        # kept with the hidden text, so its links still become IOCs.
+        if "[if" in data.lower() or "<" in data or links_in(data):
+            self.unusual.append("HTML comment with markup or a link")
+            self.hidden += ["\n", data, "\n"]
+
+    def unknown_decl(self, data: str) -> None:
+        self.unusual.append(f"<![{data[:20]}...]>")
+
+    def _hidden_now(self) -> bool:
+        """Text here is hidden: a tag above hides it, or the nearest font-size or color does."""
+        if any(entry[1] for entry in self.stack):
+            return True
+        for index in (2, 3):
+            declared = [entry[index] for entry in self.stack if entry[index] is not None]
+            if declared and declared[-1]:
+                return True
+        return False
 
     def _close_head(self) -> None:
         self.stack = [entry for entry in self.stack if entry[0] != "head"]
@@ -209,11 +274,14 @@ class _HtmlText(HTMLParser):
         innermost = self.stack[-1][0] if self.stack else ""
         if innermost == "head" and data.strip():
             self._close_head()
-        if innermost == "style" and self._style_hides(data, self.odd["style_block_hides"]):
+        if innermost == "style" and any(
+            prop in self.odd["style_block_hides"] and self._style(f"{prop}:{value}").get(prop)
+            for prop, value in _declarations(data)
+        ):
             self.unusual.append("<style> rule that hides text")
-        if any(tag in self.SKIP for tag, _ in self.stack):
+        if any(entry[0] in self.SKIP for entry in self.stack):
             return
-        if any(hidden for _, hidden in self.stack):
+        if self._hidden_now():
             self.hidden.append(data)
         else:
             self.parts.append(data)
@@ -251,6 +319,12 @@ class Report:
     # What the parser doesn't read the way a mail client would (e.g. a <style> rule that hides
     # text, a relative link, two text/html parts). Any of it raises the unusual_html signal.
     unusual: list[str]
+    # Parts we don't open: an attachment, a non-text part, a forwarded message (message/rfc822).
+    # Any of it raises unusual_mime. A forwarded message's text parts are read like the body,
+    # but its headers aren't, so the header checks see the reporter's headers.
+    unread: list[str]
+    # The raw text of attached text/plain and text/html parts, searched only for IOCs.
+    attached: str
 
     @property
     def header(self) -> str:
@@ -264,9 +338,19 @@ class Report:
 def parse_eml(path: Path, rules: dict[str, Any]) -> Report:
     message = message_from_bytes(path.read_bytes(), policy=policy.default)
     bodies: dict[str, list[str]] = {"text/plain": [], "text/html": []}
+    unread, attached = [], []
     for part in message.walk():
-        if not part.is_multipart() and part.get_content_disposition() != "attachment":
-            bodies.get(part.get_content_type(), []).append(str(part.get_content()))
+        kind = part.get_content_type()
+        if kind == "message/rfc822":
+            unread.append("forwarded message attached: headers are the reporter's")
+        if part.is_multipart():
+            continue
+        if kind in bodies and part.get_content_disposition() != "attachment":
+            bodies[kind].append(str(part.get_content()))
+            continue
+        unread.append(f"attachment not read: {part.get_filename() or 'no name'} ({kind})")
+        if kind in bodies:
+            attached.append(str(part.get_content()))
     plain, html = "\n\n".join(bodies["text/plain"]).strip(), "\n".join(bodies["text/html"])
     parser = _HtmlText(rules)
     parser.feed(html)
@@ -274,7 +358,7 @@ def parse_eml(path: Path, rules: dict[str, Any]) -> Report:
     html_text = _tidy(parser.parts)
     # Mail clients differ on which of two bodies they show, so we read them all and flag it.
     if max(map(len, bodies.values())) > 1:
-        parser.unusual.append("more than one text/plain or text/html part")
+        parser.unusual.append("two or more text/plain parts, or two or more text/html parts")
     if html.strip() and not html_text:
         parser.unusual.append("HTML with no visible text")
     received = " ".join(str(value) for value in message.get_all("Received") or [])
@@ -291,6 +375,8 @@ def parse_eml(path: Path, rules: dict[str, Any]) -> Report:
         links=parser.links,
         hidden_text=_tidy(parser.hidden),
         unusual=parser.unusual,
+        unread=unread,
+        attached="\n".join(attached),
     )
 
 
@@ -325,6 +411,9 @@ def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
     for key in ("blocklist_hit_verdict", "injection_verdict"):
         if rules["policy"][key] not in VERDICTS:
             raise ValueError(f"{path.name}: policy.{key} must be one of {list(VERDICTS)}")
+    for key in ("analyst_signals", "suspicious_signals"):
+        if unknown := set(rules["policy"][key]) - set(SIGNALS):
+            raise ValueError(f"{path.name}: policy.{key} has unknown signals {sorted(unknown)}")
     return rules
 
 
@@ -371,6 +460,12 @@ def defang(kind: str, value: str) -> str:
     return value
 
 
+def defang_text(text: str) -> str:
+    """Free text (a header, a reason) with every URL and www. link in it defanged."""
+    pattern = f"{URL_RE.pattern}|{WWW_RE.pattern}"
+    return re.sub(pattern, lambda m: defang("url", m.group(0)), text, flags=re.IGNORECASE)
+
+
 def is_http_link(link: str) -> bool:
     """An href a browser opens as http(s), once it drops the spaces and control characters."""
     return re.match(r"https?:", re.sub(r"[\x00-\x20]", "", link), re.IGNORECASE) is not None
@@ -414,12 +509,14 @@ def with_nested(url: str, rounds: int) -> tuple[list[str], bool]:
 
 
 def body_urls(report: Report, rules: dict[str, Any]) -> tuple[list[tuple[str, str]], bool]:
-    """Every URL in the body as (url, source), nested ones included, and whether all are plain
+    """Every URL in the email as (url, source), nested ones included, and whether all are plain
     at every decode level. The IOCs and the obfuscated_url and ip_url signals both read this:
-    the plain part, the visible and hidden HTML text and the link targets.
+    the plain part, the visible and hidden HTML text, attached text parts, the link targets,
+    and the From, Reply-To and Subject headers. A www. link counts as http://.
     """
     raw = [(link, "html link") for link in report.links if is_http_link(link)]
-    raw += [(url, "body") for url in URL_RE.findall(_all_text(report))]
+    raw += [(url, "body") for url in links_in(_all_text(report))]
+    raw += [(url, "header") for url in links_in(report.header)]
     found: list[tuple[str, str]] = []
     every_level_plain = True
     for url, source in raw:
@@ -467,8 +564,9 @@ def regex_iocs(report: Report, rules: dict[str, Any]) -> list[Ioc]:
 
 
 def _all_text(report: Report) -> str:
-    """Everything in the email body, hidden HTML text included: what the regexes search."""
-    return "\n".join([report.plain, report.text, report.hidden_text])
+    """Everything in the email body, hidden HTML text and attached text parts included: what
+    the regexes search."""
+    return "\n".join([report.plain, report.text, report.hidden_text, report.attached])
 
 
 def _reply_address(report: Report) -> str:
@@ -559,6 +657,7 @@ def signals(report: Report, payment_request: list[str], rules: dict[str, Any]) -
     sender_domain = _domain_of(report.sender_address)
     reply_domain = _domain_of(_reply_address(report))
     external = bool(sender_domain) and not is_internal(sender_domain, rules)
+    limits = rules["thresholds"]
     found: list[str] = []
     return_domain = _domain_of(report.return_path)
     if any(is_lookalike(d, rules) for d in (sender_domain, reply_domain, return_domain)):
@@ -579,13 +678,16 @@ def signals(report: Report, payment_request: list[str], rules: dict[str, Any]) -
         found.append("obfuscated_url")
     if report.unusual:
         found.append("unusual_html")
+    if report.unread:
+        found.append("unusual_mime")
     if payment_request and external:
         found.append("payment_request_external")
     # Most newsletters hide a short preheader. Hidden text only counts when it holds an
-    # instruction or a URL, or runs longer than a preheader would.
+    # instruction or a URL, or runs longer than a preheader would. The padding newsletters put
+    # after a preheader (&#847;&zwnj;&nbsp; repeated) doesn't count toward the length.
     hidden = report.hidden_text
-    limit = rules["thresholds"]["max_hidden_chars"]
-    if injection_matches(hidden, rules) or URL_RE.search(hidden) or len(hidden) > limit:
+    too_long = len(re.sub(rules["hidden_padding"], "", hidden)) > limits["max_hidden_chars"]
+    if injection_matches(hidden, rules) or links_in(hidden) or too_long:
         found.append("hidden_text")
     return found
 
@@ -822,7 +924,7 @@ def triage(report: Report, reading: Reading, rules: dict[str, Any]) -> Triage:
     found = signals(report, payment, rules)
     hits = [ioc for ioc in iocs if on_blocklist(ioc, rules)]
     injection = injection_matches(_all_text(report), rules)
-    reasons = list(reading.errors)
+    reasons = list(reading.errors) + report.unread
     if reading.empty_windows:
         reasons.append(
             f"entity model gave SIE's empty-result error, read as no spans: "
@@ -867,22 +969,22 @@ def triage(report: Report, reading: Reading, rules: dict[str, Any]) -> Triage:
 
     row = {
         "email": report.name,
-        "from": report.sender,
-        "reply_to": report.reply_to,
-        "subject": report.subject,
+        "from": defang_text(report.sender),
+        "reply_to": defang_text(report.reply_to),
+        "subject": defang_text(report.subject),
         "model_verdict": model_verdict,
         "score": f"{score:.3f}" if ranked else "",
         "margin": f"{margin:.3f}" if ranked else "",
         "second_verdict": second,
         "verdict": verdict,
         "route": "analyst" if reasons else "auto",
-        "analyst_reasons": "; ".join(reasons),
+        "analyst_reasons": defang_text("; ".join(reasons)),
         "signals": "; ".join(found),
         "blocklist_hits": "; ".join(defang(ioc.kind, ioc.value) for ioc in hits),
         "injection": "; ".join(injection),
-        "payment_request": "; ".join(payment),
-        "urgency": "; ".join(reading.spans.get(URGENCY, [])),
-        "sender_name": "; ".join(reading.spans.get(SENDER, [])),
+        "payment_request": defang_text("; ".join(payment)),
+        "urgency": defang_text("; ".join(reading.spans.get(URGENCY, []))),
+        "sender_name": defang_text("; ".join(reading.spans.get(SENDER, []))),
     }
     return Triage(report, row, iocs)
 
@@ -906,12 +1008,12 @@ def blocklist_candidates(results: list[Triage], rules: dict[str, Any]) -> list[d
     """External IOCs of phishing and unknown verdicts that are not blocked yet.
 
     ``propose`` when the verdict was automatic, ``pending_analyst`` when an analyst has to
-    confirm the verdict first (always the case for unknown). Internal domains, IPs in
-    `internal_networks` (our own relays) and shared webmail domains are never proposed (the
-    sender address on a webmail domain is).
+    confirm the verdict first (always the case for unknown). An IOC in several emails gets the
+    strongest status, so ``propose`` wins. Internal domains, IPs in `internal_networks` (our
+    own relays) and shared webmail domains are never proposed (the sender address on a webmail
+    domain is).
     """
-    rows: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
     for result in results:
         if result.row["verdict"] not in (PHISHING, UNKNOWN):
             continue
@@ -920,18 +1022,16 @@ def blocklist_candidates(results: list[Triage], rules: dict[str, Any]) -> list[d
             key = (ioc.kind, ioc.value.lower())
             internal = ioc_is_internal(ioc, rules)
             shared = ioc.kind == "domain" and ioc.value in rules["shared_mail_domains"]
-            if key in seen or internal or shared or on_blocklist(ioc, rules):
+            done = key in rows and (rows[key]["status"] == "propose" or status != "propose")
+            if done or internal or shared or on_blocklist(ioc, rules):
                 continue
-            seen.add(key)
-            rows.append(
-                {
-                    "type": ioc.kind,
-                    "defanged": defang(ioc.kind, ioc.value),
-                    "email": result.report.name,
-                    "status": status,
-                }
-            )
-    return rows
+            rows[key] = {
+                "type": ioc.kind,
+                "defanged": defang(ioc.kind, ioc.value),
+                "email": result.report.name,
+                "status": status,
+            }
+    return list(rows.values())
 
 
 # --- Run --------------------------------------------------------------------------------------

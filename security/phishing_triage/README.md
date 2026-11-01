@@ -16,11 +16,11 @@ mail gateway or threat-intel export instead.
 | Step | SIE call | Model | Why |
 |---|---|---|---|
 | Parse the `.eml` | Python (`email`, `html.parser`) | | Headers, link targets, the text the recipient sees, and hidden HTML text kept apart |
-| Pull IOCs | Python (regex, `ipaddress`, `urllib`) | | URLs (and URLs nested in a URL's path, query or fragment, even percent-encoded), domains, IPs and sender addresses. Deterministic, before any model runs |
-| Check headers and body | Python | | Look-alike domain, display name claiming to be us, Reply-To mismatch, IP URL, URL that isn't a plain http(s) URL, HTML the parser doesn't fully read, hidden HTML text, text aimed at an AI reviewer |
+| Pull IOCs | Python (regex, `ipaddress`, `urllib`) | | URLs (and URLs nested in a URL's path, query or fragment, even percent-encoded, plus `www.` links), domains, IPs and sender addresses, from the body, attached text parts and the From, Reply-To and Subject headers. Deterministic, before any model runs |
+| Check headers and body | Python | | Look-alike domain, display name claiming to be us, Reply-To mismatch, IP URL, URL that isn't a plain http(s) URL, HTML the parser doesn't fully read, an attachment or forwarded message, hidden HTML text, text aimed at an AI reviewer |
 | Phishing, spam or benign | `extract` + `output_schema` (one choice question) | `fastino/GLiNER2.5-Decide` | One probability per verdict, from the `rules.yaml` descriptions |
 | Payment request, urgency, sender | `extract` + `labels` | `fastino/gliner2-large-v1` | Short spans the regex can't find. URL and domain spans only add what the regex missed |
-| Decide and route | Python | | Blocklist check, defanging (`hxxp`, `[.]`), team policy. An analyst gets the email on a model error, a low score or small margin, a blocklist hit the model disagreed with, text aimed at an AI reviewer, a URL that isn't a plain http(s) URL, unusual HTML, a `benign` or `spam` verdict with a suspicious signal, or an entity window read as empty |
+| Decide and route | Python | | Blocklist check, defanging (`hxxp`, `[.]`), team policy. An analyst gets the email on a model error, a low score or small margin, a blocklist hit the model disagreed with, text aimed at an AI reviewer, a URL that isn't a plain http(s) URL, unusual HTML, an attachment or forwarded message, a `benign` or `spam` verdict with a suspicious signal, or an entity window read as empty |
 
 Both models read 512 tokens. The recipe splits each email's visible text into 150-word
 windows, puts the header into every window, and merges the windows back per email in Python.
@@ -28,11 +28,17 @@ Text hidden by an inline style never reaches the models; Python searches it for 
 instructions. Most newsletters hide a short preheader, so hidden text alone doesn't make an
 email suspicious. It raises the `hidden_text` signal, which sends a `benign` or `spam` verdict
 to an analyst, only when it holds a URL or an `injection_patterns` match, or runs longer than
-`max_hidden_chars` (200). The parser reads HTML the way the recipient sees it: inline tags
-like `<span>` and `<b>` don't split words, block tags and `<br>` start a new line, and
-`<head>`, `<title>`, `<style>` and `<script>` are skipped. An unclosed `<head>` ends at the
-first body tag or text, as in a browser. Text counts as hidden when an inline style in
-`hidden_html_styles` matches, e.g. `display:none`, `font-size:0`, `color:white` or `opacity:0`.
+`max_hidden_chars` (200). The padding newsletters put after a preheader (`&#847;&zwnj;&nbsp;`
+over and over, matched by `hidden_padding`) doesn't count toward that length. The parser reads
+HTML the way the recipient sees it: inline tags like `<span>` and `<b>` don't split words,
+block tags and `<br>` start a new line, and `<head>`, `<title>`, `<style>` and `<script>` are
+skipped. An unclosed `<head>` ends at the first body tag or text, as in a browser. Text counts
+as hidden when an inline style in `hidden_html_styles` matches. `display:none`,
+`visibility:hidden`, `opacity:0` and `max-height:0` with `overflow:hidden` hide everything
+inside the tag. `font-size:0` and `color:white` hide text only until a tag inside sets another
+size or color, as in a mail client, so an MJML section with `font-size:0` around text at
+`font-size:13px` stays visible. A relative value such as `150%` or `2em` doesn't count as
+setting it again (150% of zero is still zero).
 
 Links fail closed. A URL counts as plain only when it is `http://` or `https://`, then an
 ordinary host name or dotted IPv4, an optional port and a path. Anything else that starts like
@@ -41,7 +47,10 @@ http(s) (userinfo, a backslash, `https:///`, a dot at the end of the host such a
 is still a defanged url IOC, but we don't guess which host a browser would open. It raises
 `obfuscated_url`, and that sends the email to an analyst whatever the verdict. The check
 covers every URL the IOC step finds: the plain-text part, the visible and hidden HTML text,
-the link targets, and the URLs nested in any of them. A nested URL becomes an IOC in its
+the link targets (`href`, and `xlink:href` in SVG), attached text parts, the From, Reply-To
+and Subject headers, and the URLs nested in any of them. A link with no scheme that a mail
+client still makes clickable (`www.evil-login.example.org/reset`) counts as `http://`. A
+nested URL becomes an IOC in its
 fully decoded form, but every partly decoded form is checked too, since a redirect decodes
 only once. Punctuation that ends a sentence (a full
 stop, smart quotes, an ellipsis, a dash, `*`, `|`, a possessive `’s`) is cut off first, so an
@@ -49,30 +58,54 @@ ordinary newsletter link isn't flagged, and a bare `https://` with no host isn't
 
 ### What this recipe covers, and what it doesn't
 
-It reads HTML with inline styles, the kind most mail tools send, and it doesn't render CSS or
-copy each mail client's quirks. Where it would have to, it stops and hands the email to an
-analyst instead of guessing. The `unusual_html` signal does that, whatever the verdict, for:
+It triages what your users report. It isn't a mail gateway or a sandbox, and it expects one in
+front of it: something else should already have opened the attachments, detonated the links
+and checked the sender's SPF, DKIM and DMARC. The recipe reads the message body (plain text,
+and HTML with inline styles, the kind most mail tools send) and the From, Reply-To and Subject
+headers. It doesn't render CSS or copy each mail client's quirks. Where it would have to, it
+stops and hands the email to an analyst instead of guessing.
 
-- more than one `text/plain` or `text/html` part (clients disagree on which one they show, so
-  the recipe reads them all and flags it)
-- an `href` that isn't an absolute `http(s)://`, `mailto:` or `tel:` link (relative, `//host`,
-  `javascript:`, `data:`), a tag with two `href`s, or a control character inside a link
-- `<base>`, `<area>`, `<form>` or `<meta http-equiv=refresh>`
+The `unusual_mime` signal sends the email to an analyst, whatever the verdict, when it has:
+
+- an attachment, or any part that isn't `text/plain` or `text/html` (an inline image too). The
+  recipe doesn't open PDFs or Office files. It still pulls the links out of an attached
+  `text/html` or `text/plain` part as IOCs, and the reason names the file, e.g.
+  `attachment not read: invoice.html (text/html)`.
+- a forwarded message (`message/rfc822`), which is how most "report phishing" buttons send
+  one. Its text is read like the body, but the header checks see the reporter's From and
+  Reply-To, not the phisher's, so the look-alike and Reply-To checks can't help here.
+
+The `unusual_html` signal does the same for HTML it doesn't read the way a client would:
+
+- two or more `text/plain` parts, or two or more `text/html` parts (clients disagree on which
+  one they show, so the recipe reads them all and flags it; the usual one of each is fine)
+- an `href` (or `xlink:href`) that isn't an absolute `http(s)://`, `mailto:`, `tel:` or `sms:`
+  link (relative, `//host`, `javascript:`, `data:`), a tag with two `href`s, or a control
+  character inside a link
+- `<base>`, `<area>`, `<form>`, `<svg>`, `<math>` or `<meta http-equiv=refresh>`
+- an HTML comment that holds markup or a link, such as Outlook's `<!--[if mso]>` blocks, which
+  only Outlook shows. Links in it still become IOCs.
 - text hidden some way other than an inline style: the `hidden` attribute, `<template>`,
-  `<font color=white>`, or a `<style>` rule that sets `display`, `visibility` or `opacity` to a
-  hidden value (we can't tell which elements its class hides)
+  `<font color=white>`, or a `<style>` rule that sets `display`, `visibility`, `opacity`,
+  `font-size`, `color` or `max-height` to a hidden value (we can't tell which elements its
+  class hides)
 - a self-closed non-void tag like `<div style="display:none"/>`, and HTML with no visible text
 
-The price is that some legitimate mail goes to an analyst too. Plenty of marketing templates
-hide a mobile-only block with a `<style>` rule, and some use `href="#"`. If that's most of your
-reported mail, the list lives under `unusual_html` in `rules.yaml`. Text hidden by a class can
-still reach the classifier, but the email is already on an analyst's desk.
+The price is that a lot of legitimate mail goes to an analyst too. Plenty of marketing
+templates hide a mobile-only block with a `<style>` rule, use Outlook comments, carry an
+inline logo or set white button text in a class, and some use `href="#"`. If that's most of
+your reported mail, the lists live under `unusual_html` and `policy` in `rules.yaml`. Text
+hidden by a class can still reach the classifier, but the email is already on an analyst's
+desk. Other limits: it reads only the headers named above (no SPF, DKIM, DMARC or `Received`
+path checks beyond collecting the IPs), white text on a dark background counts as hidden, and
+it only knows the colors `hidden_html_styles` lists as white.
 
 **Output.** Three CSVs:
 
 - `verdicts.csv`: one row per email, with `verdict` (`phishing`, `spam` or `benign`),
   `route` (`auto` or `analyst`), every analyst reason, and the signals, blocklist hits,
-  payment request and urgency spans behind them. When gliner2 finds no spans in a window, SIE
+  payment request and urgency spans behind them. A URL or `www.` link anywhere in a text
+  column (the From display name, Reply-To, Subject, a span, a reason) is defanged. When gliner2 finds no spans in a window, SIE
   Cloud has answered with an HTTP 500 instead of an empty list. That's our reading of the
   runs we watched, not documented SIE behavior. The recipe then calls again one window at a
   time (one extra call per window in that batch), reads a window that still fails as "no
@@ -87,7 +120,8 @@ still reach the classifier, but the email is already on an analyst's desk.
 - `blocklist_candidates.csv`: external IOCs of phishing verdicts that are not blocked yet.
   `propose` when the verdict was automatic, `pending_analyst` when an analyst confirms first.
   An email whose verdict call failed (`unknown`) lists its IOCs here as `pending_analyst` too,
-  so a model error doesn't hide them.
+  so a model error doesn't hide them. An IOC found in several emails is listed once, as
+  `propose` if any of them would propose it.
 
 A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so
 a spreadsheet shows a sender like `=cmd@...` instead of running it.
@@ -131,9 +165,13 @@ writes `runs/<timestamp>/` in this folder. If you'd rather write somewhere else,
 regenerate the emails, run `uv run make_data.py`.
 
 To check the parsing and rules without calling SIE, run `uv run --frozen python selfcheck.py`.
-It runs plain asserts on hand-written emails (normal and obfuscated links, nested URLs, HTML
-hiding, defanging, look-alikes) and counts the IOCs and candidates on `data/` with fixed, fake
-model readings. It prints one line per group and exits non-zero on a failure.
+It runs plain asserts on hand-written emails (normal, obfuscated and `www.` links, nested URLs,
+HTML hiding and comments, attachments and forwarded messages, header URLs, defanging,
+look-alikes). Then it runs `data/` through the same window, merge and routing code as a live
+run, with a stand-in client that answers `extract` with hand-written replies. That covers the
+planted verdicts and routes, the 27 IOCs and 13 candidates, the empty-result 500 retry, and a
+reply with the wrong verdict keys or a span that isn't in the text. It never calls SIE and
+prints one line per group, exiting non-zero on a failure.
 
 ## The planted cases
 
@@ -175,8 +213,9 @@ measure of accuracy.
   (`suspicious_signals`) or any verdict (`analyst_signals`). `injection_patterns` and the
   values in `hidden_html_styles` are plain regexes, so you can add your own (e.g. a phrase
   you've seen in a real lure) without touching Python. `unusual_html` sets which links, tags
-  and `<style>` rules go to an analyst, and `max_hidden_chars` how long hidden text may run
-  before it counts as `hidden_text`.
+  and `<style>` rules go to an analyst, `max_hidden_chars` how long hidden text may run
+  before it counts as `hidden_text`, and `hidden_padding` what doesn't count toward it. The
+  signal names in `policy` are checked at load, so a typo fails instead of going quiet.
 - `min_verdict_score`, `min_verdict_margin`, `min_entity_score`, `lookalike_max_edits` and the
   window size are starting points. Pro-tip: check them on your own reported mail before you
   trust the `auto` route.
@@ -216,7 +255,7 @@ with one worker pool per image, routes each model to its pool.
 - `recipe.py`: the pipeline
 - `rules.yaml`: verdicts, policy, blocklist, domains, entity labels, thresholds, model IDs
 - `make_data.py`: writes the five synthetic emails, the same bytes every run
-- `selfcheck.py`: asserts on the parsing and rules, no SIE call
+- `selfcheck.py`: asserts on the parsing, rules and routing, with a stand-in client; no SIE call
 - `data/*.eml`: the reported emails
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
