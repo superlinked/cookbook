@@ -25,20 +25,20 @@ needs to see which edges rest on one publisher and which ones contradict each ot
 | Entities + relations | `extract` + `labels` + `options.relation_labels` | `knowledgator/gliner-relex-large-v1.0` | threat actor, malware, vulnerability, sector, software, campaign; uses, exploits, targets, attributed to, alias of |
 | Names | Python | | Merge names by the alias table, which also sets the type; CVE IDs are upper-cased; generic words ("operators") and vulnerabilities that are not a CVE ID or a table entry are dropped |
 | Types | Python | | Each relation must join the types in `rules.yaml`. One that fits only the other way round is turned round (and flagged); one that fits neither way is dropped with a reason |
-| Negation | Python | | Patterns are checked only from a few words before the first name to the second name, and a verb in a pattern must be one of this relation's verbs. A match there ("no evidence that", "never used", "did not deploy", "has not been linked") makes the claim a denial, not an edge. A negation after the second name ("used Thornpipe but did not exploit...") doesn't count, and neither does a bare "not" ("Velvet Gorse, not Saltmarsh Kettle, used Thornpipe"). Any other negation earlier in the sentence, one across sentences, or sentences that disagree send the claim to review |
+| Negation | Python | | A claim is a denial only when the negation sits directly on it: both names in one sentence, no clause break (a comma, `;`, `:`, "but", "instead") or other entity between them, and a pattern with this relation's verb between them or in the few words before ("no evidence that", "never used", "did not deploy", "has not been linked"). Any other negation word in the claim's sentence ("not", "n't", "never", "no longer", ...) sends the claim to review as neither edge nor denial, and so do sentences that disagree |
 | Graph | Python | | One edge per (head, relation, tail), carrying every source: report, publisher, date, sentence, score |
-| Flags | Python | | `single_source`: fewer than 2 publishers (two reports from one publisher count once). `conflicting`: a family attributed to two actors, or an edge that any report denies (the same report included). `review`: an end that is not in the alias table. A proposed `alias of` is never merged; it goes to review |
+| Flags | Python | | `single_source`: fewer than 2 publishers (two reports from one publisher count once). `conflicting`: a family attributed to two actors, or an edge that any report denies (the same report included). `review`: an end that is not in the alias table, or a report that states the claim with a negation nearby. `provisional`: it would be corroborated, but a report was partly unread. A proposed `alias of` is never merged; it goes to review |
 
 One gotcha: the model's `relations` give the head and tail as plain text, with no type. The code
 looks each end up in the alias table, and for a name the table doesn't know, it uses the label
 the model gave that same text in the same window. So an unknown name can get a different type
 in another window; its edges then carry a "typed as A and B in different claims" flag. Unknown
 names are matched like table names (case, a leading "the" and a possessive don't count), so
-"Ashen Lark", "ASHEN LARK" and "Ashen Lark's" are one node, named as first seen. The relations
-also carry no offsets, so when a name occurs twice the negation check looks at every sentence
-that holds both names, and sends the claim to review if those sentences disagree. An entity
-span whose text doesn't match the window at its offsets is dropped with a note in the review
-list.
+"Ashen Lark", "ASHEN LARK" and "Ashen Lark's" are one node, named by the first spelling the run
+meets. The relations also carry no offsets, so when a name occurs twice the negation check looks
+at every sentence that holds both names, and sends the claim to review if those sentences
+disagree. An entity span whose text doesn't match the window at its offsets is dropped with a
+note in the review list.
 
 **Output.**
 
@@ -46,10 +46,12 @@ list.
   with the sentence), the denials, the dropped relations with the reason, the review list, and
   `unread`: the reports with a paragraph SIE didn't read. Every edge from such a report gets a
   "report R-0x partly unread" flag. The unread paragraph might also deny or contradict an edge
-  from another report, so every corroborated edge gets a "provisional" flag, and the run prints
-  a warning that edges may be missing and that statuses elsewhere may be wrong too.
+  from another report, so every edge that would be corroborated gets status `provisional`
+  instead, with a flag naming the unread reports, and the run prints a warning that edges may
+  be missing and that statuses elsewhere may be wrong too.
 - `graph.mmd` is a Mermaid flowchart. Solid arrows are corroborated, dashed arrows are every
-  other status, red arrows are conflicting or need review, and `?` marks a name not in the table.
+  other status (provisional included), red arrows are conflicting or need review, and `?` marks
+  a name not in the table.
 - `edges.csv` has one row per edge. A cell that starts with `=`, `+`, `-`, `@`, a tab or a
   carriage return gets a leading `'`, so a spreadsheet won't run it as a formula.
 
@@ -95,7 +97,7 @@ reports contain no indicators, URLs or code.
 | E3 | Velvet Gorse targets water utilities, one report | **single_source** |
 | E4 | Murkbell attributed to Velvet Gorse (Dunmore) and to Saltmarsh Kettle (Northfold) | both edges **conflicting** |
 | E5 | Saltmarsh Kettle uses Quillstep in two Northfold reports | **single_source**: one publisher counts once |
-| E6 | Near miss: "We found no evidence that Saltmarsh Kettle used Thornpipe." | the model returned the relation (score 0.92); the negation check turned it into a **denial**, with no edge |
+| E6 | Near miss: "We found no evidence that Saltmarsh Kettle used Thornpipe." | the model returned the relation (score 0.92); the negation check turned it into a **denial**, with no edge. It's the only sentence in the reports with a negation word |
 | E7 | Ashen Lark, a name not in the table, uses Quillstep | **review** |
 | E8 | Saltmarsh Kettle targets port operators; Dunmore writes "Reedcutter" | **corroborated** |
 
@@ -113,9 +115,30 @@ Apparently "code overlap" is a vulnerability now. The planted edges scored 0.88 
 score threshold could separate the two groups. Instead we added two rules to `rules.yaml`:
 `not_entities` (generic words that are never nodes) and `listed_types_only` (a vulnerability must
 be a CVE ID or a table entry). Both were fitted to this demo data, and no threshold changed. The
-results above come from a second live run with the final rules, and they matched the first run.
+results above come from a later live run with the final rules, and the planted cases matched the
+first run.
 
 Treat the planted cases as a demo of how the recipe behaves. They say nothing about accuracy.
+
+## What this recipe covers, and what it doesn't
+
+Deciding which claim a "not" belongs to has no natural end, so the negation rule is narrow on
+purpose and fails toward review:
+
+- It denies a claim only in the plain shapes: "X did not use Y", "X has never been linked to Y",
+  "we found no evidence that X used Y". Put a comma, "but" or another named entity between the
+  names and the claim goes to review, even when a person would call it a clear denial.
+- Every other sentence with a negation word goes to review, not to the graph. That includes
+  hedges ("has not been observed using", "no longer uses"), contrasts ("did not use Thornpipe
+  but used Murkbell") and a "not" about something else in the same sentence ("used Thornpipe but
+  did not exploit CVE-2099-41877"). If the same edge comes from another report, the edge gets
+  status `review` with the sentence in its flags.
+- It doesn't catch a denial phrased without a negation word ("Velvet Gorse stopped using
+  Thornpipe", "the Thornpipe claim was retracted"). The model's relation then stands as an edge.
+- Names in different sentences ("Saltmarsh Kettle is active. It has never used Thornpipe.") are
+  never a denial; with a negation word in between, the claim goes to review.
+
+`selfcheck.py` holds each of these sentences with the outcome the rule gives it.
 
 ## What to change
 
@@ -125,11 +148,15 @@ Treat the planted cases as a demo of how the recipe behaves. They say nothing ab
 - The labels and relation rules are `entity_labels`, plus `relations` with the allowed head and
   tail types. `single_valued` lists the relations that may have only one tail per head.
 - Negations live in `negation`: `patterns` (regex), `verbs` (one list per relation; `{verb}`
-  in a pattern stands for the claim's relation verbs plus `every_relation`) and
-  `lookback_words` (how far before the first name a pattern may start). If your reports deny a
-  link with a verb ours don't use (e.g. "leveraged"), add it to that relation's list. A new
-  relation needs a `verbs` entry, or the recipe refuses to run. Generic words live in `not_entities`: if your reports use one ours don't (e.g.
-  "intruders" where ours say "attackers"), add it there.
+  in a pattern stands for the claim's relation verbs plus `every_relation`), `lookback_words`
+  (how far before the first name a pattern may start), `clause_breaks` (what may not sit
+  between the names of a denied claim) and `doubt_words` (any of these in the sentence sends a
+  claim that isn't a denial to review). If your reports deny a link with a verb ours don't use
+  (e.g. "leveraged"), add it to that relation's list, and keep `doubt_words` covering every
+  pattern. A new relation needs a `verbs` entry, or the recipe refuses to run. Run
+  `uv run --frozen python selfcheck.py` after a change.
+- Generic words live in `not_entities`: if your reports use one ours don't (e.g. "intruders"
+  where ours say "attackers"), add it there.
 - `listed_types_only` names the types whose names must be a CVE ID or an alias-table entry.
 - The thresholds are `entity_threshold`, `relation_threshold` (the model card suggests 0.7 to
   0.9), `min_sources`, `max_words_per_window` and `batch_size`. Treat them as starting points and
@@ -163,6 +190,8 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: the pipeline
+- `selfcheck.py`: offline checks of the negation rule, name matching, Mermaid and CSV output
+  and window splitting, on hand-written sentences; no SIE call
 - `rules.yaml`: labels, relation rules, alias table, patterns, thresholds and the model ID
 - `data/reports.jsonl`: the synthetic reports
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies

@@ -33,17 +33,20 @@ relations:
 # same family, every one of those edges is flagged as conflicting.
 single_valued: [attributed to]
 
-# Negation: Python regex, case-insensitive. The scope is the claim's own text in one sentence:
-# up to lookback_words words before the earlier name (not past a , ; or :) through to the later
-# name. A pattern that matches in the scope denies the claim, and {verb} there stands only for
-# this relation's verbs (verbs[relation]) plus every_relation. So "Velvet Gorse used Thornpipe but
-# did not exploit CVE-2099-41877" denies nothing about "uses", and "Velvet Gorse, not Saltmarsh
-# Kettle, used Thornpipe" matches no pattern. A denied claim is not an edge: it is kept as a
-# denial, and an edge that any report denies (the same report included) is conflicting.
-# When unsure, the claim goes to review as neither edge nor denial: a pattern (with any verb)
-# matches from the sentence start to the later name but doesn't deny the claim, or the names sit
-# in different sentences and a pattern matches in the text up to the later name, or the names
-# share several sentences that disagree. A negation after the later name is ignored.
+# Negation: Python regex, case-insensitive. This recipe denies a claim only when the negation sits
+# directly on it, and sends anything less clear to review.
+# - Denial: both names are in one sentence, the text between them has no clause_breaks match and
+#   no other tagged entity, and a pattern matches in that text or in the lookback_words words
+#   just before the earlier name (not past a clause break or other entity). {verb} in a
+#   pattern stands only for this relation's verbs (verbs[relation]) plus every_relation. So "We
+#   found no evidence that Saltmarsh Kettle used Thornpipe" and "Velvet Gorse did not deploy
+#   Thornpipe" are denials. A denied claim is not an edge: it is kept as a denial, and an edge
+#   that any report denies (the same report included) is conflicting.
+# - Review: otherwise, if doubt_words matches anywhere in the claim's sentence (or sentences),
+#   the claim is neither edge nor denial and goes to review, and its edge is flagged. So "Velvet
+#   Gorse did not use Thornpipe but used Murkbell", "Velvet Gorse, not Saltmarsh Kettle, used
+#   Thornpipe" and "has not been observed using" all go to review for the claim they don't deny.
+# - Edge: no negation word in the sentence. Names in different sentences are never a denial.
 negation:
   lookback_words: 4
   patterns:
@@ -53,6 +56,13 @@ negation:
     - '\bnever (?:been )?{verb}'
     - '\bunrelated to\b'
     - '\bruled out\b'
+  # Between the two names, any of these may start another clause (", which", ", using", "but"),
+  # so a negation there may not be on the claim.
+  clause_breaks: '[,;:]|\bbut\b|\binstead\b'
+  # Any of these in the claim's sentence makes a claim that is not a denial go to review. It
+  # covers every pattern above plus hedges such as "no longer uses", "does not appear to use",
+  # "has not been observed using" and "is not known to use".
+  doubt_words: '\bnot\b|n[''’]t\b|\bcannot\b|\bnever\b|\bno (?:longer|evidence|indications?|signs?|link|connection)\b|\bunrelated\b|\bruled out\b'
   verbs:   # one list per relation in `relations`
     uses: [use, uses, used, using, deploy, deploys, deployed, deploying]
     exploits: [exploit, exploits, exploited, exploiting]
@@ -70,7 +80,7 @@ not_entities: [operators, investigators, researchers, attackers, victims, defend
 listed_types_only: [vulnerability]
 
 # Canonical name, type and aliases. Names are matched case-insensitively after trimming
-# punctuation and a leading "the". CVE IDs need no entry: they are upper-cased.
+# punctuation, a leading "the" and a possessive ('s). CVE IDs need no entry: they are upper-cased.
 aliases:
   - name: Velvet Gorse
     type: threat actor

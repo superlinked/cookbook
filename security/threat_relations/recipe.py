@@ -17,12 +17,12 @@ SIE pipeline:
                                                      attributed to / alias of relations
            (Python)                                  check spans; merge names by the alias table;
                                                      check relation types (turn round or drop);
-                                                     a negation between the two names is a
-                                                     denial, not an edge, and one nearby sends
-                                                     the claim to review; build the graph with
-                                                     every source; set each edge's status and
-                                                     queue conflicting and unknown-entity edges
-                                                     for review
+                                                     a negation directly on the claim is a
+                                                     denial, not an edge, and any other in its
+                                                     sentence sends it to review; build the
+                                                     graph with every source; set each edge's
+                                                     status and queue conflicting, unsure and
+                                                     unknown-entity edges for review
 Output:    graph.json (nodes, edges with sources and status, denials, dropped relations, review
            items, unread reports), graph.mmd (Mermaid) and edges.csv (one row per edge).
 Why SIE:   One model finds entities and relations together. Otherwise you'd need an NER model
@@ -59,8 +59,9 @@ RUNS_DIR = ROOT / "runs"
 WAIT_S = 900
 
 ALIAS_OF = "alias of"
-CORROBORATED, SINGLE_SOURCE, CONFLICTING, REVIEW = (
+CORROBORATED, PROVISIONAL, SINGLE_SOURCE, CONFLICTING, REVIEW = (
     "corroborated",
+    "provisional",  # would be corroborated, but a report was partly unread
     "single_source",
     "conflicting",
     "review",
@@ -205,11 +206,11 @@ class Canon:
     known: bool  # True when the alias table (or the CVE pattern) names it
 
 
-@dataclass(frozen=True)
+@dataclass
 class AliasTable:
     by_key: dict[str, Canon]
-    # Names the table doesn't know, by name_key: the first spelling seen is the node's name,
-    # so "Foo", "FOO" and "Foo's" become one node.
+    # Names the table doesn't know, filled in as resolve() meets them, by name_key. The first
+    # spelling seen names the node, so "Foo", "FOO" and "the Foo's" become one node, "Foo".
     unknown: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -344,42 +345,43 @@ def negation_patterns(rules: dict[str, Any], verbs: list[str]) -> list[re.Patter
 
 
 def negation_at(
-    window: str, place: Place, relation: str, rules: dict[str, Any]
+    window: str, place: Place, relation: str, others: list[str], rules: dict[str, Any]
 ) -> tuple[bool, str]:
     """Whether the claim at this place is denied, and why it is unsure ("" when sure).
 
-    The scope runs from up to lookback_words words before the earlier name (not past a , ; or :)
-    to the later name. A pattern in the scope whose {verb} is one of this relation's verbs (or
-    every_relation's) denies the claim. Any other negation from the sentence start up to the
-    later name, or any negation there at all when the names sit in different sentences, makes
-    the claim unsure. A negation after the later name is about something else and is ignored.
+    A denial needs the negation directly on the claim: both names in one sentence, nothing
+    between them that starts a new clause (clause_breaks) or names another entity (others),
+    and a pattern, with this relation's verbs, in that text or in the few words just before the
+    earlier name. Anything else with a negation word (doubt_words) in the claim's sentence or
+    sentences is unsure: neither edge nor denial.
     """
     negation = rules["negation"]
-    all_verbs = [v for vs in negation["verbs"].values() for v in vs] + negation["every_relation"]
-    own_verbs = negation["verbs"][relation] + negation["every_relation"]
-    start = place.sentence[0]
-    nearby = any(
-        p.search(window[start : place.second[0]]) for p in negation_patterns(rules, all_verbs)
-    )
-    if place.split:
-        return False, "a negation in a passage across sentences" if nearby else ""
-    clause = re.split(r"[,;:]", window[start : place.first[0]])[-1]
-    lookback = clause.split()[-negation["lookback_words"] :] if negation["lookback_words"] else []
-    scope = " ".join(lookback) + " " + window[place.first[0] : place.second[0]]
-    if any(p.search(scope) for p in negation_patterns(rules, own_verbs)):
-        return True, ""
-    return False, "a negation near the claim that is not tied to it" if nearby else ""
+    sentence = window[place.sentence[0] : place.sentence[1]]
+    unsure = re.search(negation["doubt_words"], sentence, re.IGNORECASE)
+    if not place.split:
+        breaks = "|".join([negation["clause_breaks"], *(re.escape(name) for name in others)])
+        between = window[place.first[1] : place.second[0]]
+        before = re.split(breaks, window[place.sentence[0] : place.first[0]], flags=re.IGNORECASE)
+        words = before[-1].split()
+        scope = " ".join(words[max(len(words) - negation["lookback_words"], 0) :]) + " " + between
+        verbs = negation["verbs"][relation] + negation["every_relation"]
+        if not re.search(breaks, between, re.IGNORECASE) and any(
+            p.search(scope) for p in negation_patterns(rules, verbs)
+        ):
+            return True, ""
+    return False, "a negation in the sentence that is not directly on the claim" if unsure else ""
 
 
 def check_negation(
-    window: str, head: str, tail: str, relation: str, rules: dict[str, Any]
+    window: str, head: str, tail: str, relation: str, others: list[str], rules: dict[str, Any]
 ) -> tuple[bool, str, str]:
     """Whether the claim is denied, why it is unsure ("" when sure), and its sentence.
 
-    When the names share more than one sentence and the sentences disagree, it is unsure.
+    others are the other entity names tagged in the window. When the names share more than one
+    sentence and the sentences disagree, the claim is unsure.
     """
     places = claim_places(window, head, tail)
-    verdicts = {negation_at(window, place, relation, rules) for place in places}
+    verdicts = {negation_at(window, place, relation, others, rules) for place in places}
     s, e = places[0].sentence
     if len(verdicts) > 1:
         return False, "sentences that disagree on a negation", window[s:e]
@@ -465,7 +467,8 @@ def check_relation(
     if oriented is None:
         return f"{head.type} -> {tail.type} does not fit '{relation}'"
     note = "" if oriented[0] is head else "turned round to fit the relation's types"
-    denied, doubt, sentence = check_negation(window, head_text, tail_text, relation, rules)
+    others = [name for name in labels if name not in (name_key(head_text), name_key(tail_text))]
+    denied, doubt, sentence = check_negation(window, head_text, tail_text, relation, others, rules)
     source = Source(report.id, report.publisher, report.published, sentence, score)
     return Claim(oriented[0], relation, oriented[1], source, denied, doubt, note)
 
@@ -512,15 +515,15 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
       publisher are one source).
     - conflicting: a single-valued relation (attributed to) points to two different tails, or
       a report (any report, the same one included) denies the edge.
-    - review: an end of the edge is not in the alias table.
-
-    A claim with a negation nearby that check_negation couldn't tie to it is neither an edge
-    nor a denial: it goes to the review list.
+    - review: an end of the edge is not in the alias table, or a report has the claim with a
+      negation in its sentence that check_negation couldn't tie to it. Such a claim is neither
+      an edge nor a denial, and it goes to the review list.
     """
     nodes: dict[str, Node] = {}
     types: dict[str, set[str]] = {}
     edges: dict[tuple[str, str, str], Edge] = {}
     denials: list[Claim] = []
+    doubts: list[Claim] = []
     review: list[str] = []
     for claim in claims:
         if claim.relation == ALIAS_OF:
@@ -534,6 +537,7 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
                 f"{claim.source.report}: {claim.head.name} {claim.relation} {claim.tail.name}"
                 f" has {claim.doubt}; not an edge or a denial: {claim.source.sentence!r}"
             )
+            doubts.append(claim)
             continue
         if claim.denied:
             denials.append(claim)
@@ -564,15 +568,19 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
             )
             if others:
                 conflict.append(f"other reports say {edge.relation} {', '.join(others)}")
-        for denial in denials:
-            if (denial.head.name, denial.relation, denial.tail.name) == (
-                edge.head,
-                edge.relation,
-                edge.tail,
-            ):
-                conflict.append(f"{denial.source.report} denies it: {denial.source.sentence!r}")
+        key = (edge.head, edge.relation, edge.tail)
+        conflict += [
+            f"{c.source.report} denies it: {c.source.sentence!r}"
+            for c in denials
+            if (c.head.name, c.relation, c.tail.name) == key
+        ]
+        unsure = [
+            f"{c.source.report} has a negation near it: {c.source.sentence!r}"
+            for c in doubts
+            if (c.head.name, c.relation, c.tail.name) == key
+        ]
         unknown = [n for n in (edge.head, edge.tail) if not nodes[n].known]
-        edge.flags += conflict
+        edge.flags += conflict + unsure
         edge.flags += [f"{name} is not in the alias table" for name in unknown]
         edge.flags += [
             f"{name} typed as {' and '.join(sorted(types[name]))} in different claims"
@@ -585,7 +593,7 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
             )
         if conflict:
             edge.status = CONFLICTING
-        elif unknown:
+        elif unknown or unsure:
             edge.status = REVIEW
         elif len(edge.publishers) < min_sources:
             edge.status = SINGLE_SOURCE
@@ -613,6 +621,7 @@ def mermaid(graph: Graph) -> str:
     """A Mermaid flowchart: solid arrows are corroborated, the rest dashed, red when in doubt.
 
     Red marks conflicting and review edges, and "?" marks a name the alias table does not know.
+    A provisional edge is dashed: it would be corroborated, but a report was partly unread.
     """
     shapes = {"threat actor": ("([", "])"), "malware": ("[[", "]]"), "vulnerability": ("{{", "}}")}
     node_id = {node.name: f"n{index}" for index, node in enumerate(graph.nodes)}
@@ -676,6 +685,7 @@ def map_relations(client: SIEClient, reports: list[Report], rules: dict[str, Any
         ]
         # An unread paragraph may deny or contradict an edge from any report.
         if unread and edge.status == CORROBORATED:
+            edge.status = PROVISIONAL
             edge.flags.append(f"provisional: {', '.join(unread)} partly unread")
     return graph
 
@@ -750,7 +760,7 @@ def main() -> None:
     for report_id in graph.unread:
         print(
             f"warning: {report_id} was partly unread; its edges carry a flag and may be missing,"
-            " and the status of any other edge may be wrong too (corroborated edges are flagged"
+            " and the status of any other edge may be wrong too (corroborated edges are"
             " provisional)"
         )
     print(f"\n{len(graph.nodes)} nodes, {len(graph.edges)} edges, {len(graph.review)} review items")
