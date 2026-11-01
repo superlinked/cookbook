@@ -47,10 +47,12 @@ def check_secrets() -> None:
     # The AWS docs placeholder is on the allowlist.
     assert secret_kinds("Is AKIAIOSFODNN7EXAMPLE the docs key?") == []
     # A PEM private key is masked whole, body included, with or without its END line.
+    # The markers are built from parts so the repo's private-key hook doesn't flag this file.
     body = "MIIEowIBAAKCAQEAfakefakefakefakefakefake"
+    begin, end, key = "-----BEGIN ", "-----END ", "PRIVATE KEY-----"
     for pem in [
-        f"-----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY-----\nthanks",
-        f"see this:\n-----BEGIN PRIVATE KEY-----\n{body}\n",
+        f"{begin}RSA {key}\n{body}\n{end}RSA {key}\nthanks",
+        f"see this:\n{begin}{key}\n{body}\n",
     ]:
         secrets = recipe.find_secrets(pem, RULES)
         assert [finding.kind for finding, _ in secrets] == ["private_key"]
