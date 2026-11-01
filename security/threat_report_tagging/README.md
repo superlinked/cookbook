@@ -39,8 +39,8 @@ know yet (e.g. "Velvet Ostrich", "Chisel"). Those are exactly the ones an analys
 **Output.** `tags.json` holds every report with its canonical actors, malware and tools, its
 ATT&CK techniques, every mention (offsets, score, and whether it came from the `model` or the
 `table`), its indicators and its status, `tagged` or `review`. `entities.csv` has one row per
-mention, and `iocs.csv` has one row per indicator, always defanged (every `http` becomes
-`hxxp`, even one percent-encoded inside a query, and every dot becomes `[.]`, the port stays):
+mention, and `iocs.csv` has one row per indicator, always defanged (every `http:` becomes
+`hxxp:`, even one percent-encoded inside a query, and every dot becomes `[.]`, the port stays):
 
 ```
 report_id,kind,mention,start,end,source,score,canonical,techniques,status,reason
@@ -55,7 +55,8 @@ A URL counts as live when its scheme and host are written the way a browser open
 `https://evil.example/login[.]php` is live even though its path is defanged. A defanged email
 gives its whole domain: `user@evil[.]example[.]com` is `evil[.]example[.]com`, not
 `example[.]com`. That holds when only the `@` is defanged (`billing[@]evil-pay.example.com`)
-and when the local part is missing or quoted (`@evil[.]example`).
+and when the local part is missing, quoted or defanged itself. `john[.]smith@evil[.]example[.]com`
+gives only `evil[.]example[.]com`: the local part is never read as a domain or a hash.
 
 **What the indicator regexes cover, and what they don't.** They find CVE IDs, hex hashes, URLs
 with an `http`, `https`, `hxxp` or `hxxps` scheme, and IPs, domains and email domains defanged
@@ -63,7 +64,11 @@ with `[.]`, `(.)` or `[@]`. A bare domain or IP written live isn't an indicator,
 4.2.0.118` and `cfg.dat` stay out. What the regexes can't read cleanly goes to review instead
 of being cut down to something that looks right: a hash of the wrong length, an IP that isn't a
 valid address, a CVE ID with too few digits, and a domain whose last label isn't letters only
-(`evil[.]example[.]c0m`, kept whole). Punycode top-level domains (`xn--...`) land there too.
+(`evil[.]example[.]c0m`, kept whole). Punycode top-level domains (`xn--...`) land there too,
+even real ones, so an analyst checks them. So does a version number someone defanged
+(`4[.]2[.]0`): the recipe can't tell it from a truncated IP, so it doesn't drop it. A plain dot
+before a capital letter ends a domain, since that's a full stop with the space missing
+(`evil[.]example[.]com.Then`), so write a domain in lower case or defang every dot.
 A defanged file name looks just like a domain, so `evil[.]exe` comes out as the domain
 `evil[.]exe`. Anything else, like an IPv6 address or a domain defanged some other way, isn't
 found at all, so read the report before you trust an empty `iocs.csv`.
@@ -192,8 +197,9 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: the pipeline
-- `selfcheck.py`: plain asserts on the indicator regexes, the alias table and the rules check,
-  with hand-written strings and no SIE call (`uv run --frozen python selfcheck.py`)
+- `selfcheck.py`: plain asserts on the indicator regexes, the alias table, the review rules
+  and the rules check, using hand-written strings, the committed `data/` and hand-written
+  stand-in model replies. It never calls SIE (`uv run --frozen python selfcheck.py`)
 - `rules.yaml`: labels, alias table, tool mapping, policy, thresholds, model ID
 - `data/`: the reports and the ATT&CK subset
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies

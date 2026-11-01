@@ -147,13 +147,18 @@ def load_techniques(path: Path = TECHNIQUES_PATH) -> dict[str, Technique]:
 URL_RE = re.compile(r"\b(?:hxxps?|https?)(?:\[:\]|:)//[^\s<>\"']+", re.IGNORECASE)
 CVE_RE = re.compile(r"\bCVE-(\d{4})-(\d+)\b", re.IGNORECASE)
 DOT = r"(?:\[\.\]|\(\.\)|\.)"
-IP_RE = re.compile(rf"(?<![\w.\[\])])\d{{1,3}}(?:{DOT}\d{{1,3}}){{3}}(?![\w\[(]|\.\d)")
+# Nothing starts right after a dot, defanged or not, so "a[.]b[.]example[.]com" is one match
+# and "[1]192[.]0[.]2[.]5" (a footnote marker, then an IP) is still the IP.
+AFTER_DOT = r"(?<![\w.])(?<!\[\.\])(?<!\(\.\))"
+IP_RE = re.compile(rf"{AFTER_DOT}\d{{1,3}}(?:{DOT}\d{{1,3}}){{3}}(?![\w\[(]|\.\d)")
 # Every dotted label up to the last one, so a bad top-level domain is kept whole, not cut short.
-HOST = rf"(?:[\w-]+{DOT})+[\w-]+"
-# A domain never starts right after a dot, defanged or not, so "a[.]b[.]example[.]com" is one.
-DOMAIN_RE = re.compile(rf"(?<![\w.@-])(?<!\[\.\])(?<!\(\.\)){HOST}")
-# The local part may be missing or quoted: "@evil[.]example" still gives its domain.
-EMAIL_RE = re.compile(rf"(?<![\w.+-])[\w.+-]*(?:@|\[@\])({HOST})")
+# A plain dot before a capital letter is a full stop with the space missing ("com.Then").
+HOST_DOT = r"(?:\[\.\]|\(\.\)|\.(?![A-Z]))"
+HOST = rf"(?:[\w-]+{HOST_DOT})+[\w-]+"
+DOMAIN_RE = re.compile(rf"{AFTER_DOT}(?<![@-]){HOST}")
+# The local part may be defanged ("john[.]smith"), missing or quoted: "@evil[.]example" still
+# gives its domain.
+EMAIL_RE = re.compile(rf"(?<![\w.+-])(?:{DOT}|[\w+-])*(?:@|\[@\])({HOST})")
 TRAILING = ".,;:)]'\""
 
 
@@ -176,11 +181,11 @@ def refang(value: str) -> str:
 def defang(value: str) -> str:
     """Write hxxp and [.] so the indicator can go into a ticket without becoming a link.
 
-    Every http or https scheme becomes hxxp or hxxps, including one inside a query string and
-    one with its colon percent-encoded (http%3a), and every dot in host, path and query becomes
-    [.]. A port stays as it is.
+    Every http or https before a colon becomes hxxp or hxxps, including one inside a query
+    string, one glued to the word before it (xhttp://) and one with its colon percent-encoded
+    (http%3a), and every dot in host, path and query becomes [.]. A port stays as it is.
     """
-    value = re.sub(r"\bhttp(s?)(?=:|%3a)", r"hxxp\1", value, flags=re.IGNORECASE)
+    value = re.sub(r"http(s?)(?=:|%3a)", r"hxxp\1", value, flags=re.IGNORECASE)
     return value.replace(".", "[.]")
 
 
@@ -208,7 +213,8 @@ def find_indicators(text: str, rules: dict[str, Any]) -> list[Indicator]:
 
     URLs come first and mask their span, so a CVE, hash or domain inside a URL is not counted
     twice. Emails come next: an email defanged anywhere, [@] included, gives its whole domain,
-    so user@evil[.]example[.]com is evil[.]example[.]com and not example[.]com.
+    so user@evil[.]example[.]com is evil[.]example[.]com and not example[.]com. The whole
+    email is masked, so a defanged or hex local part is not read as a domain or a hash.
     Bare domains and IPs count only when defanged: "build 4.2.0.118" and "cfg.dat" are not
     network indicators. A URL is live when its scheme and host are written as a browser opens
     them (https://evil.example/login[.]php is live); it's kept, defanged in the output.
@@ -235,6 +241,7 @@ def find_indicators(text: str, rules: dict[str, Any]) -> list[Indicator]:
         raw = m.group(1).rstrip(TRAILING)
         if free(m.start(), m.end()) and _is_defanged(m.group()):
             add(domain_indicator(raw, m.start(1)))
+            taken.append(m.span())
     for m in CVE_RE.finditer(text):
         if not free(m.start(), m.end()):
             continue

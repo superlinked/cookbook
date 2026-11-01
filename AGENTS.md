@@ -11,7 +11,7 @@ folder into their own project and it runs with only `uv` and an SIE API key.
 
 - `<industry>/<recipe>/` holds one recipe: `recipe.py`, `README.md`,
   `rules.yaml` (or other config), `data/`, and optionally `make_data.py` or
-  `fetch_data.py` that rebuild the data.
+  `fetch_data.py` that rebuild the data, and `selfcheck.py` (offline checks).
 - Each recipe has its own `pyproject.toml` (`[tool.uv] package = false`),
   `uv.lock`, `.python-version` (3.12) and `.env.example`. There is no root
   Python project and no shared package.
@@ -51,8 +51,9 @@ The first call can wait minutes while SIE Cloud starts a cold model.
   reader can change them without editing Python.
 - Recipes run live only: no recorded responses, replay mode, eval sets or
   scorecards in this repository. A recipe may have a `selfcheck.py`: plain
-  asserts on its own parsing and rule functions with hand-written strings, no
-  SIE call and no model output. CI runs it.
+  asserts on its own parsing and rule functions, using hand-written strings,
+  the committed `data/` and hand-written stand-in model replies. It never calls
+  SIE and never replays a recorded response. CI runs it.
 - All data is synthetic or from a public dataset that allows redistribution.
   Name the source, revision and license in the recipe README. No real people,
   customers, credentials or live URLs.
