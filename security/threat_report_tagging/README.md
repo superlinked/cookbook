@@ -19,7 +19,7 @@ wrongly, you've pinned the activity on the wrong actor.
 
 | Step | SIE call | Model | Why |
 |---|---|---|---|
-| Indicators | Python | | CVE IDs, MD5/SHA-1/SHA-256 by length, defanged URLs, domains, IPs and email domains by regex; live URLs, malformed hashes, IPs and CVE IDs flagged |
+| Indicators | Python | | CVE IDs, MD5/SHA-1/SHA-256 by length, defanged URLs, domains, IPs and email domains by regex; live URLs, malformed hashes, IPs, CVE IDs and top-level domains flagged |
 | Split | Python | | Sentences packed into windows of at most 150 words (NuNER Zero reads 384 tokens) |
 | Tag | `extract` + `labels` | `numind/NuNER_Zero` | `threat actor`, `malware` and `tool` spans, zero-shot |
 | Check spans | Python | | Each span must equal the text at its offsets; spans on an indicator, or that are not names ("MD5", "threat group"), are dropped |
@@ -47,14 +47,26 @@ report_id,kind,mention,start,end,source,score,canonical,techniques,status,reason
 R-02,actor,LX-0417,0,7,model,0.96875,Ashen Heron,,tagged,model said malware; the table lists Ashen Heron as actor
 R-03,actor,Grey Lantern,63,75,model,1.0,,,review,ambiguous alias: 'Grey Lantern' is listed under Ashen Heron and Copper Moth
 
-report_id,type,value,live_in_source,note
-R-06,url,hxxp://192[.]0[.]2[.]44/q[.]ps1,True,written live in the report
+report_id,type,value,live_in_source,malformed,note
+R-06,url,hxxp://192[.]0[.]2[.]44/q[.]ps1,True,False,written live in the report
 ```
 
 A URL counts as live when its scheme and host are written the way a browser opens them, so
 `https://evil.example/login[.]php` is live even though its path is defanged. A defanged email
 gives its whole domain: `user@evil[.]example[.]com` is `evil[.]example[.]com`, not
-`example[.]com`.
+`example[.]com`. That holds when only the `@` is defanged (`billing[@]evil-pay.example.com`)
+and when the local part is missing or quoted (`@evil[.]example`).
+
+**What the indicator regexes cover, and what they don't.** They find CVE IDs, hex hashes, URLs
+with an `http`, `https`, `hxxp` or `hxxps` scheme, and IPs, domains and email domains defanged
+with `[.]`, `(.)` or `[@]`. A bare domain or IP written live isn't an indicator, so `build
+4.2.0.118` and `cfg.dat` stay out. What the regexes can't read cleanly goes to review instead
+of being cut down to something that looks right: a hash of the wrong length, an IP that isn't a
+valid address, a CVE ID with too few digits, and a domain whose last label isn't letters only
+(`evil[.]example[.]c0m`, kept whole). Punycode top-level domains (`xn--...`) land there too.
+A defanged file name looks just like a domain, so `evil[.]exe` comes out as the domain
+`evil[.]exe`. Anything else, like an IPv6 address or a domain defanged some other way, isn't
+found at all, so read the report before you trust an empty `iocs.csv`.
 
 When a name is in the alias table, the table decides whether it's an actor, malware or a tool,
 whatever label the model gave it. In R-02 above, the model called `LX-0417` malware, and the
@@ -122,10 +134,11 @@ Everything below lives in `rules.yaml` unless it says otherwise.
   `data/attack_techniques.csv`, or the recipe refuses to start. If you need more techniques,
   swap the CSV for the full ATT&CK Enterprise catalog from
   [attack.mitre.org](https://attack.mitre.org/).
-- `policy` turns each review reason on or off. A name reason that's off (unknown actor or
-  malware, ambiguous alias, unmapped tool) is recorded as `new` and doesn't send the report to
-  review. An indicator reason that's off (live URL, malformed hash, IP or CVE ID) is dropped;
-  the indicator row still keeps its note.
+- `policy` turns each name and indicator reason on or off. A name reason that's off (unknown
+  actor or malware, ambiguous alias, unmapped tool) is recorded as `new` and doesn't send the
+  report to review. An indicator reason that's off (live URL, malformed hash, IP, CVE ID or
+  domain) is dropped; the indicator row still keeps its `malformed` flag and note. An invalid
+  model span or a window the model failed to tag always sends the report to review.
 - `labels`, `generic_words` and `ignore_mentions` control what the model looks for and which of
   its spans get thrown away as not being names. You can change the label words the model sees,
   but not the keys: the code reads `actor`, `malware` and `tool`, and any other set of keys
@@ -179,6 +192,8 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: the pipeline
+- `selfcheck.py`: plain asserts on the indicator regexes, the alias table and the rules check,
+  with hand-written strings and no SIE call (`uv run --frozen python selfcheck.py`)
 - `rules.yaml`: labels, alias table, tool mapping, policy, thresholds, model ID
 - `data/`: the reports and the ATT&CK subset
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies

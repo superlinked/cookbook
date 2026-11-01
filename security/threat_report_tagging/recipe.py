@@ -72,7 +72,7 @@ ENTITY_FIELDS = (
     "status",
     "reason",
 )
-IOC_FIELDS = ("report_id", "type", "value", "live_in_source", "note")
+IOC_FIELDS = ("report_id", "type", "value", "live_in_source", "malformed", "note")
 HASH_TYPES = {32: "md5", 40: "sha1", 64: "sha256"}
 # A CSV cell starting with one of these opens as a formula in a spreadsheet.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -147,14 +147,13 @@ def load_techniques(path: Path = TECHNIQUES_PATH) -> dict[str, Technique]:
 URL_RE = re.compile(r"\b(?:hxxps?|https?)(?:\[:\]|:)//[^\s<>\"']+", re.IGNORECASE)
 CVE_RE = re.compile(r"\bCVE-(\d{4})-(\d+)\b", re.IGNORECASE)
 DOT = r"(?:\[\.\]|\(\.\)|\.)"
-IP_RE = re.compile(rf"(?<![\w.\[])\d{{1,3}}(?:{DOT}\d{{1,3}}){{3}}(?![\w\[]|\.\d)")
+IP_RE = re.compile(rf"(?<![\w.\[\])])\d{{1,3}}(?:{DOT}\d{{1,3}}){{3}}(?![\w\[(]|\.\d)")
+# Every dotted label up to the last one, so a bad top-level domain is kept whole, not cut short.
+HOST = rf"(?:[\w-]+{DOT})+[\w-]+"
 # A domain never starts right after a dot, defanged or not, so "a[.]b[.]example[.]com" is one.
-DOMAIN_RE = re.compile(
-    rf"(?<![\w.@-])(?<!\[\.\])(?<!\(\.\))(?:[a-z0-9-]+{DOT})+[a-z]{{2,}}\b", re.IGNORECASE
-)
-EMAIL_RE = re.compile(
-    rf"(?<![\w.+-])[\w.+-]+(?:@|\[@\])((?:[a-z0-9-]+{DOT})+[a-z]{{2,}})\b", re.IGNORECASE
-)
+DOMAIN_RE = re.compile(rf"(?<![\w.@-])(?<!\[\.\])(?<!\(\.\)){HOST}")
+# The local part may be missing or quoted: "@evil[.]example" still gives its domain.
+EMAIL_RE = re.compile(rf"(?<![\w.+-])[\w.+-]*(?:@|\[@\])({HOST})")
 TRAILING = ".,;:)]'\""
 
 
@@ -171,7 +170,7 @@ class Indicator:
 
 def refang(value: str) -> str:
     value = re.sub(r"^hxxp", "http", value, flags=re.IGNORECASE)
-    return value.replace("[.]", ".").replace("(.)", ".").replace("[:]", ":")
+    return value.replace("[.]", ".").replace("(.)", ".").replace("[:]", ":").replace("[@]", "@")
 
 
 def defang(value: str) -> str:
@@ -195,16 +194,26 @@ def _is_live_url(raw: str) -> bool:
     return m is not None and not _is_defanged(m.group(1))
 
 
+def domain_indicator(raw: str, start: int) -> Indicator:
+    """A defanged domain, malformed when its last label is not letters only ("c0m")."""
+    domain = refang(raw).lower()
+    indicator = Indicator("domain", defang(domain), start, start + len(raw))
+    if not re.fullmatch(r"[a-z]{2,}", domain.rsplit(".", 1)[-1]):
+        indicator.malformed, indicator.note = True, "the top-level domain is not letters only"
+    return indicator
+
+
 def find_indicators(text: str, rules: dict[str, Any]) -> list[Indicator]:
     """Find every indicator by regex, marking the ones written live or malformed.
 
     URLs come first and mask their span, so a CVE, hash or domain inside a URL is not counted
-    twice. Emails come next: a defanged email gives its whole domain, so
-    user@evil[.]example[.]com is evil[.]example[.]com and not example[.]com.
+    twice. Emails come next: an email defanged anywhere, [@] included, gives its whole domain,
+    so user@evil[.]example[.]com is evil[.]example[.]com and not example[.]com.
     Bare domains and IPs count only when defanged: "build 4.2.0.118" and "cfg.dat" are not
     network indicators. A URL is live when its scheme and host are written as a browser opens
     them (https://evil.example/login[.]php is live); it's kept, defanged in the output.
-    A defanged IP that isn't a valid address is kept as malformed, like a short hash.
+    A defanged IP that isn't a valid address, or a domain whose last label isn't letters
+    ("evil[.]example[.]c0m"), is kept whole as malformed, like a short hash.
     """
     found: list[Indicator] = []
     taken: list[tuple[int, int]] = []
@@ -224,8 +233,8 @@ def find_indicators(text: str, rules: dict[str, Any]) -> list[Indicator]:
         add(indicator)
     for m in EMAIL_RE.finditer(text):
         raw = m.group(1).rstrip(TRAILING)
-        if free(m.start(), m.end()) and _is_defanged(raw):
-            add(Indicator("domain", defang(refang(raw).lower()), m.start(), m.start(1) + len(raw)))
+        if free(m.start(), m.end()) and _is_defanged(m.group()):
+            add(domain_indicator(raw, m.start(1)))
     for m in CVE_RE.finditer(text):
         if not free(m.start(), m.end()):
             continue
@@ -258,10 +267,8 @@ def find_indicators(text: str, rules: dict[str, Any]) -> list[Indicator]:
         add(Indicator("ip", defang(ip), m.start(), m.end()))
     for m in DOMAIN_RE.finditer(text):
         raw = m.group().rstrip(TRAILING)
-        if not free(m.start(), m.start() + len(raw)) or not _is_defanged(raw):
-            continue
-        domain = refang(raw).lower()
-        add(Indicator("domain", defang(domain), m.start(), m.start() + len(raw)))
+        if free(m.start(), m.start() + len(raw)) and _is_defanged(raw):
+            add(domain_indicator(raw, m.start()))
     return sorted(found, key=lambda i: i.start)
 
 
@@ -430,8 +437,8 @@ def table_mentions(text: str, table: AliasTable, indicators: list[Indicator]) ->
 
     The model can miss a name it has never seen ("LX-0417") or a short second mention. Names
     already in the table need no model to find them; longer names win. A match inside a CVE,
-    hash or IOC is dropped, as for model spans, so "ngrok" in hxxps://a1b2[.]ngrok[.]io is a
-    domain and not the tool.
+    hash or IOC is dropped, as for model spans, so "ngrok" in hxxps://a1b2[.]ngrok[.]io is part
+    of a URL indicator and not the tool.
     """
     found: list[Entity] = []
     taken = [(i.start, i.end) for i in indicators]
@@ -614,6 +621,7 @@ def write_outputs(output_dir: Path, tagged: list[TaggedReport]) -> None:
                             "type": ind.type,
                             "value": ind.value,
                             "live_in_source": ind.live_in_source,
+                            "malformed": ind.malformed,
                             "note": ind.note,
                         }
                     )

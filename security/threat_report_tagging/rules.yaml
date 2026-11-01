@@ -54,7 +54,7 @@ tool_techniques:
   vssadmin: [T1490]
   ngrok: [T1572]
 
-# What sends a report to review (true) or is only recorded (false).
+# Which name and indicator reasons send a report to review (true) or are only recorded (false).
 policy:
   unknown_actor: true      # an actor name that is not in the alias table
   unknown_malware: true    # a malware name that is not in the alias table
@@ -62,8 +62,10 @@ policy:
   unmapped_tool: true      # a tool with no ATT&CK mapping in tool_techniques
   live_ioc: true           # a URL written live (http://, https://) instead of defanged
   malformed_indicator: true  # a hex run that is not an MD5, SHA-1 or SHA-256 length, a
-                             # defanged IP that isn't a valid address, or a CVE ID with too
-                             # few digits
+                             # defanged IP that isn't a valid address, a CVE ID with too
+                             # few digits, or a defanged domain whose last label isn't
+                             # letters only
+# An invalid model span or a window the model failed to tag always goes to review.
 
 thresholds:
   min_entity_score: 0.50       # NuNER Zero span score; lower spans are not returned
