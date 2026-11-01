@@ -31,6 +31,7 @@ Run everything from inside the recipe folder:
 - `uvx ruff check . && uvx ruff format --check .` (settings in the root
   `ruff.toml`).
 - `uv run --with mypy mypy --strict --ignore-missing-imports *.py`.
+- `uv run selfcheck.py` where a recipe has one (offline, no SIE call).
 
 A live run needs `SIE_API_KEY` in a `.env` in the
 recipe folder or the repo root, or `SIE_BASE_URL` pointing at a self-hosted SIE
@@ -49,7 +50,9 @@ The first call can wait minutes while SIE Cloud starts a cold model.
 - Keep rules, thresholds and model names in `rules.yaml`, not in code, so a
   reader can change them without editing Python.
 - Recipes run live only: no recorded responses, replay mode, eval sets or
-  scorecards in this repository.
+  scorecards in this repository. A recipe may have a `selfcheck.py`: plain
+  asserts on its own parsing and rule functions with hand-written strings, no
+  SIE call and no model output. CI runs it.
 - All data is synthetic or from a public dataset that allows redistribution.
   Name the source, revision and license in the recipe README. No real people,
   customers, credentials or live URLs.

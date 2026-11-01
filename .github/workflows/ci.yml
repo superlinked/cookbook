@@ -58,6 +58,8 @@ jobs:
       # Offline smoke test: recipe.py and everything it imports load and the CLI parses, with no
       # SIE call. It does not load rules.yaml or the data.
       - run: uv run --frozen python recipe.py --help
+      # Offline checks of the recipe's own parsing and rule functions, where it has them.
+      - run: if [ -f selfcheck.py ]; then uv run --frozen python selfcheck.py; fi
 
   required:
     name: CI / Required
