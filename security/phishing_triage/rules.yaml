@@ -74,6 +74,17 @@ hidden_html_styles:
   color: '#fff|#ffffff|white|rgb\(255,255,255\)'
   opacity: '0+(\.0+)?'
 
+# HTML we don't try to read the way a mail client would. We don't render CSS, so rather than
+# guess what the recipient sees, any of these raises unusual_html and an analyst looks. So does
+# more than one text/plain or text/html part, a tag with two hrefs, a self-closed <div/>, HTML
+# with no visible text, and text hidden by the hidden attribute, <template> or <font color>.
+unusual_html:
+  link: '(https?://|mailto:|tel:)[^\x00-\x1f\x7f]*'  # every href must match this whole
+  tags: [base, area, form]                             # plus <meta http-equiv=refresh>
+  # A <style> rule (e.g. .pre { display: none }) that sets one of these to a hidden value
+  # above. We can't tell which elements its class hides.
+  style_block_hides: [display, visibility, opacity]
+
 thresholds:
   min_verdict_score: 0.60     # top verdict probability below this: analyst
   min_verdict_margin: 0.20    # top-1 minus top-2 probability below this: analyst
@@ -86,15 +97,20 @@ thresholds:
   batch_size: 25              # windows per SIE call
   url_decode_rounds: 3        # times a URL's path, query and fragment are percent-decoded
                               # when looking for URLs nested in it
+  max_hidden_chars: 200       # hidden HTML text longer than this raises hidden_text; so does
+                              # hidden text with a URL or an injection_patterns match. A
+                              # newsletter's hidden preheader is usually shorter.
 
 # What the deterministic checks do to the model's verdict.
 policy:
   blocklist_hit_verdict: phishing      # any IOC on the blocklist makes the email phishing
   injection_verdict: phishing          # an email that tries to instruct an AI reviewer is phishing
   injection_to_analyst: true           # ...and an analyst sees it whatever the model said
-  # Signals that send the email to an analyst whatever the verdict. obfuscated_url is a link
+  # Signals that send the email to an analyst whatever the verdict. obfuscated_url is a URL
   # that isn't a plain http(s) URL; we don't guess which host a browser would open.
-  analyst_signals: [obfuscated_url]
+  # unusual_html is anything under unusual_html above.
+  analyst_signals: [obfuscated_url, unusual_html]
   # A benign or spam verdict goes to an analyst when any of these deterministic signals fire.
   suspicious_signals: [lookalike_domain, display_name_claims_internal, reply_to_mismatch,
-                       ip_url, obfuscated_url, payment_request_external, hidden_text]
+                       ip_url, obfuscated_url, unusual_html, payment_request_external,
+                       hidden_text]
