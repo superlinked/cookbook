@@ -8,12 +8,10 @@ model card before you rely on it.
 
 | Model | What the recipes use it for | SIE call | License | Image | Recipes |
 | --- | --- | --- | --- | --- | --- |
-| [`fastino/gliner2-large-v1`](https://huggingface.co/fastino/gliner2-large-v1) | Pull named fields and entities out of text, to a schema | `extract` | Apache 2.0 | `cuda12-default` | [customer_message_routing](retail/customer_message_routing), [phishing_triage](security/phishing_triage) |
+| [`fastino/gliner2-large-v1`](https://huggingface.co/fastino/gliner2-large-v1) | Pull named fields and entities out of text, to a schema | `extract` | Apache 2.0 | `cuda12-default` | [customer_email_routing](retail/customer_email_routing), [phishing_triage](security/phishing_triage) |
 | [`lightonai/LightOnOCR-3-4B`](https://huggingface.co/lightonai/LightOnOCR-3-4B) | Turn a scanned page, photo or screenshot into text | `extract` | Apache 2.0 | `cuda12-sglang-vision-extract` | [copilot_prompt_screening](security/copilot_prompt_screening) |
-| [`fastino/GLiNER2.5-Decide`](https://huggingface.co/fastino/GLiNER2.5-Decide) | Answer a typed question about a text (pick one, yes or no) with a score | `extract` | Apache 2.0 | `cuda12-transformers5` | [customer_message_routing](retail/customer_message_routing), [phishing_triage](security/phishing_triage) |
+| [`fastino/GLiNER2.5-Decide`](https://huggingface.co/fastino/GLiNER2.5-Decide) | Answer a typed question about a text (pick one, yes or no) with a score | `extract` | Apache 2.0 | `cuda12-transformers5` | [customer_email_routing](retail/customer_email_routing), [phishing_triage](security/phishing_triage) |
 | [`numind/NuNER_Zero`](https://huggingface.co/numind/NuNER_Zero) | Tag entities of any type you name | `extract` | MIT | `cuda12-default` | [threat_report_tagging](security/threat_report_tagging) |
-| [`zai-org/GLM-OCR`](https://huggingface.co/zai-org/GLM-OCR) | Read receipts and shelf labels from photos | `extract` | MIT | `cuda12-sglang-vision-extract` | [receipt_returns](retail/receipt_returns), [shelf_price_check](retail/shelf_price_check) |
-| [`IDEA-Research/grounding-dino-base`](https://huggingface.co/IDEA-Research/grounding-dino-base) | Draw boxes around objects named in text | `extract` | Apache 2.0 | `cuda12-default` | [shelf_price_check](retail/shelf_price_check) |
 | [`Qwen/Qwen3Guard-Gen-4B`](https://huggingface.co/Qwen/Qwen3Guard-Gen-4B) | Give a safety verdict and categories for a prompt | `chat_completions` | Apache 2.0 | `cuda12-sglang` | [copilot_prompt_screening](security/copilot_prompt_screening) |
 | [`knowledgator/gliner-relex-large-v1.0`](https://huggingface.co/knowledgator/gliner-relex-large-v1.0) | Find entities and the relations between them | `extract` | Apache 2.0 | `cuda12-default` | [threat_relations](security/threat_relations) |
 
@@ -26,7 +24,6 @@ Each recipe README's "Try another model" section has the details. The short vers
 | Default | Swap | How it went |
 | --- | --- | --- |
 | `fastino/gliner2-large-v1` | `fastino/gliner2-base-v1` | Same verdicts, routes, IOCs and observables in phishing_triage (rerun 2 Nov 2026); only the span columns changed (urgency spans and one sender name). |
-| `zai-org/GLM-OCR` | `lightonai/LightOnOCR-3-4B` | Same statuses in receipt_returns (the first 9 requests) and shelf_price_check (before the promotion rule); see each README. |
 | `numind/NuNER_Zero` | `urchade/gliner_multi-v2.1`, `numind/NuNER_Zero-span` | Worse on threat reports: 2 and 3 reports tagged instead of 4, with the 0.50 threshold chosen with NuNER_Zero in mind. |
 | `Qwen/Qwen3Guard-Gen-4B` | `ibm-granite/granite-guardian-3.0-2b` | Did not run: it is not a drop-in, because it answers Yes/No, not "Safety: ...". |
 | `fastino/GLiNER2.5-Decide`, `knowledgator/gliner-relex-large-v1.0` | none | SIE Cloud has no same-API alternative yet. |

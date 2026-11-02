@@ -51,9 +51,7 @@ requests (one request can carry many items).
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Check shelf price labels against the price file](retail/shelf_price_check) | grounding-dino-base, GLM-OCR | 22 | 15 s |
-| [Read receipt photos for returns and rewards](retail/receipt_returns) | GLM-OCR | 10 | 20 s |
-| [Route customer messages to the right team](retail/customer_message_routing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
+| [Route customer emails to the right team](retail/customer_email_routing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
 
 ### Security
 

@@ -1,7 +1,7 @@
 [project]
-name = "sie-customer-message-routing"
+name = "sie-customer-email-routing"
 version = "0.1.0"
-description = "Route each customer message to the right care team, with safety and legal escalated first."
+description = "Route each customer email to the right care team, with safety and legal escalated first."
 requires-python = ">=3.12"
 dependencies = [
     "python-dotenv>=1.2.4",

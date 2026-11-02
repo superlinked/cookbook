@@ -24,10 +24,8 @@ for every model it calls. Grouped:
 | Images | Recipes |
 | --- | --- |
 | `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging) |
-| `cuda12-sglang-vision-extract` | [receipt_returns](retail/receipt_returns) |
-| `cuda12-default` + `cuda12-sglang-vision-extract` | [shelf_price_check](retail/shelf_price_check) |
 | `cuda12-sglang` + `cuda12-sglang-vision-extract` | [copilot_prompt_screening](security/copilot_prompt_screening) |
-| `cuda12-default` + `cuda12-transformers5` | [customer_message_routing](retail/customer_message_routing), [phishing_triage](security/phishing_triage) |
+| `cuda12-default` + `cuda12-transformers5` | [customer_email_routing](retail/customer_email_routing), [phishing_triage](security/phishing_triage) |
 
 Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB).
 

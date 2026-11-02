@@ -37,13 +37,13 @@ import recipe
 
 RULES = recipe.load_rules()
 CATALOG = recipe.load_catalog()
-MESSAGES = recipe.load_messages()
+EMAILS = recipe.load_emails()
 TEAM_MODEL, FIELD_MODEL = RULES["models"]["team"], RULES["models"]["fields"]
 GENERAL = RULES["general_queue"]
 
 
-def message(text: str, message_id: str = "X") -> recipe.Message:
-    return recipe.Message(message_id, "chat", "", text)
+def email(text: str, email_id: str = "X") -> recipe.Email:
+    return recipe.Email(email_id, "customer@mail.example", "", text)
 
 
 def probabilities(top: str, score: float) -> dict[str, Any]:
@@ -86,23 +86,23 @@ class Stand:
 
 
 def route(
-    messages: list[recipe.Message], client: Stand, rules: dict[str, Any] = RULES
+    emails: list[recipe.Email], client: Stand, rules: dict[str, Any] = RULES
 ) -> list[recipe.Route]:
-    screened = recipe.screen(messages, rules)
+    screened = recipe.screen(emails, rules)
     with contextlib.redirect_stdout(io.StringIO()):  # the run's "1 of 2 failed" line
-        return recipe.route_messages(cast(SIEClient, client), messages, screened, CATALOG, rules)
+        return recipe.route_emails(cast(SIEClient, client), emails, screened, CATALOG, rules)
 
 
 def check_escalations() -> None:
     def names(text: str) -> list[str]:
-        return [name for name, _, _ in recipe.escalations(message(text), RULES)]
+        return [name for name, _, _ in recipe.escalations(email(text), RULES)]
 
     assert names("The heater CAUGHT   fire") == ["safety"]
     assert names("We sat by the fireplace") == []
     assert names("Sue at the store was helpful") == []
     assert names("I will sue you") == ["legal"]
     # Both flags are kept, safety first; legal goes in also_send_to.
-    both = recipe.screen([message("He was injured and we called a lawyer.")], RULES)["X"]
+    both = recipe.screen([email("He was injured and we called a lawyer.")], RULES)["X"]
     assert (both.team, both.method) == ("product-safety", "escalation")
     assert both.escalations == ["safety", "legal"]
     assert both.also_send_to == ["legal-escalations"]
@@ -112,29 +112,36 @@ def check_escalations() -> None:
     # Phrase-only escalation is a known limit: an injury in other words is not caught.
     assert names("a piece of glass cut my child's cheek") == []
     # The subject is read too: a phrase only in the subject line still escalates.
-    subject_only = recipe.Message("Z", "email", "Fire hazard", "My order is late")
+    subject_only = recipe.Email("Z", "z@mail.example", "Fire hazard", "My order is late")
     screened = recipe.screen([subject_only], RULES)["Z"]
     assert (screened.team, screened.escalations) == ("product-safety", ["safety"]), screened
     assert screened.matched_phrases == ["fire"], screened.matched_phrases
     print("escalations: whole words, subject read, 'Sue' a name, both flags kept ok")
 
 
-def check_parse_messages() -> None:
+def check_parse_emails() -> None:
     def refused(records: list[dict[str, Any]]) -> str:
         try:
-            recipe.parse_messages(records)
+            recipe.parse_emails(records)
         except ValueError as error:
             return str(error)
         raise AssertionError(f"{records} was accepted")
 
-    ok = recipe.parse_messages([{"id": "A", "body": "hi"}, {"id": "B", "subject": "x"}])
+    ok = recipe.parse_emails([{"id": "A", "body": "hi"}, {"id": "B", "subject": "x"}])
     assert [m.id for m in ok] == ["A", "B"]
+    reply = recipe.parse_emails(
+        [{"id": "R", "from": "r@mail.example", "in_reply_to": "<x@shop.example>", "body": "hi"}]
+    )[0]
+    assert (reply.sender, reply.in_reply_to) == ("r@mail.example", "<x@shop.example>"), reply
+    row = recipe.screen([reply], RULES)["R"].as_row()
+    assert list(row) == list(recipe.ROUTE_FIELDS), list(row)
+    assert (row["from"], row["in_reply_to"]) == ("r@mail.example", "<x@shop.example>"), row
     burn = {"id": "A", "body": "It burned me"}
     assert refused([burn, {"id": "A", "body": "Where is my order?"}]) == (
-        "message id 'A' is used twice"
+        "email id 'A' is used twice"
     )
-    assert refused([{"id": "A#2", "body": "hi"}]) == "message id 'A#2' contains '#'"
-    print("parse messages: a repeated id and an id with '#' are refused ok")
+    assert refused([{"id": "A#2", "body": "hi"}]) == "email id 'A#2' contains '#'"
+    print("parse emails: from and in_reply_to kept; a repeated id or '#' in an id refused ok")
 
 
 def check_fields() -> None:
@@ -145,30 +152,30 @@ def check_fields() -> None:
     assert recipe.match_store("Cedar Fals", CATALOG, RULES) == "ST-047"
     assert recipe.match_store("Northgate store", CATALOG, RULES) is None
     text = "Order lk 208 331 from Riverside, or was it Maple Grove?"
-    item = message(text)
+    item = email(text)
     spans = [
         {"label": "order number", "text": "lk 208 331", "score": 0.9},
         {"label": "store location", "text": "Riverside", "score": 0.8},
         {"label": "store location", "text": "Maple Grove", "score": 0.7},
         {"label": "store location", "text": "Oakwood", "score": 0.7},
     ]
-    found = recipe.Route("X", "chat")
+    found = recipe.Route("X")
     recipe.read_fields(found, item, spans, CATALOG, RULES)
     assert found.order_numbers == ["LK-208331"]
     assert (found.store_id, found.store_name) == ("ST-022", "Riverside Plaza")
     assert found.notes == [
-        "store span 'Oakwood' is not in the message; dropped",
+        "store span 'Oakwood' is not in the email; dropped",
         "several stores named: ST-022, ST-014",
     ], found.notes
     # The model reads windows with whitespace collapsed, so its spans have single spaces; a
-    # line break or a double space in the message must not drop them.
-    broken = message("I returned it at the Riverside\nPlaza store.\nOrder LK 208  331, thanks")
+    # line break or a double space in the email must not drop them.
+    broken = email("I returned it at the Riverside\nPlaza store.\nOrder LK 208  331, thanks")
     spans = [
         {"label": "order number", "text": "LK 208 331", "score": 0.9},
         {"label": "store location", "text": "Riverside Plaza", "score": 0.8},
     ]
     assert "LK 208 331" in recipe.windows(broken.text, 120)[0]
-    found = recipe.Route("X", "chat")
+    found = recipe.Route("X")
     recipe.read_fields(found, broken, spans, CATALOG, RULES)
     assert found.order_numbers == ["LK-208331"], found.notes
     assert found.store_id == "ST-022", found.notes
@@ -178,7 +185,7 @@ def check_fields() -> None:
 
 def check_route_by_model() -> None:
     def decide(top: str, score: float, errors: list[str] | None = None) -> recipe.Route:
-        found = recipe.Route("X", "chat")
+        found = recipe.Route("X")
         probs = probabilities(top, score)["data"][recipe.QUESTION_ID]["probabilities"]
         recipe.route_by_model(found, probs, errors or [], RULES)
         return found
@@ -187,20 +194,20 @@ def check_route_by_model() -> None:
     low = decide("billing", 0.4)
     assert (low.team, low.method, low.suggested_team) == (GENERAL, "general", "billing")
     assert low.reason.startswith("top team billing scored 0.40 < 0.50")
-    close = recipe.Route("X", "chat")
+    close = recipe.Route("X")
     recipe.route_by_model(close, {"billing": 0.55, "loyalty": 0.45}, [], RULES)
     assert close.method == "general"
     assert "margin 0.10 < 0.20" in close.reason
     failed = decide("billing", 0.9, ["team model: timed out"])
     assert (failed.team, failed.reason) == (GENERAL, "team model: timed out")
     # Two windows that each pick a different team clearly: the merge shows the conflict, and
-    # the message goes to the general queue.
+    # the email goes to the general queue.
     one = {**RULES, "thresholds": {**RULES["thresholds"], "max_words_per_window": 3}}
     text = "I was charged twice and my points are missing"
     assert len(recipe.windows(text, 3)) == 3
     replies = {f"{TEAM_MODEL}:A#{n}": probabilities("loyalty", 0.9) for n in (2, 3)}
     replies[f"{TEAM_MODEL}:A#1"] = probabilities("billing", 0.9)
-    split = route([message(text, "A")], Stand(replies=replies), one)[0]
+    split = route([email(text, "A")], Stand(replies=replies), one)[0]
     assert (split.team, split.method) == (GENERAL, "general"), split.reason
     assert {split.suggested_team, split.second_team} == {"billing", "loyalty"}, split
     # Each peak is 0.90; renormalized over the teams they are 0.48 each, with no margin.
@@ -210,7 +217,7 @@ def check_route_by_model() -> None:
     stray = probabilities("returns-refunds", 0.9)
     stray["data"][recipe.QUESTION_ID]["probabilities"]["warehouse"] = 0.05
     replies = {f"{TEAM_MODEL}:A#1": stray}
-    pair = [message("Where is my refund?", "A"), message("My refund is late.", "B")]
+    pair = [email("Where is my refund?", "A"), email("My refund is late.", "B")]
     routes = route(pair, Stand(replies=replies))
     assert (routes[0].team, routes[0].method) == (GENERAL, "general"), routes[0]
     assert routes[0].suggested_team == "", routes[0]
@@ -220,19 +227,22 @@ def check_route_by_model() -> None:
 
 
 def check_planted() -> None:
-    routes = {r.message_id: r for r in route(MESSAGES, Stand())}
+    routes = {r.email_id: r for r in route(EMAILS, Stand())}
     escalated = {k: (r.team, r.escalations) for k, r in routes.items() if r.method == "escalation"}
     assert escalated == {
-        "M-03": ("product-safety", ["safety"]),
-        "M-04": ("legal-escalations", ["legal"]),
-        "M-12": ("product-safety", ["safety", "legal"]),
+        "E-03": ("product-safety", ["safety"]),
+        "E-04": ("legal-escalations", ["legal"]),
+        "E-12": ("product-safety", ["safety", "legal"]),
     }, escalated
-    assert routes["M-12"].also_send_to == ["legal-escalations"]
-    # M-11 is the paraphrased injury: no phrase, so it goes to the team model like any other.
-    assert routes["M-11"].method == "model"
-    assert not routes["M-11"].escalations
-    assert routes["M-05"].method == "model"  # "Sue" is a name
-    print("planted: M-03, M-04 and M-12 escalate, M-12 keeps both; M-11 and M-05 do not ok")
+    assert routes["E-12"].also_send_to == ["legal-escalations"]
+    # E-11 is the paraphrased injury: no phrase, so it goes to the team model like any other.
+    assert routes["E-11"].method == "model"
+    assert not routes["E-11"].escalations
+    assert routes["E-05"].method == "model"  # "Sue" is a name
+    # Every planted item is an email: a .example sender, and E-04 is a reply in a thread.
+    assert all(e.sender.endswith(".example") for e in EMAILS), [e.sender for e in EMAILS]
+    assert [e.id for e in EMAILS if e.in_reply_to] == ["E-04"]
+    print("planted: E-03, E-04 and E-12 escalate, E-12 keeps both; E-11 and E-05 do not ok")
 
 
 TRANSIENT: list[SIEError] = [
@@ -279,14 +289,14 @@ def check_sie_failure() -> None:
     for error in FATAL:
         assert recipe.is_fatal(error), f"{type(error).__name__} should stop the run"
     one = {**RULES, "thresholds": {**RULES["thresholds"], "batch_size": 1}}
-    pair = [message("Where is my refund?", "A"), message("My refund is late.", "B")]
-    burn = [message("The heater burned me.", "A"), message("My refund is late.", "B")]
+    pair = [email("Where is my refund?", "A"), email("My refund is late.", "B")]
+    burn = [email("The heater burned me.", "A"), email("My refund is late.", "B")]
 
-    def run(messages: list[recipe.Message], **errors: list[Exception | None]) -> list[str]:
+    def run(emails: list[recipe.Email], **errors: list[Exception | None]) -> list[str]:
         client = Stand({TEAM_MODEL if k == "team" else FIELD_MODEL: v for k, v in errors.items()})
-        return [r.method for r in route(messages, client, one)]
+        return [r.method for r in route(emails, client, one)]
 
-    # A transient error on one call of two: that message goes to the general queue.
+    # A transient error on one call of two: that email goes to the general queue.
     for error in TRANSIENT:
         assert run(pair, team=[error, None]) == ["general", "model"], type(error).__name__
         assert run(pair, fields=[error, None]) == ["general", "model"], type(error).__name__
@@ -296,7 +306,7 @@ def check_sie_failure() -> None:
     assert routes[0].reason.startswith(reason), routes[0].reason
     assert len(routes[0].reason) == len(reason) - len("connection refused") + 200
     assert routes[0].suggested_team == ""  # a failed call has no suggestion
-    # An escalated message keeps its queue when its field call fails; the failure is a note.
+    # An escalated email keeps its queue when its field call fails; the failure is a note.
     routes = route(burn, Stand({FIELD_MODEL: [SIEConnectionError("reset"), None]}), one)
     assert (routes[0].team, routes[0].method) == ("product-safety", "escalation")
     assert routes[0].notes == ["field model: the SIE call failed: SIEConnectionError: reset"]
@@ -310,7 +320,7 @@ def check_sie_failure() -> None:
     assert "the reply has no 'care_team' probabilities" in route(pair, client, one)[0].reason
     # A per-window item error or missing key counts as a failed call: when it is every call
     # (here the first call raises and the second comes back with only an item error), the run
-    # stops instead of sending every message to the general queue.
+    # stops instead of sending every email to the general queue.
     for model, key in ((FIELD_MODEL, "entities"), (TEAM_MODEL, "data")):
         unusable: list[dict[str, Any]] = [
             {"error": {"code": "INFERENCE_ERROR", "message": "oom"}},
@@ -400,12 +410,17 @@ def check_escalations_written_first() -> None:
         assert not (output / "routes.csv").exists()
         with (output / "escalations.csv").open(encoding="utf-8") as handle:
             rows = list(csv.DictReader(handle))
-        got = [(r["message_id"], r["team"], r["escalations"], r["also_send_to"]) for r in rows]
+        got = [(r["email_id"], r["team"], r["escalations"], r["also_send_to"]) for r in rows]
         assert got == [
-            ("M-03", "product-safety", "safety", ""),
-            ("M-04", "legal-escalations", "legal", ""),
-            ("M-12", "product-safety", "safety; legal", "legal-escalations"),
+            ("E-03", "product-safety", "safety", ""),
+            ("E-04", "legal-escalations", "legal", ""),
+            ("E-12", "product-safety", "safety; legal", "legal-escalations"),
         ], got
+        assert [r["from"] for r in rows] == [
+            "m.ferreira@inbox.example",
+            "pat.lindqvist@mail.example",
+            "c.mbeki@mail.example",
+        ], rows
     print("escalations first: a refused run still leaves escalations.csv, routes not written ok")
 
 
@@ -423,7 +438,7 @@ def check_config() -> None:
 if __name__ == "__main__":
     check_config()
     check_escalations()
-    check_parse_messages()
+    check_parse_emails()
     check_fields()
     check_route_by_model()
     check_planted()

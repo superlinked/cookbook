@@ -1,7 +1,7 @@
 # Customer care teams and stores for Hollowbrook Home & Garden, a fictional retail chain with
 # an online shop. Synthetic, written for this recipe.
 #
-# teams: every team a customer message can go to. `description` is what GLiNER2.5-Decide reads
+# teams: every team a customer email can go to. `description` is what GLiNER2.5-Decide reads
 #   when it picks a team, so it names the cues a customer would write, in one short line.
 # stores: one entry per store. `aliases` are other ways customers name the store. A store the
 #   model finds is matched to this list in Python; a name that matches nothing is flagged.
