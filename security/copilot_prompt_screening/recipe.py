@@ -1,13 +1,14 @@
 """Screen prompts to a security copilot: allow, block or review, with the reason.
 
 Use case:  Screen every prompt before the SOC's internal LLM copilot sees it.
-Who:       The security engineer who runs the copilot, and the analyst on the review queue.
+Who:       The security or AI platform engineer who runs the copilot owns this screen; the
+           SOC lead or on-call senior analyst works the review queue.
 Problem:   Analysts paste logs, configs, reported emails and console screenshots into the
            copilot. Some pastes carry live credentials, some carry prompt-injection text aimed at
            the model, and some users ask for malware or phishing kits. Yet most prompts are
            legitimate security questions ("explain this CVE", "write a detection rule") that a
            blunt keyword filter would block.
-Input:     data/prompts.jsonl (12 prompts sent to the copilot, one JSON object per line) and the
+Input:     data/prompts.jsonl (14 prompts sent to the copilot, one JSON object per line) and the
            screenshots three of them attach, in data/screenshots/.
 SIE pipeline:
            (Python)                                 secrets regex on the typed text: a credential
@@ -24,8 +25,10 @@ SIE pipeline:
                                                     review > allow; an unreadable verdict goes
                                                     to review
 Output:    decisions.json, decisions.csv and decisions.md: per prompt the decision, every rule
-           that fired, the guard's verdict and categories, and the reason. Secrets are masked in
-           every output, and a screenshot that shows one has its text withheld.
+           that fired, the guard's verdict and categories, and the reason. Detected credentials
+           are masked in every output, and a screenshot that shows one has its text withheld.
+           "allow" means no check objected, not that the prompt is safe. screen() only decides:
+           the caller holds a "review" prompt, stops a "block" one, and never forwards on error.
 Why SIE:   The guard model is one SIE Cloud chat call per prompt, and reading a screenshot is one
            extract call. The rules are plain Python and data in rules.yaml, so the team can read
            them and change them.

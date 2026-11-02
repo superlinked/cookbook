@@ -68,7 +68,25 @@ def check_secrets() -> None:
         masked = recipe.masked_text(pem, secrets)
         assert body not in masked
         assert "PRIVATE KEY" not in masked
-    print("secrets: AWS key, allowlisted placeholder, PEM blocks (closed and unterminated) ok")
+    # key = value pairs in env, YAML and JSON form, with the key name quoted or not.
+    for pair in [
+        "password = longfakevalue",
+        'password: "longfakevalue"',
+        '{"password": "longfakevalue"}',
+        "\"api_key\": 'longfakevalue'",
+        "{'client_secret': 'longfakevalue'}",
+    ]:
+        secrets = recipe.find_secrets(pair, RULES)
+        assert [finding.kind for finding, _ in secrets] == ["secret_assignment"], pair
+        assert "longfakevalue" not in recipe.masked_text(pair, secrets), pair
+    # Known limit: a value under 8 characters isn't matched (see rules.yaml and README).
+    assert secret_kinds('{"password": "hunter2"}') == []
+    # Known limit: only detected values are masked. A credential no rule knows (a bare AWS
+    # secret access key) stays in the masked text next to a detected one.
+    bare = "fAkEsEcReTNoTaReAlKeY0fAkEsEcReT2222fAkE"
+    text = f"AKIAFAKEFAKEFAKE2222 {bare}"
+    assert bare in recipe.masked_text(text, recipe.find_secrets(text, RULES))
+    print("secrets: AWS key, placeholder, PEM blocks, quoted JSON/YAML keys, known limits ok")
 
 
 def check_screen() -> None:
@@ -153,9 +171,11 @@ def check_planted() -> None:
         "hidden_comment",
         "conceal",
     ]
-    assert secret_kinds(texts["P-08"]) == []
-    assert injection_kinds(texts["P-08"]) == []
-    print("planted: P-04 secrets, P-05 three markers, P-06 four markers, P-08 nothing ok")
+    # P-08 and the dual-use pair P-13/P-14 fire no rule: their decision is the guard's alone.
+    for prompt_id in ["P-08", "P-13", "P-14"]:
+        assert secret_kinds(texts[prompt_id]) == [], prompt_id
+        assert injection_kinds(texts[prompt_id]) == [], prompt_id
+    print("planted: P-04 secrets, P-05 three markers, P-06 four markers, P-08/13/14 none ok")
 
 
 def check_decide() -> None:
