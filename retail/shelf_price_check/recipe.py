@@ -12,12 +12,14 @@ SIE pipeline (two models):
            extract  IDEA-Research/grounding-dino-base  called once per photo: "price label" boxes
            extract  zai-org/GLM-OCR                    called once per kept box: the label text
            (Python crops and enlarges each box, parses UPC, name, retail price and any promotion
-           tag, matches the UPC or name to prices.csv and compares the regular price.)
+           tag or multi-buy offer, matches the UPC or name to prices.csv and compares the
+           regular price.)
 Output:    mismatches.csv (with the crop of each label), needs_review.csv (promotion labels,
            unreadable, unmatched or unchecked labels and photos, each with a reason),
-           matches.csv, photos.csv (boxes found, dropped and read per photo), and labels.json
-           with every box and OCR text. A person checks the shelf and the register before any
-           label or price is changed.
+           matches.csv, photos.csv (boxes returned, dropped by reason and read per photo), and
+           labels.json with each kept box and its OCR text (dropped boxes are only counted, in
+           photos.csv). A person checks the shelf and the register before any label or price is
+           changed.
 Why SIE:   Detection and OCR run on SIE Cloud; the comparison is plain Python you can audit line
            by line, and no generative model makes the decision. Nothing to host.
 Runs on:   SIE Cloud.
@@ -71,12 +73,14 @@ ERROR_CHARS = 200
 # decides what to do about it.
 STATUSES = ("mismatch", "promotion", "unreadable", "unmatched", "not_checked", "match")
 REVIEW_STATUSES = ("promotion", "unreadable", "unmatched", "not_checked")
-# Photo statuses in photos.csv: labels were read, the detector kept no label, or the detect
-# call failed. The last two also go to needs_review.csv.
+# The columns of photos.csv, one row per photo. Its status is `checked` (labels were read),
+# `no_labels` (the detector kept no label) or `not_checked` (the detect call failed); the last
+# two also go to needs_review.csv. Each dropped box is counted under one reason.
 PHOTO_FIELDS = (
     "photo",
     "status",
     "boxes_returned",
+    "dropped_empty_box",
     "dropped_low_score",
     "dropped_too_large",
     "dropped_overlap",
@@ -88,6 +92,7 @@ REPORT_FIELDS = (
     "label",
     "status",
     "upc",
+    "label_upc",
     "product",
     "label_price",
     "register_price",
@@ -127,6 +132,9 @@ def load_prices(path: Path = PRICES_PATH) -> list[PriceRow]:
 
 
 def photos(data_dir: Path = DATA_DIR) -> list[Path]:
+    """The shelf photos in `data_dir`; [] when the folder is missing or holds none."""
+    if not data_dir.is_dir():
+        return []
     return sorted(path for path in data_dir.iterdir() if path.suffix.lower() in PHOTO_SUFFIXES)
 
 
@@ -298,15 +306,18 @@ def select_boxes(
 ) -> tuple[list[dict[str, Any]], Counter[str]]:
     """Keep confident, label-sized boxes, one per label, in left-to-right order.
 
-    Also count every box dropped and why (`low_score`, `too_large`, `overlap`), so photos.csv
-    shows what the detector returned and what the recipe never read.
+    Also count every box dropped and why (`empty_box` for zero width or height, `low_score`,
+    `too_large`, `overlap`), so photos.csv shows what the detector returned and what the recipe
+    never read.
     """
     image_area = image_size[0] * image_size[1]
     kept: list[dict[str, Any]] = []
     dropped: Counter[str] = Counter()
     for obj in sorted(objects, key=lambda item: float(item["score"]), reverse=True):
         box = [float(value) for value in obj["bbox"]]
-        if float(obj["score"]) < detection["min_score"] or box[2] <= 0 or box[3] <= 0:
+        if box[2] <= 0 or box[3] <= 0:
+            dropped["empty_box"] += 1
+        elif float(obj["score"]) < detection["min_score"]:
             dropped["low_score"] += 1
         elif box[2] * box[3] > image_area * detection["max_box_area_fraction"]:
             dropped["too_large"] += 1
@@ -391,6 +402,12 @@ def _has_marker(line: str, markers: list[str]) -> bool:
     return any(re.search(rf"\b{re.escape(marker)}\b", upper) for marker in markers)
 
 
+def _starts_with_marker(line: str, markers: list[str]) -> bool:
+    """The line starts with a whole marker word: "PER OZ" does, "PERFECT FOR..." doesn't."""
+    upper = line.upper()
+    return any(re.match(rf"{re.escape(marker)}\b", upper) for marker in markers)
+
+
 def parse_label(text: str, pricing: dict[str, Any]) -> LabelReading:
     """Pull UPCs, the shelf label's retail price(s), any promotion tag and words out of the
     OCR text."""
@@ -403,12 +420,13 @@ def parse_label(text: str, pricing: dict[str, Any]) -> LabelReading:
     for index, line in enumerate(lines):
         if _has_marker(line, pricing["promo_markers"]):
             # Everything from here down is the promotion tag: its prices are not the regular
-            # price, but the label now shows two prices and goes to review (see `decide`).
+            # price. The label goes to review as `promotion` when its regular price agrees, and
+            # to `mismatch` when it doesn't (see `decide`).
             reading.promotion = " / ".join(lines[index:])
             break
         next_line = lines[index + 1] if index + 1 < len(lines) else ""
-        if _has_marker(line, pricing["unit_markers"]) or any(
-            next_line.upper().startswith(marker) for marker in pricing["unit_markers"]
+        if _has_marker(line, pricing["unit_markers"]) or _starts_with_marker(
+            next_line, pricing["unit_markers"]
         ):
             continue  # unit price
         if not reading.multi_buy and (multi := _MULTI_BUY.search(line)):
@@ -492,6 +510,7 @@ def decide(reading: LabelReading, prices: list[PriceRow], rules: dict[str, Any])
         # not a label at all (the detector boxed a product), so its text is not matched.
         return {
             "upc": "",
+            "label_upc": "",
             "product": "",
             "label_price": "",
             "register_price": "",
@@ -499,8 +518,11 @@ def decide(reading: LabelReading, prices: list[PriceRow], rules: dict[str, Any])
             "reason": "No UPC and no price read; check the crop, it may not be a price label.",
         }
     row, how = match_product(reading, prices, rules["matching"])
+    # `upc` is the price file's UPC (with its check digit), empty when no row matched;
+    # `label_upc` is the digits read from the label (no check digit), whatever matched.
     decision: dict[str, Any] = {
-        "upc": row.upc if row else (reading.upcs[0] if len(reading.upcs) == 1 else ""),
+        "upc": row.upc if row else "",
+        "label_upc": ", ".join(reading.upcs),
         "product": row.product if row else "",
         "label_price": "",
         "register_price": str(row.price) if row else "",
@@ -524,7 +546,12 @@ def decide(reading: LabelReading, prices: list[PriceRow], rules: dict[str, Any])
     label_price = reading.prices[0]
     decision["label_price"] = str(label_price)
     difference = label_price - row.price
-    promotion = f"promotion tag: {reading.promotion}" if reading.promotion else ""
+    # A promotion tag or a multi-buy offer next to the single regular price: the register may
+    # charge the offer price, which this screen does not check.
+    offers = [f"promotion tag: {reading.promotion}"] if reading.promotion else []
+    if reading.multi_buy:
+        offers.append(f"multi-buy offer: {reading.multi_buy}")
+    promotion = " and a ".join(offers)
     if abs(difference) > Decimal(str(rules["pricing"]["tolerance"])):
         # The regular price disagrees whatever the promotion says: that is a finding on its own.
         return {
@@ -535,8 +562,9 @@ def decide(reading: LabelReading, prices: list[PriceRow], rules: dict[str, Any])
             + (f" The label also carries a {promotion}." if promotion else ""),
         }
     if promotion:
-        # The regular price agrees, but the shelf also advertises a promotion price this screen
-        # does not check, and the register may charge either. Agreement does not clear it.
+        # The regular price agrees, but the shelf also advertises a promotion or multi-buy price
+        # this screen does not check, and the register may charge either. Agreement does not
+        # clear it.
         return {
             **decision,
             "status": "promotion",
@@ -573,6 +601,7 @@ def check_photo(
         "photo": photo.name,
         "status": "checked",
         "boxes_returned": len(objects),
+        "dropped_empty_box": dropped["empty_box"],
         "dropped_low_score": dropped["low_score"],
         "dropped_too_large": dropped["too_large"],
         "dropped_overlap": dropped["overlap"],
@@ -596,7 +625,9 @@ def check_photo(
         text, failed = read_label(client, calls, f"ocr/{label_id}", crop, rules)
         if failed:
             decision = {
-                **dict.fromkeys(("upc", "product", "label_price", "register_price"), ""),
+                **dict.fromkeys(
+                    ("upc", "label_upc", "product", "label_price", "register_price"), ""
+                ),
                 "status": "not_checked",
                 "reason": f"Label not read: {failed}",
             }
@@ -628,9 +659,16 @@ def run(
     Nothing is written until every photo is done, so a run that stops on an SIE refusal or on
     every call failing leaves no partial reports behind.
     """
+    found = photos(data_dir)
+    if not found:
+        # An empty or misnamed data folder would otherwise write empty reports that look clean.
+        raise SystemExit(
+            f"No photos ({', '.join(PHOTO_SUFFIXES)}) in {data_dir}, so there is nothing to "
+            "check. No outputs were written."
+        )
     prices = load_prices(prices_path)
     calls = CallLog()
-    results = [check_photo(client, calls, photo, prices, rules) for photo in photos(data_dir)]
+    results = [check_photo(client, calls, photo, prices, rules) for photo in found]
     calls.stop_if_all_failed()
     if calls.failures:
         print(
@@ -690,7 +728,8 @@ def main() -> None:
         summary = result.summary
         print(
             f"  {summary['photo']:<34} {summary['boxes_returned']} boxes returned, "
-            f"{summary['labels_read']} read (dropped: {summary['dropped_low_score']} low score, "
+            f"{summary['labels_read']} read (dropped: {summary['dropped_empty_box']} empty, "
+            f"{summary['dropped_low_score']} low score, "
             f"{summary['dropped_too_large']} too large, {summary['dropped_overlap']} overlapping)"
             + (f"  {summary['status']}: {summary['reason']}" if summary["reason"] else "")
         )
@@ -699,7 +738,8 @@ def main() -> None:
         group = [row for row in rows if row["status"] == status]
         print(f"\n{status.upper()} ({len(group)})")
         for row in group:
-            print(f"  {row['label']:<34} {row['product'] or row['upc'] or '-':<62} {row['reason']}")
+            name = row["product"] or row["label_upc"] or "-"
+            print(f"  {row['label']:<34} {name:<62} {row['reason']}")
     print(f"\nreports: {output}/mismatches.csv, needs_review.csv, matches.csv, photos.csv")
     print("A person checks the shelf and the register before any label or price is changed.")
 

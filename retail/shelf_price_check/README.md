@@ -33,12 +33,12 @@ to be able to audit line by line. What you want instead is a list, per label, of
 found:
 
 - **mismatch**: the label's regular retail price disagrees with the price file.
-- **promotion**: the regular price agrees, but the label also carries a promotion tag. The
-  register might charge the promotion price, and this recipe doesn't check that, so a person
-  does.
+- **promotion**: the regular price agrees, but the label also carries a promotion tag or a
+  multi-buy offer (`2/$3`). The register might charge the offer price, and this recipe doesn't
+  check that, so a person does.
 - **unreadable**, **unmatched**, **not_checked**: the recipe couldn't read a single price, find
   the product, or get an answer from SIE.
-- **match**: the regular price agrees and there's no promotion on the label.
+- **match**: the regular price agrees and there's no promotion or multi-buy offer on the label.
 
 Read this as a **regular-label discrepancy screen**. It compares the regular retail price on the
 label with `register_price` in your price file. It doesn't prove that the register charges what
@@ -50,23 +50,28 @@ can't show up in it (that's what `photos.csv` is for).
 ## How we'll solve it
 
 1. **Find the labels.** A text-prompted object detector looks for "price label" boxes in each
-   photo. It's called once per photo. We drop boxes that score too low, boxes too big to be a
-   label (that's a product), and boxes that overlap one we already kept. Every dropped box is
-   counted per photo in `photos.csv`, so you can see what the recipe never read.
+   photo. It's called once per photo. We drop boxes with no width or height, boxes that score
+   too low, boxes too big to be a label (that's a product), and boxes that overlap one we
+   already kept (the higher score stays). Every dropped box is counted per photo, under one
+   reason, in `photos.csv`, so you can see what the recipe never read.
 2. **Crop and enlarge.** Each kept box is cut out with a little padding (small, so the
    neighbor's barcode stays out) and enlarged 2x so the small print is legible.
 3. **Read each label.** An OCR model reads each crop. It's called once per kept box.
 4. **Parse.** Plain Python pulls out the UPC (`000-39978-00173`) and the retail price (`$6.49`).
-   Unit prices (`59.0¢ PER OZ`) are skipped. Everything from the first promotion marker down
-   (`HEALTHY SAVINGS`, `SAVE`, ...) is the promotion tag: its prices are never taken as the
-   regular price, but the recipe remembers that the label carries one.
+   Unit prices (`59.0¢ PER OZ`, with `PER` as a whole word) are skipped. A multi-buy price
+   (`2/$3`) is kept apart. Everything from the first promotion marker down (`HEALTHY SAVINGS`,
+   `SAVE`, ...) is the promotion tag: its prices are never taken as the regular price, but the
+   recipe remembers that the label carries one.
 5. **Match.** UPC first: the label prints it without the check digit, so the recipe compares
    with and without it. Only when no UPC was read does the product name decide, and then only
    if one name clearly beats the rest.
 6. **Compare.** The label's regular price against `register_price`, with a tolerance set in
    `rules.yaml`. A regular price that disagrees is a `mismatch` whether or not there's a
-   promotion. A regular price that agrees on a label with a promotion is `promotion`, not
-   `match`.
+   promotion. A regular price that agrees on a label with a promotion tag or a multi-buy offer
+   is `promotion`, not `match`.
+
+If the data folder holds no photos (empty, or the wrong folder), the run stops with a message
+instead of writing empty reports that look clean.
 
 The order matters in one place: nothing is written to disk until every photo is done. If SIE
 refuses a call (a bad key, no credits, a model name it doesn't know), or every call fails, the
@@ -97,7 +102,7 @@ comparison are plain Python.
 flowchart TD
     P[Shelf photo] --> D[grounding-dino-base on SIE<br/>once per photo]
     D -- call failed --> PN[Photo: not_checked<br/>needs_review.csv]
-    D --> S[select_boxes<br/>drop low score, too large, overlap<br/>counts in photos.csv]
+    D --> S[select_boxes<br/>drop empty, low score, too large, overlap<br/>counts in photos.csv]
     S -- no box kept --> PL[Photo: no_labels<br/>needs_review.csv]
     S --> C[Crop and enlarge each box]
     C --> O[GLM-OCR on SIE<br/>once per box]
@@ -111,7 +116,7 @@ flowchart TD
     N -- no --> U2[unreadable]
     N -- yes --> X{Differs from register_price?}
     X -- yes --> MM[mismatch]
-    X -- no --> PR{Promotion tag?}
+    X -- no --> PR{Promotion tag or<br/>multi-buy offer?}
     PR -- yes --> PM[promotion]
     PR -- no --> OK[match]
     LN --> W
@@ -138,12 +143,12 @@ price tolerance, and the words that mark a promotion tag or a unit price.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
-| Find the labels | `detect_labels`, `select_boxes` | `extract`, once per photo | Boxes for labels `["price label"]`. Low-score and product-sized boxes are dropped and overlapping ones merged; each dropped box is counted by reason |
+| Find the labels | `detect_labels`, `select_boxes` | `extract`, once per photo | Boxes for labels `["price label"]`. Empty (zero width or height), low-score, product-sized and overlapping boxes are dropped (of two overlapping boxes, the higher score is kept); each dropped box is counted under one reason |
 | Crop | `crop_box`, `make_crop` | none | Small padding, enlarged 2x, longest side capped at 2048 pixels |
 | Read | `read_label` | `extract`, once per kept box | The label's text: brand, name, UPC, unit price, retail price, promotion tag |
 | Parse | `parse_label` | none | UPC, regular retail price, multi-buy price (`2/$3`) and the promotion tag's text. Unit prices and prices in the promotion tag are not taken as the regular price |
 | Match | `match_product`, `name_score` | none | UPC first. Fuzzy product name only when no UPC was read, and only when the best name beats the runner-up by `min_name_margin` |
-| Compare | `decide` | none | Regular price vs `register_price`: `mismatch`, `promotion` or `match`, or a review status with the reason |
+| Compare | `decide` | none | Regular price vs `register_price`: `mismatch`, `promotion` (agrees, but a promotion tag or multi-buy offer is on the label) or `match`, or a review status with the reason |
 | SIE failures | `call_sie`, `is_fatal`, `CallLog` | none | A transient failure, or a reply without `objects` or `entities`, sends that photo or label to review. A refusal, or every call failing, stops the run with no outputs |
 | Report | `check_photo`, `run`, `write_outputs` | none | Writes the CSVs, `photos.csv`, `labels.json` and the crops once every photo is done |
 
@@ -165,21 +170,25 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
 detector and the OCR model. Our run on 2026-11-02 (UTC), with both models already warm, made 22
-SIE calls (3 detect, 19 OCR) and took about 23 seconds.
+SIE calls (3 detect, 19 OCR) and took about 16 seconds.
 
 The run directory has:
 
 - `mismatches.csv`: labels whose regular price disagrees with the price file, each with its crop.
+  In every label CSV, `upc` is the price file's UPC, with its check digit (empty when no row
+  matched), and `label_upc` is the digits read off the label, without it.
 - `needs_review.csv`: everything the recipe won't call either way, each with a reason.
-  `promotion` means the regular price agrees but the label carries a promotion tag.
+  `promotion` means the regular price agrees but the label carries a promotion tag or a
+  multi-buy offer.
   `unmatched` means the product could not be found in `prices.csv`. `unreadable` means no
-  single retail price could be read (for example a multi-buy `2/$3`). `not_checked` means an
+  single retail price could be read (for example only a multi-buy `2/$3`). `not_checked` means an
   SIE call for that label or photo failed. A photo where the detector kept no label shows up
   here as `no_labels`.
 - `matches.csv`: labels whose regular price agrees and that carry no promotion.
 - `photos.csv`: per photo, the boxes the detector returned, how many were dropped and why, and
   how many labels were read.
-- `labels.json`: every label's box, score, crop path and the raw OCR text.
+- `labels.json`: every kept box's position, score, crop path and raw OCR text. Dropped boxes are
+  not in it; they are only counted in `photos.csv`.
 - `crops/`: the image of every label the recipe read.
 
 ## What came out
@@ -224,7 +233,7 @@ can't read a label cleanly:
 | Label | What happened | Status |
 | --- | --- | --- |
 | Red Star Organic Instant Yeast | OCR read the UPC as `000-17829-00360` (one digit wrong), so the UPC is not in the file. The reason names the closest product. | `unmatched` |
-| Red Star Instant Sourdough Yeast | The label price is a multi-buy, `2/$3` | `unreadable` |
+| Red Star Instant Sourdough Yeast | The only retail price is a multi-buy, `2/$3`, with no single price to compare. With a single price next to it, the label would be `promotion` | `unreadable` |
 | (no product) | The detector boxed a potato-starch bag, not a label: no UPC and no price | `unreadable` |
 | 10 more labels (yeast, muesli, ice cream) | Regular price agrees, promotion tag on the label | `promotion` |
 
@@ -239,12 +248,14 @@ A few things worth noticing:
   `match` (Bob's Red Mill Muesli 40 oz). That's a busy review queue, and it's the honest answer:
   without the promotion prices in the price file, the recipe can't tell you whether those 11 are
   right at the register. The fix is more data, not a looser rule (see Potential improvements).
-- **The near miss is the case the old version got wrong.** Before this change the parser
-  stopped at the promotion marker and called Maple Sea Salt Granola a `match`. Here's the label
-  now, from `labels.json` (abridged to the fields that matter):
+- **The near miss guards against clearing a label on its regular price alone.** A parser that
+  stops at the promotion marker would see one price that agrees and call Maple Sea Salt Granola
+  a `match`, even though the shelf advertises $5.99 under it. Here's the label from
+  `labels.json` (abridged to the fields that matter):
 
   ```json
   {"label": "granola-aisle-141419-L01", "status": "promotion",
+   "upc": "0039978001733", "label_upc": "0003997800173",
    "product": "Bob's Red Mill Maple Sea Salt Granola 11 oz",
    "label_price": "6.49", "register_price": "6.49",
    "reason": "Matched by UPC 0003997800173. Regular price $6.49 agrees with the register, but the label also carries a promotion tag: HEALTHY SAVINGS / $599 / SAVE 50¢ / VALID THRU 10/27/26. Check the register's promotion price."}
@@ -257,15 +268,16 @@ A few things worth noticing:
   the person reading the reason, not for any rule.
 - **`photos.csv` shows what never got read.** The detector returned 32 boxes across the three
   photos and the recipe read 19 of them. The other 13 scored below `min_score` (5 on the baking
-  aisle, 2 on the granola aisle, 6 in the freezer); none were dropped for size or overlap. We
+  aisle, 2 on the granola aisle, 6 in the freezer); none were empty or dropped for size or
+  overlap. We
   didn't inspect those 13 one by one, so we can't promise none of them is a label. That's the
   point of the file: on your own photos, this is where a missed label shows up:
 
   ```text
-  photo,status,boxes_returned,dropped_low_score,dropped_too_large,dropped_overlap,labels_read,reason
-  baking-aisle-141416.webp,checked,12,5,0,0,7,
-  granola-aisle-141419.webp,checked,6,2,0,0,4,
-  ice-cream-freezer-141431.webp,checked,14,6,0,0,8,
+  photo,status,boxes_returned,dropped_empty_box,dropped_low_score,dropped_too_large,dropped_overlap,labels_read,reason
+  baking-aisle-141416.webp,checked,12,0,5,0,0,7,
+  granola-aisle-141419.webp,checked,6,0,2,0,0,4,
+  ice-cream-freezer-141431.webp,checked,14,0,6,0,0,8,
   ```
 
 - **The potato starch bag is the detector's honest mistake.** It's a bag covered in text, and
@@ -289,7 +301,8 @@ A few things worth noticing:
 - **What goes to review today.** A label goes to `needs_review.csv`, never into the match or
   mismatch counts, when its UPC is not in the price file, it shows two UPCs, no UPC was read and
   the name matches no product (or more than one), no single retail price could be read, it
-  carries a promotion with a regular price that agrees, or its SIE call failed.
+  carries a promotion tag or multi-buy offer with a regular price that agrees, or its SIE call
+  failed.
 - **Pack size on name matches.** The name match leaves out numbers and short units, so a label
   with no readable UPC for a different pack size of a listed product can match the listed size.
   Treating size and pack count as required, or making name-only matches a suggestion, would

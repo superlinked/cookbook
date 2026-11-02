@@ -78,6 +78,11 @@ def check_parse() -> None:
     assert recipe.parse_label(MUESLI, RULES["pricing"]).promotion == ""
     multi = recipe.parse_label("RED STAR\n2/$3\n000-17929-00331", RULES["pricing"])
     assert (multi.prices, multi.multi_buy) == ([], "2/$3")
+    # "PER" marks a unit price only as a whole word: a next line "PERFECT FOR..." doesn't.
+    perfect = recipe.parse_label("$6.49\nPERFECT FOR BAKING\n000-39978-00173", RULES["pricing"])
+    assert perfect.prices == [Decimal("6.49")], perfect.prices
+    unit = recipe.parse_label("$4.69\nPER OZ\n$6.49", RULES["pricing"])
+    assert unit.prices == [Decimal("6.49")], unit.prices
     print("parse: UPC, regular price, promotion tag, unit and multi-buy prices ok")
 
 
@@ -106,6 +111,14 @@ def check_promotion() -> None:
         "not_checked",
         "match",
     )
+    # A multi-buy offer next to a single regular price, with no SALE/SAVE marker, is a
+    # promotion too: the register may charge the offer.
+    multi = decide(MUESLI.replace("$10.99", "$10.99\n2/$20"))
+    assert multi["status"] == "promotion", multi
+    assert "also carries a multi-buy offer: 2/$20" in multi["reason"], multi
+    multi_wrong = decide(MUESLI.replace("$10.99", "$11.49\n2/$20"))
+    assert multi_wrong["status"] == "mismatch", multi_wrong
+    assert "(+$0.50). The label also carries a multi-buy offer: 2/$20." in multi_wrong["reason"]
     print("promotion: agreeing regular price with a promo tag goes to review; mismatch kept ok")
 
 
@@ -113,6 +126,10 @@ def check_matching() -> None:
     unknown = decide("SPROUTS\nNUTRITIONAL YEAST\nRETAIL PRICE\n$6.49\n006-46670-51819")
     assert unknown["status"] == "unmatched", unknown
     assert unknown["reason"] == "UPC 0064667051819 is not in prices.csv.", unknown
+    # `upc` is only ever the price file's UPC; the digits read off the label are `label_upc`.
+    assert (unknown["upc"], unknown["label_upc"]) == ("", "0064667051819"), unknown
+    matched = decide(MUESLI)
+    assert (matched["upc"], matched["label_upc"]) == ("0039978011039", "0003997801103"), matched
     by_name = decide("BOB'S RED MILL\nCRANBERRY ALMOND GRANOLA\n$6.99")
     assert (by_name["status"], by_name["reason"]) == ("match", "Matched by name (1.00)."), by_name
     # "Muesli" is in both muesli names: no UPC, so the name can't decide between them.
@@ -138,10 +155,12 @@ def check_select_boxes() -> None:
         box(60, 10, 20, 10, 0.27),  # under min_score
         box(0, 0, 90, 90, 0.60),  # most of the photo: a product, not a label
         box(60, 50, 20, 10, 0.35),  # kept
+        box(40, 40, 0, 10, 0.90),  # zero width: an empty box, not a low score
+        box(40, 40, 10, 0, 0.20),  # zero height and a low score: counted once, as empty
     ]
     kept, dropped = recipe.select_boxes(objects, (100, 100), RULES["detection"])
     assert [o["score"] for o in kept] == [0.50, 0.35]
-    assert dropped == {"low_score": 1, "too_large": 1, "overlap": 1}, dropped
+    assert dropped == {"low_score": 1, "too_large": 1, "overlap": 1, "empty_box": 2}, dropped
     print("select_boxes: kept boxes and dropped counts by reason ok")
 
 
@@ -209,7 +228,7 @@ def check_photos_report() -> None:
         ("shelf-1.png", "checked", "2", "1"),
         ("shelf-2.png", "no_labels", "0", "0"),
     ], photos
-    assert photos[0]["dropped_low_score"] == "1"
+    assert (photos[0]["dropped_low_score"], photos[0]["dropped_empty_box"]) == ("1", "0")
     review = read_csv(output / "needs_review.csv")
     assert [(r["photo"], r["label"], r["status"]) for r in review] == [
         ("shelf-2.png", "", "no_labels")
@@ -217,6 +236,27 @@ def check_photos_report() -> None:
     assert [r["label"] for r in read_csv(output / "matches.csv")] == ["shelf-1-L01"]
     assert (output / "crops" / "shelf-1-L01.jpg").is_file()
     assert len(results) == 2
+    # An empty or missing data folder stops with a message instead of writing empty reports.
+    for n_photos, rename in ((0, False), (1, True)):
+        folder = Path(tempfile.mkdtemp())
+        data = folder / "data"
+        data.mkdir()
+        if n_photos:
+            Image.new("RGB", (100, 100), "white").save(data / "shelf-1.png")
+        target = folder / "dta" if rename else data
+        call = functools.partial(
+            recipe.run,
+            cast(SIEClient, StandIn()),
+            RULES,
+            folder / "out",
+            target,
+            recipe.PRICES_PATH,
+        )
+        caught = raised(call)
+        assert type(caught) is SystemExit, caught
+        assert str(caught).startswith("No photos (.webp, .jpg, .jpeg, .png) in "), caught
+        assert str(caught).endswith("nothing to check. No outputs were written."), caught
+        assert not (folder / "out").exists(), "an empty data folder wrote outputs"
     print("photos.csv: boxes returned, dropped and read per photo; empty photo to review ok")
 
 
