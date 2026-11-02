@@ -27,7 +27,7 @@ for every model it calls. Grouped:
 | `cuda12-sglang` + `cuda12-sglang-vision-extract` | [copilot_prompt_screening](security/copilot_prompt_screening) |
 | `cuda12-default` + `cuda12-transformers5` | [customer_email_routing](retail/customer_email_routing), [phishing_triage](security/phishing_triage) |
 | `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [return_item_check](retail/return_item_check) |
-| three or four images | [shelf_inventory_check](retail/shelf_inventory_check) |
+| `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [shelf_inventory_check](retail/shelf_inventory_check) |
 
 Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB), except where a
 note below says otherwise.

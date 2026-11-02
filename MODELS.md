@@ -20,15 +20,17 @@ model card before you rely on it.
 
 ## Swaps we ran
 
-On 31 Oct 2026 we swapped one model at a time in each recipe's `rules.yaml` and ran the recipe on
+On 31 Oct 2026 (2 Nov 2026 for the security and retail recipes) we swapped one model at a time in each recipe's `rules.yaml` and ran the recipe on
 SIE Cloud with nothing else changed. A row that says a swap did not run was checked but not run.
 Each recipe README's "Try another model" section has the details. The short version:
 
 | Default | Swap | How it went |
 | --- | --- | --- |
 | `fastino/gliner2-large-v1` | `fastino/gliner2-base-v1` | Same verdicts, routes, IOCs and observables in phishing_triage (rerun 2 Nov 2026); only the span columns changed (urgency spans and one sender name). |
-| `Qwen/Qwen3.8-27B-FP8` | `google/gemma-4-31B-it` | Did not run: SIE Cloud answered "Generation route is unavailable for this deployment" every time. |
+| `Qwen/Qwen3.8-27B-FP8` | `Qwen/Qwen3.5-4B` | Same guidance on all 7 returns in return_item_check; it called the shrink-wrapped pack sealed and the crushed parcel opened with major damage. Not tried in shelf_inventory_check. |
+| `Qwen/Qwen3.8-27B-FP8` | `google/gemma-4-31B-it` | Did not run in the document recipes: SIE Cloud answered "Generation route is unavailable for this deployment" every time. |
 | `numind/NuNER_Zero` | `urchade/gliner_multi-v2.1`, `numind/NuNER_Zero-span` | Worse on threat reports: 2 and 3 reports tagged instead of 4, with the 0.50 threshold chosen with NuNER_Zero in mind. |
+| `zai-org/GLM-OCR` | `lightonai/LightOnOCR-3-4B` | Same guidance on all 7 returns in return_item_check. In shelf_inventory_check (before the vision step) it read two tag UPCs GLM-OCR missed, but its table output sent other tags to review. |
 | `Qwen/Qwen3Guard-Gen-4B` | `ibm-granite/granite-guardian-3.0-2b` | Did not run: it is not a drop-in, because it answers Yes/No, not "Safety: ...". |
 | `fastino/GLiNER2.5-Decide`, `knowledgator/gliner-relex-large-v1.0` | none | SIE Cloud has no same-API alternative yet. |
 
