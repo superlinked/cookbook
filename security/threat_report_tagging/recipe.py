@@ -16,13 +16,15 @@ SIE pipeline:
                                        indicators
            (Python)                    split each report into sentence windows that fit
            extract  numind/NuNER_Zero  tag threat actor, malware and tool spans
-           (Python)                    also match alias-table names the model missed;
-                                       normalize every name through the alias table, map tools
-                                       to ATT&CK techniques; unknown names, colliding aliases
-                                       and unmapped tools go to review
-Output:    tags.json (every report with entities, indicators, techniques, status and reasons),
-           entities.csv (one row per actor, malware or tool mention) and iocs.csv (one row per
-           indicator, defanged).
+           (Python)                    also match alias-table names the model missed, any
+                                       case; normalize every name through the alias table, look
+                                       up each tool's candidate ATT&CK techniques; unknown names,
+                                       colliding aliases, unmapped tools and a tool in a sentence
+                                       with a negation or benign-use cue go to review
+Output:    tags.json (every report with entities, candidate observables, candidate techniques,
+           status and reasons), entities.csv (one row per actor, malware or tool mention) and
+           iocs.csv (one row per candidate indicator, defanged). "tagged" means no configured
+           review flag fired, not that the extraction is complete or correct.
 Why SIE:   One small zero-shot NER model, no LLM and no training: the labels are plain words in
            rules.yaml. Indicators and alias merges are code you can read, so a person can see
            why any merge happened. One SIE Cloud call per batch, and you host nothing.
@@ -68,7 +70,8 @@ ENTITY_FIELDS = (
     "source",
     "score",
     "canonical",
-    "techniques",
+    "candidate_techniques",
+    "techniques_held",
     "status",
     "reason",
 )
@@ -281,6 +284,8 @@ def find_indicators(text: str, rules: dict[str, Any]) -> list[Indicator]:
 
 # --- 2. Windows -------------------------------------------------------------------------------
 
+SENTENCE_RE = re.compile(r"\S.*?(?:[.!?](?=\s|$)|$)", re.DOTALL)
+
 
 def sentence_windows(text: str, max_words: int) -> list[tuple[int, str]]:
     """(offset, window) pairs: whole sentences packed up to ``max_words`` words.
@@ -288,7 +293,7 @@ def sentence_windows(text: str, max_words: int) -> list[tuple[int, str]]:
     NuNER Zero reads 384 tokens. Cutting on sentence ends keeps every name whole; a single
     sentence longer than the limit is cut on words.
     """
-    sentences = [m.span() for m in re.finditer(r"\S.*?(?:[.!?](?=\s|$)|$)", text, re.DOTALL)]
+    sentences = [m.span() for m in SENTENCE_RE.finditer(text)]
     pieces: list[tuple[int, int]] = []
     for start, end in sentences:
         words = list(re.finditer(r"\S+", text[start:end]))
@@ -322,7 +327,9 @@ def tag_windows(
 ) -> dict[str, dict[str, Any]]:
     """Send the windows to NuNER Zero in batches; return its result per window id.
 
-    A window with nothing in it comes back as ``entities: []``, not an error.
+    A window with nothing in it comes back as ``entities: []``, not an error. A call that
+    raises (a timeout, a refused connection, an HTTP error) marks every window in its batch
+    with that error, so those reports go to review and the run still writes its outputs.
     """
     model, labels = rules["models"]["entities"], list(rules["labels"].values())
     options = {"threshold": rules["thresholds"]["min_entity_score"]}
@@ -330,13 +337,18 @@ def tag_windows(
     results: dict[str, dict[str, Any]] = {}
     for start in range(0, len(items), size):
         batch = items[start : start + size]
-        found = client.extract(
-            model,
-            [Item(id=item_id, text=text) for item_id, text in batch],
-            labels=labels,
-            options=options,
-            provision_timeout_s=WAIT_S,
-        )
+        try:
+            found = client.extract(
+                model,
+                [Item(id=item_id, text=text) for item_id, text in batch],
+                labels=labels,
+                options=options,
+                provision_timeout_s=WAIT_S,
+            )
+        except Exception as error:
+            failed = {"error": f"the SIE call failed: {type(error).__name__}: {error}"}
+            results.update({item_id: failed for item_id, _ in batch})
+            continue
         for (item_id, _), result in zip(batch, jsonable(found), strict=True):
             results[item_id] = result
     return results
@@ -440,31 +452,42 @@ class AliasTable:
 
 
 def table_mentions(text: str, table: AliasTable, indicators: list[Indicator]) -> list[Entity]:
-    """Every alias-table name or mapped tool written in the text, exact case, whole words.
+    """Every alias-table name or mapped tool written in the text, any case, whole words.
 
-    The model can miss a name it has never seen ("LX-0417") or a short second mention. Names
-    already in the table need no model to find them; longer names win. A match inside a CVE,
+    The model can miss a name it has never seen ("LX-0417"), a short second mention or a name
+    written in another case ("powershell", "ASHEN HERON"). Names already in the table need no
+    model to find them; longer names win. A match inside a CVE,
     hash or IOC is dropped, as for model spans, so "ngrok" in hxxps://a1b2[.]ngrok[.]io is part
     of a URL indicator and not the tool.
     """
     found: list[Entity] = []
     taken = [(i.start, i.end) for i in indicators]
     for surface, kind in table.surfaces:
-        for m in re.finditer(r"(?<![\w-])" + re.escape(surface) + r"(?![\w-])", text):
+        pattern = r"(?<![\w-])" + re.escape(surface) + r"(?![\w-])"
+        for m in re.finditer(pattern, text, re.IGNORECASE):
             if not any(m.start() < e and s < m.end() for s, e in taken):
-                found.append(Entity(kind, surface, m.start(), m.end(), None, "table"))
+                found.append(Entity(kind, m.group(), m.start(), m.end(), None, "table"))
                 taken.append((m.start(), m.end()))
     return found
 
 
-def merge_entities(model: list[Entity], table: list[Entity]) -> list[Entity]:
-    """Model spans plus the table names the model missed, in text order.
+def merge_entities(model: list[Entity], table: list[Entity], aliases: AliasTable) -> list[Entity]:
+    """Model spans plus the table names the model didn't already cover, in text order.
 
-    Where a model span and a table match overlap, the model span wins, even when the table
-    match is the better name (e.g. "Grey Lantern phishing" over "Grey Lantern").
+    A table match is dropped only when an overlapping model span looks up to the same
+    canonical names ("Mothvine Loader" covers "Mothvine"). When the model span reads as
+    something else ("PowerShell scripts", "Grey Lantern phishing"), both are kept: the exact
+    table name keeps its canonical name and mapping, and the model span is resolved on its
+    own, which usually sends it to review.
     """
-    kept = list(model)
-    kept += [t for t in table if not any(t.start < e.end and e.start < t.end for e in model)]
+
+    def covered(t: Entity) -> bool:
+        names = aliases.lookup(t.text)
+        return any(
+            t.start < e.end and e.start < t.end and aliases.lookup(e.text) == names for e in model
+        )
+
+    kept = list(model) + [t for t in table if not covered(t)]
     return sorted(kept, key=lambda e: (e.start, e.end))
 
 
@@ -478,7 +501,9 @@ class Tag:
     source: str
     score: float | None
     canonical: str = ""
-    techniques: list[str] = field(default_factory=list)
+    # ATT&CK techniques associated with the tool's name in rules.yaml, not observed behavior.
+    candidate_techniques: list[str] = field(default_factory=list)
+    techniques_held: bool = False  # a cue in the sentence held them back for review
     status: str = REVIEW
     reason: str = ""
 
@@ -486,8 +511,8 @@ class Tag:
 def resolve(report_id: str, entity: Entity, table: AliasTable, rules: dict[str, Any]) -> Tag:
     """Look one mention up in the alias table and tag it, or say why an analyst should look.
 
-    One canonical name: tagged, with that name, its kind and its techniques. No name or two
-    names: a reason, and review if `policy` turns that reason on (otherwise new).
+    One canonical name: tagged, with that name, its kind and its candidate techniques. No name
+    or two names: a reason, and review if `policy` turns that reason on (otherwise new).
     """
     tag = Tag(
         report_id, entity.kind, entity.text, entity.start, entity.end, entity.source, entity.score
@@ -496,7 +521,8 @@ def resolve(report_id: str, entity: Entity, table: AliasTable, rules: dict[str, 
     names = sorted({entry.name for entry in entries})
     if len(names) == 1:
         entry = entries[0]
-        tag.kind, tag.canonical, tag.techniques = entry.kind, entry.name, list(entry.techniques)
+        tag.kind, tag.canonical = entry.kind, entry.name
+        tag.candidate_techniques = list(entry.techniques)
         tag.status = TAGGED
         if entry.name != entity.text:
             tag.reason = f"normalised to {entry.name}"
@@ -517,6 +543,23 @@ def resolve(report_id: str, entity: Entity, table: AliasTable, rules: dict[str, 
     return tag
 
 
+def technique_cue(text: str, tag: Tag, cues: list[str]) -> str:
+    """The first cue in the sentence around a tool mention, or "" when there is none.
+
+    A tool's techniques come from its name, not from what the report says it did, so
+    "No Mimikatz execution was observed" or "used rclone to back up the file server" must not
+    read as credential dumping or exfiltration. This is a keyword check on one sentence, so it
+    catches plainly worded cases only.
+    """
+    sentence = next(
+        (m.group() for m in SENTENCE_RE.finditer(text) if m.start() <= tag.start < m.end()), ""
+    )
+    for cue in cues:
+        if re.search(r"(?<![\w-])" + re.escape(cue) + r"(?![\w-])", sentence, re.IGNORECASE):
+            return cue
+    return ""
+
+
 # --- Run --------------------------------------------------------------------------------------
 
 
@@ -528,9 +571,10 @@ class TaggedReport:
     actors: list[str]
     malware: list[str]
     tools: list[str]
-    techniques: list[dict[str, str]]
+    # Associated with the tools mentioned; an analyst confirms the behavior before use.
+    candidate_techniques: list[dict[str, str]]
     tags: list[Tag]
-    indicators: list[Indicator]
+    indicators: list[Indicator]  # candidate observables, not vetted indicators
     reasons: list[str] = field(default_factory=list)
 
 
@@ -568,14 +612,32 @@ def tag_reports(
             entities, notes = model_entities(window, offset, result, indicators, rules)
             found += entities
             reasons += notes
-        entities = merge_entities(found, table_mentions(report.text, table, indicators))
+        entities = merge_entities(found, table_mentions(report.text, table, indicators), table)
         tags = [resolve(report.id, entity, table, rules) for entity in entities]
-        reasons += [f"{tag.mention}: {tag.reason}" for tag in tags if tag.status == REVIEW]
+        for tag in tags:
+            if not (tag.status == TAGGED and tag.candidate_techniques and policy["technique_cue"]):
+                continue
+            if cue := technique_cue(report.text, tag, rules["technique_cues"]):
+                tag.techniques_held = True
+                held = ", ".join(tag.candidate_techniques)
+                tag.reason = f"candidate techniques {held} held: the sentence says {cue!r}"
+        reasons += [
+            f"{tag.mention}: {tag.reason}"
+            for tag in tags
+            if tag.status == REVIEW or tag.techniques_held
+        ]
 
         def names(kind: str, tags: list[Tag] = tags) -> list[str]:
             return sorted({t.canonical for t in tags if t.kind == kind and t.status == TAGGED})
 
-        ids = sorted({t for tag in tags if tag.status == TAGGED for t in tag.techniques})
+        ids = sorted(
+            {
+                t
+                for tag in tags
+                if tag.status == TAGGED and not tag.techniques_held
+                for t in tag.candidate_techniques
+            }
+        )
         mapped = [asdict(techniques[t]) for t in ids]
         tagged.append(
             TaggedReport(
@@ -614,7 +676,7 @@ def write_outputs(output_dir: Path, tagged: list[TaggedReport]) -> None:
         for report in tagged:
             for tag in report.tags:
                 row = asdict(tag)
-                row["techniques"] = ";".join(tag.techniques)
+                row["candidate_techniques"] = ";".join(tag.candidate_techniques)
                 writer.writerow(csv_safe(row))
     with (output_dir / "iocs.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=IOC_FIELDS)
@@ -649,13 +711,14 @@ def main() -> None:
         tagged = tag_reports(client, *_setup())
     write_outputs(output, tagged)
     for report in tagged:
-        ids = ", ".join(t["id"] for t in report.techniques) or "-"
+        ids = ", ".join(t["id"] for t in report.candidate_techniques) or "-"
         print(f"{report.id}  {report.status:<7} actors: {', '.join(report.actors) or '-'}")
-        print(f"        malware: {', '.join(report.malware) or '-'}  techniques: {ids}")
+        print(f"        malware: {', '.join(report.malware) or '-'}  candidate techniques: {ids}")
         for reason in report.reasons:
             print(f"        review: {reason}")
     review = sum(report.status == REVIEW for report in tagged)
     print(f"\n{len(tagged)} reports: {len(tagged) - review} tagged, {review} to review")
+    print("tagged = no configured review flag fired; techniques and indicators are candidates")
     print(f"outputs: {output / 'tags.json'}, {output / 'entities.csv'}, {output / 'iocs.csv'}")
 
 

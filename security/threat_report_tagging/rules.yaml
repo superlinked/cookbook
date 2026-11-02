@@ -16,10 +16,12 @@ labels:
   malware: malware
   tool: tool
 
-# The alias table: one canonical name per actor or malware family, with the names other
-# vendors and feeds use for it. Looking a mention up ignores case, a leading "the" and trailing
-# words from `generic_words`, so "Mothvine Loader" and "the Mothvine loader" both read as
-# Mothvine. The recipe's own search of the text for names the model missed is exact case.
+# The alias table: one canonical name per actor or malware family, with the names an analyst
+# has confirmed mean the same thing for indexing. Vendors often track clusters that only
+# partly overlap, so list an alias here only when your team treats it as the same group, never
+# because two names are "related". Looking a mention up ignores case, a leading "the" and
+# trailing words from `generic_words`, so "Mothvine Loader" and "the Mothvine loader" both read
+# as Mothvine. The recipe's own search of the text for names the model missed ignores case too.
 # If one alias sits under two canonical names, that's a real-world collision, and a
 # mention of it goes to review instead of being merged with either. A canonical name itself
 # goes under one section only (actors, malware or tool_techniques); the recipe refuses to start
@@ -41,10 +43,12 @@ generic_words: [ransomware, loader, backdoor, implant, malware, dropper, stage, 
 # as an actor and "MD5" as a tool (fitted to the demo data; extend them for your reports).
 ignore_mentions: [MD5, SHA-1, SHA1, SHA-256, SHA256, CVE]
 
-# Tools mapped to ATT&CK Enterprise technique IDs. Every ID must be in
-# data/attack_techniques.csv (a small subset of MITRE ATT&CK; see the README for the terms of
-# use). A tool the model finds that isn't listed here goes to review. We don't guess a
-# technique.
+# Tools mapped to candidate ATT&CK Enterprise technique IDs: techniques the tool is commonly
+# associated with, looked up by its name, not behavior the report shows ("rclone" is a backup
+# tool as often as an exfiltration tool). An analyst confirms them before they feed a
+# detection. Every ID must be in data/attack_techniques.csv (a small subset of MITRE ATT&CK;
+# see the README for the terms of use). A tool the model finds that isn't listed here goes to
+# review. We don't guess a technique.
 tool_techniques:
   Mimikatz: [T1003.001]
   PsExec: [T1569.002, T1021.002]
@@ -54,12 +58,22 @@ tool_techniques:
   vssadmin: [T1490]
   ngrok: [T1572]
 
+# Words that, in the same sentence as a mapped tool, hold back its candidate techniques and
+# send the report to review: a negation ("No Mimikatz execution was observed") or a sign of
+# routine admin use ("used rclone to back up the file server"). Matched as whole words, any
+# case. It's a plain keyword check, fitted to the demo data; it over-flags ("no" anywhere in
+# the sentence) and misses anything worded differently. Quote every cue: YAML reads a bare
+# no as false.
+technique_cues: ["no", "not", "never", "without", "back up", "backed up", "backup", "backups",
+                 "legitimate", "authorized", "administrators"]
+
 # Which name and indicator reasons send a report to review (true) or are only recorded (false).
 policy:
   unknown_actor: true      # an actor name that is not in the alias table
   unknown_malware: true    # a malware name that is not in the alias table
   ambiguous_alias: true    # an alias listed under two canonical names
   unmapped_tool: true      # a tool with no ATT&CK mapping in tool_techniques
+  technique_cue: true      # a technique cue next to a mapped tool (off: cues are not checked)
   live_ioc: true           # a URL written live (http://, https://) instead of defanged
   malformed_indicator: true  # a hex run that is not an MD5, SHA-1 or SHA-256 length, a
                              # defanged IP that isn't a valid address, a CVE ID with too

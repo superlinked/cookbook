@@ -178,7 +178,7 @@ def check_review() -> None:
     ]
     report = run(text, [{"entities": found}])
     assert (report.status, report.actors, report.tools) == ("review", ["Ashen Heron"], ["Mimikatz"])
-    assert [t["id"] for t in report.techniques] == ["T1003.001"]
+    assert [t["id"] for t in report.candidate_techniques] == ["T1003.001"]
     assert report.reasons == [
         "Chisel: tool 'Chisel' has no ATT&CK mapping in rules.yaml",
         "Velvet Ostrich: actor 'Velvet Ostrich' is not in the alias table",
@@ -192,6 +192,70 @@ def check_review() -> None:
     assert failed.reasons == ["window 1 was not tagged: model timed out"]
     assert failed.actors == ["Ashen Heron"]  # the alias table still finds known names
     print("review: techniques, unknown names, policy off, bad span, failed window ok")
+
+
+class Broken:
+    """Stands in for SIEClient when the call itself fails (a timeout, a refused connection)."""
+
+    def extract(self, model: str, items: list[Any], **_: Any) -> list[dict[str, Any]]:
+        raise ConnectionError("connection refused")
+
+
+def check_fallback() -> None:
+    # Lower- and upper-case names the model missed are still found by the table.
+    text = "LX-0417 ran powershell; ASHEN HERON again."
+    report = run(text, [{"entities": []}])
+    assert (report.status, report.actors, report.tools) == (
+        "tagged",
+        ["Ashen Heron"],
+        ["PowerShell"],
+    )
+    assert [t.mention for t in report.tags] == ["LX-0417", "powershell", "ASHEN HERON"]
+    # An overlapping model span that reads as something else doesn't hide the exact name.
+    text = "The operators ran PowerShell scripts."
+    report = run(text, [{"entities": [span(text, "PowerShell scripts", "tool")]}])
+    assert report.tools == ["PowerShell"]
+    assert [t["id"] for t in report.candidate_techniques] == ["T1059.001"]
+    assert report.reasons == [
+        "PowerShell scripts: tool 'PowerShell scripts' has no ATT&CK mapping in rules.yaml"
+    ]
+    # A model span that resolves to the same name covers the table match: one tag, not two.
+    text = "A Mothvine Loader stage ran."
+    report = run(text, [{"entities": [span(text, "Mothvine Loader", "malware")]}])
+    assert [(t.mention, t.source) for t in report.tags] == [("Mothvine Loader", "model")]
+    print("fallback: any-case table names; an overlapping model span keeps the exact name ok")
+
+
+def check_sie_failure() -> None:
+    techniques = recipe.load_techniques()
+    table = recipe.AliasTable.build(RULES, techniques)
+    reports = [recipe.Report(i, "2099-01-01", "t", "Ashen Heron ran Mimikatz.") for i in "AB"]
+    tagged = recipe.tag_reports(cast(SIEClient, Broken()), reports, table, techniques, RULES)
+    assert [r.status for r in tagged] == ["review", "review"]
+    assert tagged[0].reasons == [
+        "window 1 was not tagged: the SIE call failed: ConnectionError: connection refused"
+    ]
+    assert tagged[1].actors == ["Ashen Heron"]  # the table still finds known names
+    with tempfile.TemporaryDirectory() as folder:
+        recipe.write_outputs(Path(folder), tagged)
+        assert (Path(folder) / "entities.csv").read_text(encoding="utf-8").count("\n") == 5
+    print("sie failure: a call that raises sends its reports to review, outputs still written ok")
+
+
+def check_technique_cues() -> None:
+    reports = {r.id: r.text for r in recipe.load_reports()}
+    for report_id, tool, cue in [("R-09", "rclone", "back up"), ("R-10", "Mimikatz", "no")]:
+        text = reports[report_id]
+        report = run(text, [{"entities": [span(text, tool, "tool")]}])
+        assert (report.status, report.tools, report.candidate_techniques) == ("review", [tool], [])
+        assert report.reasons[0].endswith(f"held: the sentence says {cue!r}"), report.reasons
+        quiet = run(text, [{"entities": [span(text, tool, "tool")]}], technique_cue=False)
+        assert quiet.status == "tagged"
+        assert quiet.candidate_techniques
+    # A cue in another sentence doesn't hold the technique back.
+    text = "No patch was applied. The operators ran Mimikatz."
+    assert run(text, [{"entities": []}]).status == "tagged"
+    print("technique cues: R-09 backup and R-10 negation hold candidate techniques ok")
 
 
 def check_indicator_policy() -> None:
@@ -215,4 +279,7 @@ if __name__ == "__main__":
     check_config()
     check_review()
     check_indicator_policy()
+    check_fallback()
+    check_sie_failure()
+    check_technique_cues()
     check_planted()
