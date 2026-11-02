@@ -47,11 +47,13 @@ the receipt or a field that wasn't read goes to a person with the reason.
    lines with their amounts (`2 @ 12.00` gives the unit price), coupon, subtotal, tax rate and
    amount, and total. Every field sits on a labelled line or a SKU line on these receipts, so
    rules can read it and you can see why each value was taken.
-4. **Check it.** Our store; lines plus discounts plus tax equal the total, to the cent, and
-   every line with an amount is understood. For a return: the returned SKU is on the receipt and
-   returnable, the days since purchase are inside the department's window, and the refund can be
-   worked out. For a points claim: the claim window, the member number on the receipt, and that
-   the transaction isn't already credited.
+4. **Check it.** Our store; lines plus discounts plus tax equal the total, to the cent; the tax
+   is the printed rate times the taxable lines, within a cent; and every line with an amount is
+   understood. For a return: the returned SKU is on the receipt with no voided or negative line
+   and is returnable, the days since purchase are inside the department's window, and the refund
+   can be worked out and is no more than the receipt total. For a points claim: the claim window,
+   the member number on the receipt, and that the transaction isn't already credited. A request
+   that is neither a `return` nor a `points_claim` goes to the desk as an unknown request type.
 5. **Work out the money.** Refund: one unit, less its prorated share of the coupon, plus tax at
    the printed rate. Points: 1 per whole dollar of spend without gift cards, after coupons; a
    return takes back the points on its refund.
@@ -86,6 +88,7 @@ flowchart TD
     M --> T{Request type}
     T -- return --> CR[check_return<br/>item, window, refund worked out]
     T -- points claim --> CP[check_points_claim<br/>window, member, not credited]
+    T -- anything else --> D
     CR --> S{Any check failed?}
     CP --> S
     S -- yes --> D[service_desk<br/>with the reasons]
@@ -106,8 +109,9 @@ one-line description of every check. [`recipe.py`](./recipe.py) holds the steps:
 | Read | `run`, `read_page` | `extract` (image item) | Renders each PDF page at 150 dpi, caps the longest edge at 2048 px, and reads it with GLM-OCR. A reply with no `entities` list counts as a failed call |
 | Readable? | `unreadable_reason` | none | Fewer than 60 characters, or one character repeated 20+ times in a row (separator dashes and stars don't count) |
 | Parse | `flatten`, `parse_receipt` | none | Turns tables and Markdown into lines, then reads the fields; a line with an amount that matches no label lands in `unparsed` |
-| Check the receipt | `check_receipt` | none | `receipt_fields`, `receipt_store`, `receipt_math` |
-| Check a return | `check_return`, `refund_for` | none | `returned_item`, `return_window` (longest SKU prefix wins), `refund_worked_out` |
+| Check the receipt | `check_receipt`, `taxable_spend` | none | `receipt_fields`, `receipt_store`, `receipt_math` (the sums, and the tax against the printed rate; gift cards carry no tax) |
+| Pick the checks | `check_request` | none | A `return` or a `points_claim`; any other type fails `request_type` |
+| Check a return | `check_return`, `refund_for` | none | `returned_item` (fails on a voided or negative line for the SKU), `return_window` (longest SKU prefix wins), `refund_worked_out` (only for a returnable line; fails above the receipt total) |
 | Check a claim | `check_points_claim`, `points_for` | none | `claim_window`, `receipt_member`, `not_credited` against `credited-transactions.csv` |
 | Write | `write_outputs` | none | `requests/<request>.json`, `statuses.csv`, `service-desk.csv` |
 
@@ -117,8 +121,10 @@ list) fails `readable` for that request with the error, and the run goes on. A r
 key, no credits, a model name SIE doesn't know) stops the run at once with SIE's full message
 and writes nothing. If every call failed, the run stops too, since then no receipt was read.
 
-[`selfcheck.py`](./selfcheck.py) checks the parser, the refund rule, the statuses and that SIE
-failure rule offline, with hand-written receipt text and stand-in replies.
+[`selfcheck.py`](./selfcheck.py) checks the parser, the receipt math and tax rate, voided lines,
+unknown request types, the return gates and refund (coupon share, quantity line, windows, gift
+card), the points claim, the statuses and that SIE failure rule offline, with hand-written
+receipt text and stand-in replies.
 [`make_data.py`](./make_data.py) draws the receipt photos.
 
 ## Run it
@@ -171,9 +177,9 @@ gets a real receipt wrong.
 
 A few things worth noticing:
 
-- **RET-1007 is the case that used to slip through.** Before this check, a receipt with a tax
-  amount and no rate passed every return check: the refund came out empty and nothing failed,
-  so the request was marked ready with no refund on it. Now it goes to the desk:
+- **RET-1007 has no rate to refund the tax at.** `refund_worked_out` guards against handing
+  staff a return with no refund on it: a receipt that prints a tax amount and no rate passes
+  every other return check, so this is the check that sends it to the desk:
 
   ```json
   {"request": "RET-1007", "status": "service_desk", "failed_checks": ["refund_worked_out"],
@@ -187,11 +193,12 @@ A few things worth noticing:
   (abridged from `requests/RET-1007.json`). The receipt adds up fine. It just doesn't say what
   rate to refund the tax at, and guessing the rate is not a job for a refund rule.
 - **The blurred photo got a real reason.** `RET-1006` would have gone to the desk anyway, since
-  no store, date or items were read. The repeat check means the desk sees "photo not legible"
-  first, instead of six failures that all mean the same thing.
+  no store, date or items were read. The repeat check puts "photo not legible" first, ahead of
+  the five checks that fail because of it; all six rows still appear in `service-desk.csv`.
 - **The near misses are boundaries, and they held.** Day 30 on a 30-day window, a quantity line,
-  a gift card that earns no points and a coupon spread across the lines all came out
-  `ready_for_staff` with the expected money.
+  a gift card that earns no points and carries no tax, and a member coupon taken off the points
+  all came out `ready_for_staff` with the expected money. No return in the data has a coupon;
+  the coupon's share on a returned unit is covered by `selfcheck.py`, not the planted data.
 - **The desk sees one row per failed check.** From `service-desk.csv`:
 
   ```csv
@@ -220,18 +227,19 @@ check).
   catches one failure we saw, not every invented text. They are starting points; check them
   against your own receipts.
 - **Another OCR model.** Change `models.ocr` in `rules.yaml`. `lightonai/LightOnOCR-3-4B` is
-  the alternative for receipts GLM-OCR reads poorly (handwriting, long receipts), though these
-  ten receipts don't test either.
+  one to try on receipts unlike these (handwritten notes, long receipts); neither model was
+  tested on handwriting or long receipts here.
 - **Mixed tax and item coupons.** The refund applies one tax rate to every item and spreads
-  every coupon over every returnable item. A basket with tax-exempt lines or a coupon for one
-  item needs per-item tax status and coupon rules, or a check that sends such receipts to the
-  desk.
+  every coupon over every returnable item. A basket with tax-exempt lines now fails closed:
+  its tax doesn't match the printed rate, so `receipt_math` sends it to the desk. Refunding it
+  needs per-item tax status. A coupon for one item is still spread over every item.
 - **Transaction history.** The recipe never looks up the transaction in the point-of-sale
   system, so the same receipt claimed twice, a unit already returned, or a points claw-back on
   a purchase that never earned points all pass; a small history lookup is the first thing to
   add.
 - **What it doesn't do.** It doesn't check that a receipt is genuine (an edited photo, a receipt
-  reused across stores), or handle exchanges, partial-quantity returns of a multi-unit line
+  reused across stores), or handle exchanges (an `exchange` request goes to the desk as an
+  unknown request type), partial-quantity returns of a multi-unit line
   beyond one unit, or returns without a receipt. It reads the photo and checks it against the
   rules, so staff start from the problems.
 
@@ -269,8 +277,8 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: the pipeline
-- `selfcheck.py`: plain asserts on the parser, refund rule, statuses and SIE error rule, no SIE
-  call (`uv run selfcheck.py`)
+- `selfcheck.py`: plain asserts on the parser, receipt checks, return and points rules,
+  statuses and SIE error rule, no SIE call (`uv run selfcheck.py`)
 - `make_data.py`: draws the synthetic receipt photos and writes the requests in `data/`
 - `rules.yaml`: stores, windows, points, labels and thresholds
 - `data/`: the receipt photos, the requests and the credited transactions

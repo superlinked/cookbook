@@ -365,6 +365,13 @@ def eligible_spend(receipt: Receipt, rules: dict[str, Any]) -> Decimal:
     return max(Decimal(0), items + sum(receipt.discounts, Decimal(0)))
 
 
+def taxable_spend(receipt: Receipt, rules: dict[str, Any]) -> Decimal:
+    """Item lines + receipt-level discounts, without SKU prefixes that carry no tax."""
+    untaxed = rules["receipt"]["untaxed_prefixes"]
+    items = sum((i.amount for i in receipt.items if not _starts(i.sku, untaxed)), Decimal(0))
+    return items + sum(receipt.discounts, Decimal(0))
+
+
 def points_for(amount: Decimal, rules: dict[str, Any]) -> int:
     return int(amount.quantize(Decimal(1), ROUND_DOWN)) * int(rules["points"]["per_dollar"])
 
@@ -453,6 +460,15 @@ def check_receipt(result: RequestResult, rules: dict[str, Any]) -> None:
     added = items + discounts + receipt.tax
     if abs(added - receipt.total) > tolerance:
         problems.append(f"items, discounts and tax add up to {added}, total says {receipt.total}")
+    if receipt.tax_rate is not None:
+        # The printed rate must explain the printed tax, within a cent of rounding. A misread
+        # rate, or a basket with tax-exempt lines, fails here instead of giving a wrong refund.
+        taxable = taxable_spend(receipt, rules)
+        expected = (taxable * receipt.tax_rate / 100).quantize(CENT, ROUND_HALF_UP)
+        if abs(expected - receipt.tax) > max(tolerance, CENT):
+            problems.append(
+                f"tax {receipt.tax} is not {receipt.tax_rate}% of taxable {taxable} ({expected})"
+            )
     result.add(
         "receipt_math",
         not problems,
@@ -469,8 +485,10 @@ def _days(result: RequestResult) -> int | None:
 
 def check_return(result: RequestResult, rules: dict[str, Any]) -> None:
     receipt, sku = result.receipt, result.sku or ""
-    line = next((item for item in receipt.items if item.sku == sku), None)
-    if line is None:
+    lines = [item for item in receipt.items if item.sku == sku]
+    line = next((item for item in lines if item.amount > 0), None)
+    returnable = False
+    if not lines:
         words = set(re.findall(r"[a-z]{3,}", (result.description or "").casefold()))
         similar = [
             f"{item.sku} {item.name}"
@@ -481,9 +499,19 @@ def check_return(result: RequestResult, rules: dict[str, Any]) -> None:
         if similar:
             detail += "; similar lines with another SKU: " + ", ".join(similar)
         result.add("returned_item", False, detail)
+    elif line is None or any(item.amount < 0 for item in lines):
+        # A voided or refunded line ("VOID -20.00") for this SKU: the unit may already be
+        # taken off the receipt, so it is not refunded twice.
+        amounts_read = ", ".join(str(item.amount) for item in lines)
+        result.add(
+            "returned_item",
+            False,
+            f"SKU {sku} has a voided or negative line on the receipt ({amounts_read})",
+        )
     elif _starts(sku, rules["returns"]["not_returnable_prefixes"]):
         result.add("returned_item", False, f"{sku} {line.name} is not returnable")
     else:
+        returnable = True
         result.add("returned_item", True, f"{sku} {line.name} at {line.unit}")
 
     department, window = return_window(sku, rules)
@@ -497,10 +525,16 @@ def check_return(result: RequestResult, rules: dict[str, Any]) -> None:
             f"{days} days after purchase; {department} window is {window} days",
         )
 
-    if line is not None:
+    if returnable and line is not None:  # a refund is worked out only for a returnable line
         result.refund = refund_for(line, receipt, rules)
         result.points = -points_for(refund_pretax(line, receipt, rules), rules)
-        if result.refund is not None:
+        if result.refund is not None and (receipt.total is None or result.refund > receipt.total):
+            result.add(
+                "refund_worked_out",
+                False,
+                f"Refund {result.refund} is more than the receipt total {receipt.total}",
+            )
+        elif result.refund is not None:
             result.add(
                 "refund_worked_out",
                 True,
@@ -564,8 +598,15 @@ def check_request(
     check_receipt(result, rules)
     if result.kind == RETURN:
         check_return(result, rules)
-    else:
+    elif result.kind == POINTS_CLAIM:
         check_points_claim(result, credited, rules)
+    else:
+        # Not checked as a claim or a return: a person reads it.
+        result.add(
+            "request_type",
+            False,
+            f"unknown request type {result.kind!r}; expected {RETURN!r} or {POINTS_CLAIM!r}",
+        )
 
 
 # --- Run --------------------------------------------------------------------------------------

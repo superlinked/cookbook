@@ -33,6 +33,11 @@ receipt:
   sku_digits: 6
   date_formats: ["%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"]
   money_tolerance: "0.00"       # items, discounts and tax must add up to the total to the cent
+  # Item lines with these SKU prefixes carry no tax (gift cards). The tax printed on a receipt
+  # must be the printed rate times the other lines plus discounts, within a cent of rounding
+  # (or money_tolerance if larger); otherwise receipt_math fails. A basket with tax-exempt
+  # lines, or a misread rate, goes to the desk this way.
+  untaxed_prefixes: ["990"]
 
 returns:
   # Days from the purchase date to the return request, inclusive of the last day.
@@ -43,8 +48,10 @@ returns:
   not_returnable_prefixes: ["990"]   # gift cards
   # Refund = one unit's price, less its prorated share of receipt-level discounts, plus tax at the
   # rate printed on the receipt. Points earned on that amount are taken back. Two limits: one tax
-  # rate for every item (no tax-exempt lines), and every coupon spread over every returnable item.
-  # A receipt that prints a tax amount without a rate fails refund_worked_out.
+  # rate for every item (receipts with tax-exempt lines fail receipt_math), and every coupon
+  # spread over every returnable item. A receipt that prints a tax amount without a rate, or a
+  # refund larger than the receipt total, fails refund_worked_out. A SKU with a voided or
+  # negative line fails returned_item.
 
 points:
   per_dollar: 1                 # points per whole dollar of eligible spend, rounded down
@@ -59,10 +66,11 @@ checks:
   readable: The receipt photo has enough OCR text to read
   receipt_fields: Store, date, transaction, total and at least one priced item read
   receipt_store: The receipt is from one of our stores
-  receipt_math: Item lines, discounts and tax add up to the printed total, and every priced line is understood
-  returned_item: The returned item's SKU is an item line on the receipt and is returnable
+  receipt_math: Item lines, discounts and tax add up to the printed total, the tax matches the printed rate, and every priced line is understood
+  request_type: The request is a return or a points claim (anything else goes to a person)
+  returned_item: The returned item's SKU is an item line on the receipt, with no voided or negative line, and is returnable
   return_window: The return comes within the department's window
-  refund_worked_out: The refund could be worked out, which needs the tax rate printed on the receipt
+  refund_worked_out: The refund could be worked out, which needs the tax rate printed on the receipt, and is no more than the receipt total
   claim_window: A missing-points claim comes within the claim window
   receipt_member: The member number on the receipt ends with the claimant's last four digits
   not_credited: The transaction is not already credited to a member

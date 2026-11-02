@@ -89,6 +89,58 @@ NO_RATE_RETURN = {
 }
 TEXTS = {"RET-1001": SKILLET, "RET-1007": NO_RATE}
 
+# A points-claim receipt: a quantity line, a gift card (no tax, no points) and a member coupon.
+# Taxable and eligible spend: 49.99 + 24.00 - 10.00 = 63.99; tax 7.25% of that is 4.64.
+BASKET = """BRAMBLEWAY MARKET
+Date: 09/26/2026 11:15
+Store #0418  Reg 1  Trans 05102
+Member BW-****0588
+402215 BLUETOOTH SPEAKER MINI 49.99
+120334 SCENTED CANDLE CEDAR 2 @ 12.00 24.00
+990001 GIFT CARD 50.00
+MEMBER COUPON -10.00
+SUBTOTAL 113.99
+SALES TAX 7.25% 4.64
+TOTAL 118.63
+VISA ****7781 118.63
+"""
+BASKET_CLAIM = {
+    "request": "PTS-9001",
+    "type": "points_claim",
+    "member": "BW-7712-0588",
+    "requested_on": "2026-10-21",
+    "receipt": {"file": "receipt-photos.pdf", "page": 2},
+}
+# A voided line for the returned SKU: the receipt adds up to 10.73, the widget was taken off.
+VOIDED = """BRAMBLEWAY MARKET
+Date: 10/08/2026 17:42
+Store #0412  Reg 2  Trans 08900
+Member BW-****0431
+123456 WIDGET 20.00
+123456 WIDGET VOID -20.00
+118207 LINEN TEA TOWELS 3PK 10.00
+SUBTOTAL 10.00
+SALES TAX 7.25% 0.73
+TOTAL 10.73
+"""
+# A negative line for another SKU: the skillet's refund (21.45) is more than the total (5.36).
+OVER_TOTAL = """BRAMBLEWAY MARKET
+Date: 10/08/2026 17:42
+Store #0412  Reg 2  Trans 08901
+Member BW-****0431
+310442 CAST IRON SKILLET 20.00
+205530 GLASS TUMBLER VOID -15.00
+SUBTOTAL 5.00
+SALES TAX 7.25% 0.36
+TOTAL 5.36
+"""
+
+
+def returning(sku: str, on: str, **extra: Any) -> dict[str, Any]:
+    """A return of one SKU on the given date, built from SKILLET_RETURN."""
+    item = {"sku": sku, "description": "returned item"}
+    return {**SKILLET_RETURN, "requested_on": on, "item": item, **extra}
+
 
 def checked(raw: dict[str, Any], text: str) -> recipe.RequestResult:
     return recipe.process_request(raw, text, {}, RULES)
@@ -147,6 +199,98 @@ def check_tax_without_rate() -> None:
     assert passed["refund_worked_out"] == "37.53: 34.99 before tax, tax at 7.25%"
     assert "refund_worked_out" in RULES["checks"]
     print("tax without a rate: refund not worked out, request goes to the desk ok")
+
+
+def check_voided_line() -> None:
+    result = checked(returning("123456", "2026-10-20"), VOIDED)
+    assert result.failed_names == ["returned_item"], result.failed_names
+    assert result.failed[0].detail == (
+        "SKU 123456 has a voided or negative line on the receipt (20.00, -20.00)"
+    )
+    assert (result.refund, result.points) == (None, None)
+    # The receipt still adds up: the void is read as a line, not hidden.
+    assert checked(returning("118207", "2026-10-20"), VOIDED).status == "ready_for_staff"
+    # Another SKU's negative line: the refund would be more than the receipt total.
+    result = checked(SKILLET_RETURN, OVER_TOTAL)
+    assert result.failed_names == ["refund_worked_out"], result.failed_names
+    assert result.failed[0].detail == "Refund 21.45 is more than the receipt total 5.36"
+    print("voided line: returned_item fails; a refund over the receipt total fails ok")
+
+
+def check_tax_rate() -> None:
+    misread = SKILLET.replace("SALES TAX 7.25%", "SALES TAX 1.25%")
+    result = checked(SKILLET_RETURN, misread)
+    assert result.failed_names == ["receipt_math"], result.failed_names
+    detail = next(c.detail for c in result.checks if c.check == "receipt_math")
+    assert detail == "tax 4.53 is not 1.25% of taxable 62.47 (0.78)", detail
+    # A gift card carries no tax: the basket's 4.64 is 7.25% of 63.99, not of 113.99.
+    assert checked(BASKET_CLAIM, BASKET).status == "ready_for_staff"
+    print("tax rate: a rate that doesn't explain the tax fails receipt_math ok")
+
+
+def check_request_type() -> None:
+    for kind in ["exchange", "Return"]:
+        result = checked({**SKILLET_RETURN, "type": kind}, SKILLET)
+        assert result.failed_names == ["request_type"], (kind, result.failed_names)
+        assert result.failed[0].detail.startswith(f"unknown request type {kind!r}")
+        assert (result.refund, result.points) == (None, None), kind
+    print("request type: exchange and Return go to the desk, unchecked as claims ok")
+
+
+def check_points_claim() -> None:
+    result = checked(BASKET_CLAIM, BASKET)
+    assert result.status == "ready_for_staff", result.failed_names
+    # 63.99 eligible: gift card left out, coupon subtracted, rounded down.
+    assert result.points == 63, result.points
+    credited = {
+        "0418-1-05102": {
+            "transaction": "0418-1-05102",
+            "member": "BW-7712-0301",
+            "points": "63",
+            "credited_on": "2026-10-01",
+        }
+    }
+    twice = recipe.process_request(BASKET_CLAIM, BASKET, credited, RULES)
+    assert twice.failed_names == ["not_credited"], twice.failed_names
+    assert twice.failed[0].detail == (
+        "Trans 0418-1-05102 already credited 63 points to BW-7712-0301 on 2026-10-01"
+    )
+    other = checked({**BASKET_CLAIM, "member": "BW-7712-0599"}, BASKET)
+    assert other.failed_names == ["receipt_member"], other.failed_names
+    day90 = checked({**BASKET_CLAIM, "requested_on": "2026-12-25"}, BASKET)
+    assert day90.status == "ready_for_staff", day90.failed_names
+    day91 = checked({**BASKET_CLAIM, "requested_on": "2026-12-26"}, BASKET)
+    assert day91.failed_names == ["claim_window"], day91.failed_names
+    print("points claim: 63 points, credit twice, wrong member and claim window ok")
+
+
+def check_return_gates() -> None:
+    # One candle of "2 @ 12.00", less its share of the 10.00 coupon: 12.00 - 1.62 = 10.38,
+    # plus 7.25% tax 0.75 = 11.13; 10 points taken back.
+    candle = checked(returning("120334", "2026-10-21"), BASKET)
+    assert candle.status == "ready_for_staff", candle.failed_names
+    assert (str(candle.refund), candle.points) == ("11.13", -10), (candle.refund, candle.points)
+    # Electronics (prefix 4): day 15 is inside the 15-day window, day 16 is not.
+    assert checked(returning("402215", "2026-10-11"), BASKET).status == "ready_for_staff"
+    late = checked(returning("402215", "2026-10-12"), BASKET)
+    assert late.failed_names == ["return_window"], late.failed_names
+    assert late.failed[0].detail == "16 days after purchase; electronics window is 15 days"
+    # A gift card is not returnable, and no refund is worked out for it.
+    card = checked(returning("990001", "2026-10-01"), BASKET)
+    assert card.failed_names == ["returned_item"], card.failed_names
+    assert card.failed[0].detail == "990001 GIFT CARD is not returnable"
+    assert (card.refund, card.points) == (None, None)
+    assert "refund_worked_out" not in [c.check for c in card.checks]
+    # A printed total that doesn't add up.
+    off = checked(SKILLET_RETURN, SKILLET.replace("TOTAL 67.00", "TOTAL 87.00"))
+    assert off.failed_names == ["receipt_math"], off.failed_names
+    # The 30-day window includes its last day: bought 10/08, day 30 is 11/07.
+    assert checked({**SKILLET_RETURN, "requested_on": "2026-11-07"}, SKILLET).status == (
+        "ready_for_staff"
+    )
+    day31 = checked({**SKILLET_RETURN, "requested_on": "2026-11-08"}, SKILLET)
+    assert day31.failed_names == ["return_window"], day31.failed_names
+    print("return gates: coupon share, quantity line, windows, gift card, bad total ok")
 
 
 def check_data() -> None:
@@ -304,5 +448,10 @@ if __name__ == "__main__":
     check_parse()
     check_statuses()
     check_tax_without_rate()
+    check_voided_line()
+    check_tax_rate()
+    check_request_type()
+    check_points_claim()
+    check_return_gates()
     check_data()
     check_sie_failure()
