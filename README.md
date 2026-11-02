@@ -47,6 +47,14 @@ Run time is the faster of two live runs on SIE Cloud on 31 Oct 2026. A run that 
 cold model can take several minutes longer. Calls counts the recipe's SIE
 requests (one request can carry many items).
 
+### Retail
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Check shelf price labels against the price file](retail/shelf_price_check) | grounding-dino-base, GLM-OCR | 22 | 20 s |
+| [Read receipt photos for returns and rewards](retail/receipt_returns) | GLM-OCR | 10 | 20 s |
+| [Route customer messages to the right team](retail/customer_message_routing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
+
 ### Security
 
 | Recipe | Models | SIE calls | Run time |
