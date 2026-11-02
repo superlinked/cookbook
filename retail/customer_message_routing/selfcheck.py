@@ -111,7 +111,30 @@ def check_escalations() -> None:
     assert both.as_row()["also_send_to"] == "legal-escalations"
     # Phrase-only escalation is a known limit: an injury in other words is not caught.
     assert names("a piece of glass cut my child's cheek") == []
-    print("escalations: whole words, 'Sue' a name, both flags kept, paraphrase not caught ok")
+    # The subject is read too: a phrase only in the subject line still escalates.
+    subject_only = recipe.Message("Z", "email", "Fire hazard", "My order is late")
+    screened = recipe.screen([subject_only], RULES)["Z"]
+    assert (screened.team, screened.escalations) == ("product-safety", ["safety"]), screened
+    assert screened.matched_phrases == ["fire"], screened.matched_phrases
+    print("escalations: whole words, subject read, 'Sue' a name, both flags kept ok")
+
+
+def check_parse_messages() -> None:
+    def refused(records: list[dict[str, Any]]) -> str:
+        try:
+            recipe.parse_messages(records)
+        except ValueError as error:
+            return str(error)
+        raise AssertionError(f"{records} was accepted")
+
+    ok = recipe.parse_messages([{"id": "A", "body": "hi"}, {"id": "B", "subject": "x"}])
+    assert [m.id for m in ok] == ["A", "B"]
+    burn = {"id": "A", "body": "It burned me"}
+    assert refused([burn, {"id": "A", "body": "Where is my order?"}]) == (
+        "message id 'A' is used twice"
+    )
+    assert refused([{"id": "A#2", "body": "hi"}]) == "message id 'A#2' contains '#'"
+    print("parse messages: a repeated id and an id with '#' are refused ok")
 
 
 def check_fields() -> None:
@@ -137,7 +160,20 @@ def check_fields() -> None:
         "store span 'Oakwood' is not in the message; dropped",
         "several stores named: ST-022, ST-014",
     ], found.notes
-    print("fields: order pattern, store list, several stores noted ok")
+    # The model reads windows with whitespace collapsed, so its spans have single spaces; a
+    # line break or a double space in the message must not drop them.
+    broken = message("I returned it at the Riverside\nPlaza store.\nOrder LK 208  331, thanks")
+    spans = [
+        {"label": "order number", "text": "LK 208 331", "score": 0.9},
+        {"label": "store location", "text": "Riverside Plaza", "score": 0.8},
+    ]
+    assert "LK 208 331" in recipe.windows(broken.text, 120)[0]
+    found = recipe.Route("X", "chat")
+    recipe.read_fields(found, broken, spans, CATALOG, RULES)
+    assert found.order_numbers == ["LK-208331"], found.notes
+    assert found.store_id == "ST-022", found.notes
+    assert found.notes == [], found.notes
+    print("fields: order pattern, store list, several stores, line breaks in spans ok")
 
 
 def check_route_by_model() -> None:
@@ -157,7 +193,30 @@ def check_route_by_model() -> None:
     assert "margin 0.10 < 0.20" in close.reason
     failed = decide("billing", 0.9, ["team model: timed out"])
     assert (failed.team, failed.reason) == (GENERAL, "team model: timed out")
-    print("route by model: clear pick, low score, low margin, failed call ok")
+    # Two windows that each pick a different team clearly: the merge shows the conflict, and
+    # the message goes to the general queue.
+    one = {**RULES, "thresholds": {**RULES["thresholds"], "max_words_per_window": 3}}
+    text = "I was charged twice and my points are missing"
+    assert len(recipe.windows(text, 3)) == 3
+    replies = {f"{TEAM_MODEL}:A#{n}": probabilities("loyalty", 0.9) for n in (2, 3)}
+    replies[f"{TEAM_MODEL}:A#1"] = probabilities("billing", 0.9)
+    split = route([message(text, "A")], Stand(replies=replies), one)[0]
+    assert (split.team, split.method) == (GENERAL, "general"), split.reason
+    assert {split.suggested_team, split.second_team} == {"billing", "loyalty"}, split
+    # Each peak is 0.90; renormalized over the teams they are 0.48 each, with no margin.
+    assert split.margin == 0.0, split.margin
+    assert split.reason.startswith("top team billing scored 0.48 < 0.50"), split.reason
+    # The model's team must be a catalog team: an unknown one is an error, not a route.
+    stray = probabilities("returns-refunds", 0.9)
+    stray["data"][recipe.QUESTION_ID]["probabilities"]["warehouse"] = 0.05
+    replies = {f"{TEAM_MODEL}:A#1": stray}
+    pair = [message("Where is my refund?", "A"), message("My refund is late.", "B")]
+    routes = route(pair, Stand(replies=replies))
+    assert (routes[0].team, routes[0].method) == (GENERAL, "general"), routes[0]
+    assert routes[0].suggested_team == "", routes[0]
+    assert "teams not in the catalog: warehouse" in routes[0].reason, routes[0].reason
+    assert routes[1].method == "model", routes[1].reason
+    print("route by model: clear pick, low score, low margin, failed call, split, stray ok")
 
 
 def check_planted() -> None:
@@ -249,6 +308,23 @@ def check_sie_failure() -> None:
         assert f"the reply has no {key!r}" in routes[0].reason, routes[0].reason
     client = Stand(replies={f"{TEAM_MODEL}:A#1": {"data": {}}})
     assert "the reply has no 'care_team' probabilities" in route(pair, client, one)[0].reason
+    # A per-window item error or missing key counts as a failed call: when it is every call
+    # (here the first call raises and the second comes back with only an item error), the run
+    # stops instead of sending every message to the general queue.
+    for model, key in ((FIELD_MODEL, "entities"), (TEAM_MODEL, "data")):
+        unusable: list[dict[str, Any]] = [
+            {"error": {"code": "INFERENCE_ERROR", "message": "oom"}},
+            {"other": []},
+        ]
+        for bad in unusable:
+            client = Stand({model: [ServerError("down", status_code=503), None]})
+            client.replies = {f"{model}:B#1": bad}
+            message_ = stopped(functools.partial(route, pair, client, one))
+            assert message_.startswith(f"Every SIE call failed (2 of 2 to {model})"), message_
+        client = Stand(replies={f"{model}:A#1": bad, f"{model}:B#1": bad})
+        message_ = stopped(functools.partial(route, pair, client, one))
+        assert message_.startswith(f"Every SIE call failed (2 of 2 to {model})"), message_
+        assert f"the reply has no {key!r}" in message_, message_
     # entities: [] is a real "nothing found": a model route that asks for the order number.
     empty = route(pair, Stand(), one)[0]
     assert empty.method == "model", empty.reason
@@ -347,6 +423,7 @@ def check_config() -> None:
 if __name__ == "__main__":
     check_config()
     check_escalations()
+    check_parse_messages()
     check_fields()
     check_route_by_model()
     check_planted()

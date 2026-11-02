@@ -156,15 +156,27 @@ def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
 
 
 def parse_messages(records: list[dict[str, Any]]) -> list[Message]:
-    return [
-        Message(
-            str(record["id"]),
-            str(record.get("channel", "")),
-            str(record.get("subject") or ""),
-            str(record.get("body") or ""),
+    """Messages from the records. Refuses a repeated id, since a second message with the same
+    id would overwrite the first one's route (and its escalation), and an id with ``#``, which
+    separates a message id from its window number."""
+    messages: list[Message] = []
+    seen: set[str] = set()
+    for record in records:
+        message_id = str(record["id"])
+        if message_id in seen:
+            raise ValueError(f"message id {message_id!r} is used twice")
+        if "#" in message_id:
+            raise ValueError(f"message id {message_id!r} contains '#'")
+        seen.add(message_id)
+        messages.append(
+            Message(
+                message_id,
+                str(record.get("channel", "")),
+                str(record.get("subject") or ""),
+                str(record.get("body") or ""),
+            )
         )
-        for record in records
-    ]
+    return messages
 
 
 def load_messages(path: Path = MESSAGES_PATH) -> list[Message]:
@@ -292,6 +304,7 @@ def call_in_batches(
     model: str,
     items: list[tuple[str, str]],
     rules: dict[str, Any],
+    key: str,
     **request: Any,
 ) -> dict[str, dict[str, Any]]:
     """Send the windows to one model in batches; return its result per window id.
@@ -299,9 +312,10 @@ def call_in_batches(
     A call that fails for a reason that may pass (a lost connection, a timeout, a server
     error, a rate limit) marks every window in its batch with that error, so those messages go
     to the general queue (an escalated message keeps its queue, with a note) and the run still
-    writes its outputs. Two cases stop the run with SIEStopped instead: a refusal every batch
-    would repeat (see `is_fatal`), and a run where no call to this model succeeded at all. An
-    error that isn't an SIE error is a bug in this code and is raised as is.
+    writes its outputs. A call whose every window came back with an item error or without
+    ``key`` counts as failed too. Two cases stop the run with SIEStopped instead: a refusal
+    every batch would repeat (see `is_fatal`), and a run where no call to this model succeeded
+    at all. An error that isn't an SIE error is a bug in this code and is raised as is.
     """
     size = rules["thresholds"]["batch_size"]
     results: dict[str, dict[str, Any]] = {}
@@ -326,6 +340,10 @@ def call_in_batches(
             continue
         for (item_id, _), result in zip(batch, found, strict=True):
             results[item_id] = result
+        # A reply with nothing usable in any window is a failed call, on the transient path.
+        unusable = [reply_error(results[item_id], key) for item_id, _ in batch]
+        if all(unusable):
+            failures.append(SIEError(f"every window's reply failed: {unusable[0]}"))
     if failures and len(failures) == calls:
         raise SIEStopped(
             f"Every SIE call failed ({calls} of {calls} to {model}), so the run stops: "
@@ -432,6 +450,7 @@ def classify_windows(
         rules["models"]["team"],
         items,
         rules,
+        "data",
         output_schema=team_schema(catalog, rules),
         # Windows are sized to fit; an over-long one fails its call and goes to the general queue.
         options={"overflow_policy": "error"},
@@ -451,6 +470,7 @@ def extract_windows(
         rules["models"]["fields"],
         items,
         rules,
+        "entities",
         labels=list(rules["field_labels"].values()),
         options={"threshold": rules["thresholds"]["min_entity_score"]},
     )
@@ -475,14 +495,20 @@ def reply_error(result: dict[str, Any], key: str) -> str | None:
     return None
 
 
-def team_probabilities(result: dict[str, Any]) -> tuple[dict[str, float], str | None]:
-    """The Decide reply's probability per team, or the reason the reply can't be used."""
+def team_probabilities(
+    result: dict[str, Any], catalog: Catalog
+) -> tuple[dict[str, float], str | None]:
+    """The Decide reply's probability per team, or the reason the reply can't be used. A team
+    that isn't in the catalog makes the reply unusable: the route must be a real queue."""
     if error := reply_error(result, "data"):
         return {}, error
     answer = (result["data"] or {}).get(QUESTION_ID)
     if not isinstance(answer, dict) or "probabilities" not in answer:
         return {}, f"the reply has no {QUESTION_ID!r} probabilities"
-    return {str(k): float(v) for k, v in (answer["probabilities"] or {}).items()}, None
+    probabilities = {str(k): float(v) for k, v in (answer["probabilities"] or {}).items()}
+    if unknown := sorted(set(probabilities) - set(catalog.teams)):
+        return {}, "the reply names teams not in the catalog: " + ", ".join(unknown)
+    return probabilities, None
 
 
 def merge_probabilities(per_window: list[dict[str, float]]) -> dict[str, float]:
@@ -540,10 +566,12 @@ def read_fields(
     """Fill order numbers and the store from the model's spans, keeping only checked values.
 
     A span must appear in the message, an order number must fit the pattern, and a store must
-    match the store list. Anything else is dropped with a note for the agent.
+    match the store list. Anything else is dropped with a note for the agent. The model reads
+    windows with every run of whitespace collapsed to one space, so the span is looked for in
+    the message collapsed the same way: "Riverside\nPlaza" still holds "Riverside Plaza".
     """
     columns = {label: column for column, label in rules["field_labels"].items()}
-    text = message.text.casefold()
+    text = " ".join(message.text.split()).casefold()
     stores: list[str] = []
     for span in sorted(spans, key=lambda s: -float(s.get("score", 0.0))):
         column = columns.get(str(span.get("label")))
@@ -640,7 +668,7 @@ def route_messages(
             found_spans[message_id] += spans[item_id]["entities"] or []
         if item_id not in answers:
             continue
-        probabilities, error = team_probabilities(answers[item_id])
+        probabilities, error = team_probabilities(answers[item_id], catalog)
         if error:
             errors[message_id].append(f"team model: {error}")
         else:

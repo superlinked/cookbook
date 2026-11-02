@@ -116,7 +116,7 @@ The things you'd want to change live in [`rules.yaml`](./rules.yaml): the safety
 phrases, the queues, the order-number pattern, the question the model answers, the thresholds
 and the model IDs. The teams and stores live in
 [`data/routing_catalog.yaml`](./data/routing_catalog.yaml). [`recipe.py`](./recipe.py) is about
-720 lines and reads top to bottom in the same order as the flow.
+750 lines and reads top to bottom in the same order as the flow.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
@@ -124,8 +124,8 @@ and the model IDs. The teams and stores live in
 | Write escalations | `write_escalations` | none | `escalations.csv`, with the same columns as `routes.csv`, before the client is even built |
 | Find fields | `extract_windows` | `extract` with labels, `fastino/gliner2-large-v1` | Order number and store spans in every message, escalations included. Messages are split into windows of 120 words, and 25 windows go in one call |
 | Pick a team | `classify_windows`, `team_probabilities` | `extract` + `output_schema` (one choice question), `fastino/GLiNER2.5-Decide` | Messages not escalated: one probability per care team. A long message's windows are merged by `merge_probabilities` |
-| Handle SIE errors | `call_in_batches`, `is_fatal`, `reply_error` | | A transient error (timeout, 5xx, rate limit, an over-long window) marks its batch as failed: those messages go to the general queue, and an escalated one keeps its queue with a note. A reply missing `entities` or `data` counts as a failed call; an empty list is a real "nothing found". A refusal (bad key, no credits, unknown model) or every call to a model failing stops the run with SIE's full message |
-| Check fields | `read_fields`, `normalize_order_number`, `match_store` | none | A span must appear in the message; an order number must fit `LK` + 6 digits once spaces, hyphens and `#` are removed; a store must match the store list (name, alias or a close spelling). Anything else becomes a note |
+| Handle SIE errors | `call_in_batches`, `is_fatal`, `reply_error` | | A transient error (timeout, 5xx, rate limit, an over-long window) marks its batch as failed: those messages go to the general queue, and an escalated one keeps its queue with a note. A reply missing `entities` or `data` counts as a failed call (and a call where every window came back that way, or with an item error, counts toward "every call failed"); an empty list is a real "nothing found". A reply that names a team not in the catalog is an error too, and the message goes to the general queue. A refusal (bad key, no credits, unknown model) or every call to a model failing stops the run with SIE's full message |
+| Check fields | `read_fields`, `normalize_order_number`, `match_store` | none | A span must appear in the message, read with line breaks and double spaces collapsed the way the model's windows are; an order number must fit `LK` + 6 digits once spaces, hyphens and `#` are removed; a store must match the store list (name, alias or a close spelling). Anything else becomes a note |
 | Check the pick | `route_by_model` | none | Top score under 0.50, top-2 margin under 0.20 or a failed call: general queue, with the model's suggestion. Orders, returns and billing with no order number get "ask the customer for it" |
 
 [`selfcheck.py`](./selfcheck.py) checks the phrase rules, the field checks, the thresholds and
@@ -170,7 +170,7 @@ matched, and `also_send_to` the queues after the first.
 | Message | Planted | Route on our live run | Why |
 | --- | --- | --- | --- |
 | M-01 | Where is order LK-204517 | `orders-delivery`, model (0.98) | Plain delivery question |
-| M-02 | Refund for an in-store return, order written `lk 208 331` | `returns-refunds`, model (0.79); `LK-208331`, Riverside Plaza | The order check fixes the spacing; "Riverside" is an alias |
+| M-02 | Refund for an in-store return, order written `lk 208 331` | `returns-refunds`, model (0.79); `LK-208331`, Riverside Plaza | The order check turns `lk 208 331` into `LK-208331`; the model read "Riverside Plaza", the store's full name |
 | M-03 | Heater sparked and burned a child's hand | `product-safety`, escalation; order and store still read | `burned`, `sparking`, `recalled` |
 | M-04 | Refund complaint that mentions an attorney | `legal-escalations`, escalation | `attorney` |
 | M-05 | Near miss: "Sue at the Maple Grove store was so helpful" | `store-experience`, model; "Sue" is a name, not a legal threat | Bare "sue" is not a legal phrase |
@@ -193,7 +193,9 @@ A few things worth noticing:
 
 - **M-12 keeps both flags.** It mentions an injury and a lawyer, and both queues need to know.
   It goes to `product-safety` first because safety comes first in `rules.yaml`, and legal is
-  still on the row. Here it is from `routes.csv`, with the empty model columns cut:
+  still on the row. Here it is from `routes.csv`, with `channel` (`web_form`), the empty
+  `store_id` and `store_name`, and the empty model columns (`suggested_team`, `score`, `margin`,
+  `second_team`, `notes`) cut:
 
   ```text
   message_id,team,method,escalations,also_send_to,matched_phrases,order_numbers,reason
