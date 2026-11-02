@@ -3,10 +3,10 @@
 Use case:  Threat relations: who uses what, exploits what, targets whom, attributed to whom.
 Who:       Threat-intelligence and SOC teams that read vendor reports and keep a threat graph.
 Problem:   Every vendor writes about the same groups under its own names ("Gorse Moth" is
-           "Velvet Gorse"), one report attributes a stealer to one group and the next report to
-           another, and a single blog post can put an edge in the graph that nobody else has
-           seen. An analyst needs each edge with the sentences behind it, and needs to see which
-           edges rest on one publisher or disagree.
+           "Velvet Gorse" in our alias table), one report attributes a stealer to one group and
+           the next report to another, and a single blog post can put an edge in the graph that
+           nobody else has seen. An analyst needs each candidate edge with the sentences behind
+           it, and needs to see which edges rest on one publisher or need a closer look.
 Input:     data/reports.jsonl (synthetic threat reports from fictional publishers about fictional
            actors and malware) and rules.yaml (labels, alias table, relation type rules,
            negation words, thresholds).
@@ -17,11 +17,12 @@ SIE pipeline:
                                                      attributed to / alias of relations
            (Python)                                  check spans; merge names by the alias table;
                                                      check relation types (turn round or drop);
-                                                     a negation word in the claim's sentence
-                                                     sends it to review, never to the graph;
-                                                     build the graph with every source; set
-                                                     each edge's status and queue conflicting,
-                                                     unsure and unknown-entity edges for review
+                                                     a negation or hedging word in the claim's
+                                                     sentence sends it to review, never to the
+                                                     graph; build the graph with every source;
+                                                     set each edge's status and queue unsure,
+                                                     turned-round and unknown-entity edges for
+                                                     review
 Output:    graph.json (nodes, edges with sources and status, dropped relations, review items,
            unread reports), graph.mmd (Mermaid) and edges.csv (one row per edge).
 Why SIE:   One model finds entities and relations together. Otherwise you'd need an NER model
@@ -58,13 +59,15 @@ RUNS_DIR = ROOT / "runs"
 WAIT_S = 900
 
 ALIAS_OF = "alias of"
-CORROBORATED, PROVISIONAL, SINGLE_SOURCE, CONFLICTING, REVIEW = (
-    "corroborated",
-    "provisional",  # would be corroborated, but a report was partly unread
+# multi_publisher means at least min_sources distinct publisher names. It is not independent
+# evidence: two vendors quoting one original report pass too.
+MULTI_PUBLISHER, PROVISIONAL, SINGLE_SOURCE, REVIEW = (
+    "multi_publisher",
+    "provisional",  # would be multi_publisher, but a report was partly unread
     "single_source",
-    "conflicting",
     "review",
 )
+TURNED = "turned round to fit the relation's types"
 EDGE_FIELDS = ("head", "relation", "tail", "status", "publishers", "reports", "flags")
 # A spreadsheet runs a cell that starts with one of these as a formula.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -247,7 +250,9 @@ class Source:
     publisher: str
     published: str
     sentence: str
-    score: float
+    score: float  # the model's extraction confidence, not how credible the claim is
+    head_text: str  # head and tail as the report wrote them, before the alias table
+    tail_text: str
 
 
 @dataclass
@@ -258,7 +263,7 @@ class Claim:
     relation: str
     tail: Canon
     source: Source
-    negated: bool  # a negation word in its sentence: it goes to review, never to the graph
+    negated: bool  # a negation or hedging word in its sentence: review, never the graph
     note: str = ""
 
 
@@ -316,10 +321,10 @@ def claim_sentences(window: str, head: str, tail: str) -> list[str]:
 
 
 def negated_sentence(window: str, head: str, tail: str, rules: dict[str, Any]) -> tuple[bool, str]:
-    """Whether a negation word sits in the claim's sentence(s), and the sentence to quote.
+    """Whether a doubt word (negation or hedge) sits in the claim's sentence(s), and the sentence.
 
-    The recipe never reads a negation as a denial: "did not use", "no longer uses" and "did not
-    use X but used Y" all send the claim to review. Without a negation word it is an edge.
+    The recipe never reads a negation as a denial: "did not use", "no longer uses", "did not
+    use X but used Y" and "possibly uses" all send the claim to review. Without one it is an edge.
     """
     found = claim_sentences(window, head, tail)
     negated = [s for s in found if re.search(rules["doubt_words"], s, re.IGNORECASE)]
@@ -339,16 +344,10 @@ def orient(
 
 
 def unusable_end(canon: Canon, text: str, rules: dict[str, Any]) -> str:
-    """Why this end cannot be a graph node, or "" when it can.
-
-    A generic word ("operators", "we") is never a node, and a type listed in
-    listed_types_only (vulnerability) must be a CVE ID or an alias-table entry: the model
-    reads "code overlap" or "outbound connections" as vulnerabilities.
-    """
+    """Why this end cannot be a graph node, or "" when it can: a generic word ("operators",
+    "we") is never a node."""
     if name_key(text) in {name_key(word) for word in rules["not_entities"]}:
         return f"{text!r} is a generic word, not an entity"
-    if canon.type in rules["listed_types_only"] and not canon.known:
-        return f"{text!r} is a {canon.type} that is not a CVE ID or in the alias table"
     return ""
 
 
@@ -403,9 +402,13 @@ def check_relation(
     oriented = orient(relation, head, tail, rules)
     if oriented is None:
         return f"{head.type} -> {tail.type} does not fit '{relation}'"
-    note = "" if oriented[0] is head else "turned round to fit the relation's types"
+    turned = oriented[0] is not head
+    note = TURNED if turned else ""
     negated, sentence = negated_sentence(window, head_text, tail_text, rules)
-    source = Source(report.id, report.publisher, report.published, sentence, score)
+    head_as, tail_as = (tail_text, head_text) if turned else (head_text, tail_text)
+    source = Source(
+        report.id, report.publisher, report.published, sentence, score, head_as, tail_as
+    )
     return Claim(oriented[0], relation, oriented[1], source, negated, note)
 
 
@@ -448,10 +451,13 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
 
     - single_source: fewer distinct publishers than min_sources (two reports from one
       publisher are one source).
-    - conflicting: a single-valued relation (attributed to) points to two different tails.
-    - review: an end of the edge is not in the alias table, or a report has the claim with a
-      negation word in its sentence. Such a claim never makes or supports an edge: it goes to
-      the review list with its sentence.
+    - review: an end of the edge is not in the alias table, a claim was turned round to fit
+      the types, or a report has the claim with a negation or hedging word in its sentence.
+      Such a claim never makes or supports an edge: it goes to the review list with its
+      sentence.
+    - multi_publisher: at least min_sources publishers and none of the above.
+    A relation in note_other_tails (attributed to) with several tails for one head gets a note
+    naming the others. Actors share, buy and leak malware, so that alone is no contradiction.
     """
     nodes: dict[str, Node] = {}
     types: dict[str, set[str]] = {}
@@ -468,7 +474,8 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
         if claim.negated:
             review.append(
                 f"{claim.source.report}: {claim.head.name} {claim.relation} {claim.tail.name}"
-                f" has a negation word in its sentence; not an edge: {claim.source.sentence!r}"
+                f" has a negation or hedging word in its sentence; not an edge:"
+                f" {claim.source.sentence!r}"
             )
             negated.append(claim)
             continue
@@ -484,10 +491,10 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
             edge.flags.append(claim.note)
 
     min_sources = rules["thresholds"]["min_sources"]
-    single_valued = set(rules["single_valued"])
+    note_other_tails = set(rules["note_other_tails"])
     for edge in edges.values():
-        conflict: list[str] = []
-        if edge.relation in single_valued:
+        also: list[str] = []
+        if edge.relation in note_other_tails:
             others = sorted(
                 {
                     e.tail
@@ -497,14 +504,18 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
                 - {edge.tail}
             )
             if others:
-                conflict.append(f"other reports say {edge.relation} {', '.join(others)}")
+                also.append(
+                    f"also {edge.relation} {', '.join(others)} in other claims"
+                    " (shared tooling or a disagreement: analyst to check)"
+                )
         unsure = [
-            f"{c.source.report} has it in a sentence with a negation word: {c.source.sentence!r}"
+            f"{c.source.report} has it in a sentence with a negation or hedging word:"
+            f" {c.source.sentence!r}"
             for c in negated
             if (c.head.name, c.relation, c.tail.name) == (edge.head, edge.relation, edge.tail)
         ]
         unknown = [n for n in (edge.head, edge.tail) if not nodes[n].known]
-        edge.flags += conflict + unsure
+        edge.flags += also + unsure
         edge.flags += [f"{name} is not in the alias table" for name in unknown]
         edge.flags += [
             f"{name} typed as {' and '.join(sorted(types[name]))} in different claims"
@@ -515,19 +526,24 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
             edge.flags.append(
                 f"only {len(edge.publishers)} publisher(s): {', '.join(edge.publishers)}"
             )
-        if conflict:
-            edge.status = CONFLICTING
-        elif unknown or unsure:
+        if unknown or unsure or TURNED in edge.flags:
             edge.status = REVIEW
         elif len(edge.publishers) < min_sources:
             edge.status = SINGLE_SOURCE
         else:
-            edge.status = CORROBORATED
+            edge.status = MULTI_PUBLISHER
     for node in nodes.values():
-        if not node.known:
+        if node.known:
+            continue
+        if node.type in rules["listed_types_only"]:
+            review.append(
+                f"{node.name} ({node.type}) is not a CVE ID or in the alias table:"
+                " a new flaw, or not a flaw at all?"
+            )
+        else:
             review.append(f"{node.name} ({node.type}) is not in the alias table: new or an alias?")
     for edge in edges.values():
-        if edge.status in (CONFLICTING, REVIEW):
+        if edge.status == REVIEW:
             review.append(f"{edge.head} {edge.relation} {edge.tail}: {'; '.join(edge.flags)}")
     return Graph(
         sorted(nodes.values(), key=lambda n: (n.type, n.name)),
@@ -541,10 +557,10 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
 
 
 def mermaid(graph: Graph) -> str:
-    """A Mermaid flowchart: solid arrows are corroborated, the rest dashed, red when in doubt.
+    """A Mermaid flowchart: solid arrows are multi_publisher, the rest dashed, red for review.
 
-    Red marks conflicting and review edges, and "?" marks a name the alias table does not know.
-    A provisional edge is dashed: it would be corroborated, but a report was partly unread.
+    "?" marks a name the alias table does not know. A provisional edge is dashed: it would be
+    multi_publisher, but a report was partly unread.
     """
     shapes = {"threat actor": ("([", "])"), "malware": ("[[", "]]"), "vulnerability": ("{{", "}}")}
     node_id = {node.name: f"n{index}" for index, node in enumerate(graph.nodes)}
@@ -556,10 +572,10 @@ def mermaid(graph: Graph) -> str:
         lines.append(f'    {node_id[node.name]}{left}"{label}"{right}')
     red: list[int] = []
     for index, edge in enumerate(graph.edges):
-        arrow = "-->" if edge.status == CORROBORATED else "-.->"
+        arrow = "-->" if edge.status == MULTI_PUBLISHER else "-.->"
         label = f"{edge.relation} ({len(edge.publishers)})"
         lines.append(f'    {node_id[edge.head]} {arrow}|"{label}"| {node_id[edge.tail]}')
-        if edge.status in (CONFLICTING, REVIEW):
+        if edge.status == REVIEW:
             red.append(index)
     if red:
         lines.append(f"    linkStyle {','.join(map(str, red))} stroke:#d33,stroke-width:2px")
@@ -605,7 +621,7 @@ def map_relations(client: SIEClient, reports: list[Report], rules: dict[str, Any
             if any(source.report == report_id for source in edge.sources)
         ]
         # An unread paragraph may contradict an edge from any report, or question it.
-        if unread and edge.status == CORROBORATED:
+        if unread and edge.status == MULTI_PUBLISHER:
             edge.status = PROVISIONAL
             edge.flags.append(f"provisional: {', '.join(unread)} partly unread")
     return graph
@@ -667,7 +683,7 @@ def main() -> None:
     for report_id in graph.unread:
         print(
             f"warning: {report_id} was partly unread; its edges carry a flag and may be missing,"
-            " and the status of any other edge may be wrong too (corroborated edges are"
+            " and the status of any other edge may be wrong too (multi_publisher edges are"
             " provisional)"
         )
     print(f"\n{len(graph.nodes)} nodes, {len(graph.edges)} edges, {len(graph.review)} review items")

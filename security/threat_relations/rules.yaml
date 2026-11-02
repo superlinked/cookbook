@@ -10,11 +10,12 @@ models:
 entity_labels: [threat actor, malware, vulnerability, sector, software, campaign]
 
 # Relation labels sent to the model, and the entity types each one may join (head -> tail).
-# A relation whose types fit only the other way round is turned round; one that fits neither
-# way is dropped with a reason.
+# A relation whose types fit only the other way round is turned round and goes to review (the
+# model may have read the sentence the wrong way); one that fits neither way is dropped with a
+# reason.
 relations:
-  uses:
-    head: [threat actor, campaign]
+  uses:   # malware may use a packer, loader or component too
+    head: [threat actor, campaign, malware]
     tail: [malware, software]
   exploits:
     head: [threat actor, malware, campaign]
@@ -29,29 +30,36 @@ relations:
     head: [threat actor, malware]
     tail: [threat actor, malware]
 
-# A malware family or campaign belongs to one actor. If the reports name two actors for the
-# same family, every one of those edges is flagged as conflicting.
-single_valued: [attributed to]
+# Relations where one head with several tails gets a note naming the others. Two actors on one
+# malware family is not a contradiction by itself: actors share, buy and leak malware. The note
+# tells the analyst to check; the edge status does not change.
+note_other_tails: [attributed to]
 
-# Negation words: a Python regex, case-insensitive. The recipe never decides on its own that a
-# report denies a claim. If this matches anywhere in the claim's sentence (or, when the names sit
+# Doubt words (negations and hedges): a Python regex, case-insensitive. The recipe never decides
+# on its own that a report denies or doubts a claim. If this matches anywhere in the claim's sentence (or, when the names sit
 # in different sentences, anywhere in the run of sentences between them), the claim goes to
 # review: it never makes an edge, and an edge that other reports support gets status review with
 # the sentence in its flags. So "We found no evidence that Saltmarsh Kettle used Thornpipe",
 # "did not deploy Thornpipe until March 2024" and "used Thornpipe but did not exploit
-# CVE-2099-41877" all go to review. A denial with no word from this list ("stopped using") stays
-# an edge.
-doubt_words: '\bnot\b|n[''’]t\b|\bcannot\b|\bnever\b|\bno (?:longer|evidence|indications?|signs?|link|connection)\b|\bunrelated\b|\bruled out\b'
+# CVE-2099-41877" all go to review, and so do hedges such as "possibly uses", "we suspect" or
+# "may have used". Lower-case "may" only, so the month "May" is not a hedge (a sentence that
+# starts "May have" is caught). A denial or hedge with no word from this list ("stopped
+# using", "we assess") stays an edge.
+doubt_words: '\bnot\b|n[''’]t\b|\bcannot\b|\bnever\b|\bno (?:longer|evidence|indications?|signs?|link|connection)\b|\bunrelated\b|\bruled out\b|\bpossibl[ey]\b|\bprobabl[ey]\b|\b(?:un)?likely\b|\bsuspect(?:s|ed)?\b|\bmight\b|(?-i:\bmay\b)|\bmay (?:be|have)\b|\breportedly\b|\ballegedly\b'
 
 # Words the model tags as entities that are never graph nodes. Matched like alias names.
 not_entities: [operators, investigators, researchers, attackers, victims, defenders, we, they]
 
-# Types whose names must be a CVE ID or an alias-table entry. The model reads phrases such as
-# "code overlap" or "outbound connections" as vulnerabilities; those relations are dropped.
+# Types whose names should be a CVE ID or an alias-table entry. Anything else goes to review with
+# its own question: the model reads phrases such as "code overlap" or "outbound connections" as
+# vulnerabilities, but a new flaw without a CVE ID yet is worth an analyst's look too.
 listed_types_only: [vulnerability]
 
-# Canonical name, type and aliases. Names are matched case-insensitively after trimming
-# punctuation, a leading "the" and a possessive ('s). CVE IDs need no entry: they are upper-cased.
+# Canonical name, type and aliases. Each alias is an equivalence an analyst has confirmed. Vendors
+# often track overlapping clusters, so a name a platform lists as "associated with" a group is not
+# the same group; add it here only once someone has checked. Names are matched
+# case-insensitively after trimming punctuation, a leading "the" and a possessive ('s). CVE IDs
+# need no entry: they are upper-cased. Each source in graph.json keeps the names as written.
 aliases:
   - name: Velvet Gorse
     type: threat actor
@@ -68,6 +76,9 @@ aliases:
   - name: Quillstep
     type: malware
     aliases: [Quillstep loader]
+  - name: Larchwick
+    type: malware
+    aliases: [Larchwick stealer]
   - name: water utilities
     type: sector
     aliases: [water utility, water sector]
@@ -81,6 +92,6 @@ aliases:
 thresholds:
   entity_threshold: 0.40      # entity span score sent to the model (relex needs at least 0.1)
   relation_threshold: 0.70    # relation score sent to the model; the model card says 0.7-0.9
-  min_sources: 2              # distinct publishers an edge needs to be "corroborated"
+  min_sources: 2              # distinct publishers an edge needs to be "multi_publisher"
   batch_size: 16              # paragraphs per SIE call
   max_words_per_window: 200   # longer paragraphs are split on sentences, long sentences on words
