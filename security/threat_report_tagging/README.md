@@ -121,12 +121,16 @@ Each kind of thing in a report needs a different tool, so the recipe splits the 
    the report and the report goes to review.
 8. **Escalate.** An unknown actor or malware, an alias listed under two names, a tool with no
    mapping, held techniques, a live URL, a malformed indicator, an invalid model span or a window
-   the model failed to tag: the report goes to review with the reason. An SIE call that fails
-   for a reason that may pass (a dropped connection, a timeout, a server error) counts as a
-   failed window for every window in its batch, so the run still writes its outputs, and the run
-   prints one line with the count and the first error. One that every call would repeat (a bad
-   key, an unknown model, no credits, an inactive account) stops the run with that error. So
-   does an error in the recipe's own code. Otherwise the report is tagged.
+   the model failed to tag: the report goes to review with the reason. Only an SIE call that
+   fails for a reason that may pass (a dropped connection, a timeout, a 5xx server error, a rate
+   limit, a model still loading, a window too long for the model) marks the windows in its batch
+   failed and sends their reports to review; the run still writes its outputs and prints one
+   line with the count and the first error. A refusal every call would repeat stops the run
+   with SIE's full message and writes nothing: for example a bad key (401), an unknown model
+   (404), no credits or a spend limit (402), an inactive account, or a model SIE marks as
+   permanently unable to load. So does a run where every SIE call failed, which is what a
+   wrong `SIE_BASE_URL` looks like, and so does an error in the recipe's own code. Otherwise
+   the report is tagged.
 
 The order matters most at the end. The model proposes names, but the alias table and the policy
 decide. When the table and the model disagree, the table wins, and when the table can't decide,
@@ -187,8 +191,9 @@ flowchart TD
     TG --> O
 ```
 
-A window the model failed to tag, or a window whose SIE call raised an error, also adds a review
-reason.
+A window the model failed to tag, or a window whose SIE call failed for a reason that may pass,
+also adds a review reason. A refused call, or a run where no call succeeded, stops the run
+instead.
 
 ## How it's built
 
@@ -200,7 +205,7 @@ table, the tool-to-technique mapping, the review policy, the thresholds and the 
 | --- | --- | --- | --- |
 | Indicators | `find_indicators`, `domain_indicator`, `defang` | none | CVE IDs, MD5/SHA-1/SHA-256 by length, defanged URLs, domains, IPs and email domains by regex; live URLs, malformed hashes, IPs, CVE IDs and top-level domains flagged |
 | Split | `sentence_windows` | none | Sentences packed into windows of at most 150 words (NuNER Zero reads 384 tokens) |
-| Tag | `tag_windows` | `extract` + `labels` | `threat actor`, `malware` and `tool` spans from `numind/NuNER_Zero`, zero-shot, `batch_size` windows per call; a call that raises marks its windows failed |
+| Tag | `tag_windows` | `extract` + `labels` | `threat actor`, `malware` and `tool` spans from `numind/NuNER_Zero`, zero-shot, `batch_size` windows per call; a transient failure marks its windows failed, a refusal or a run with no successful call stops |
 | Check spans | `model_entities` | none | Each span must equal the text at its offsets; spans on an indicator, or that are not names ("MD5", "threat group"), are dropped |
 | Fill misses | `table_mentions`, `merge_entities` | none | Alias-table names and mapped tools written in the text, any case, whole words; a match inside an indicator is dropped; an exact name survives an overlapping model span that reads as something else |
 | Normalize | `AliasTable`, `resolve` | none | Every mention through the alias table to one canonical name; tools to candidate ATT&CK technique IDs |
@@ -210,10 +215,12 @@ table, the tool-to-technique mapping, the review policy, the thresholds and the 
 `tag_reports()` runs those steps for every report, and `write_outputs()` writes the three files.
 Indicators, alias merges and technique mappings are code and tables you can read, so when a merge
 goes wrong, a person can see why. All windows go to SIE Cloud in one batched call (each demo
-report fits in one window, well under `batch_size`), and you host nothing.
+report fits in one window, well under `batch_size`), and you host nothing. With one call, a
+transient failure on the demo data is also a run where every call failed, so it stops the run
+rather than sending all ten reports to review.
 [`selfcheck.py`](./selfcheck.py) checks the indicator regexes, the alias table, the any-case
-fallback, the overlap rule, the technique cues, a failed SIE call, the review rules and the rules
-check offline, with hand-written strings and stand-in model replies, so you can
+fallback, the overlap rule, the technique cues, which SIE errors send reports to review and which
+stop the run, the review rules and the rules check offline, with hand-written strings and stand-in model replies, so you can
 change `rules.yaml` and know right away if you broke something.
 
 ## Run it
@@ -345,7 +352,8 @@ Everything below lives in `rules.yaml` unless it says otherwise.
   as `new` and doesn't send the report to review. An indicator reason that's off (live URL,
   malformed hash, IP, CVE ID or domain) is dropped; the indicator row still keeps its `malformed`
   flag and note. An invalid model span, a window the model failed to tag or an SIE call that
-  failed for a reason that may pass always sends the report to review.
+  failed for a reason that may pass always sends the report to review. Which SIE errors count as
+  passing and which stop the run is `is_fatal` in `recipe.py`, not a policy switch.
 - **What the model looks for.** `labels`, `generic_words` and `ignore_mentions` control what the
   model looks for and which of its spans get thrown away as not being names. You can change the
   label words the model sees, but not the keys: the code reads `actor`, `malware` and `tool`, and
@@ -373,7 +381,8 @@ Everything below lives in `rules.yaml` unless it says otherwise.
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
 nothing else, and ran the recipe on SIE Cloud on 31 Oct 2026, then again on 2 Nov 2026 with
-R-09, R-10, the cue check and the overlap fix; the table gives the 2 Nov results.
+R-09, R-10, the cue check and the overlap fix; the table gives the 2 Nov results. Dates are UTC,
+like the `runs/` folder names.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -409,7 +418,7 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
   [MITRE ATT&CK Enterprise](https://attack.mitre.org/) matrix. We can't name the ATT&CK
   version: the file has only the three columns `technique_id`, `name` and `tactic`, with no
   version, `modified` date or source bundle, and there is no fetch script, so nothing in the
-  repository records which release the rows came from. It was first committed on 31 Oct 2026.
+  repository records which release the rows came from. It was first committed on 31 Oct 2026 (UTC).
   Check the rows against the current release before you rely on them. © The MITRE Corporation.
   This work is reproduced and distributed with the permission of The MITRE Corporation, under the
   [ATT&CK terms of use](https://attack.mitre.org/resources/legal-and-branding/terms-of-use/),

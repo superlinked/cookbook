@@ -41,6 +41,7 @@ import ipaddress
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,12 +53,8 @@ from sie_sdk import SIEClient
 from sie_sdk.client.errors import (
     InputTooLongError,
     ModelLoadFailedError,
-    ModelLoadingError,
-    ProvisioningError,
     RateLimitError,
     RequestError,
-    ServerError,
-    SIEConnectionError,
     SIEError,
 )
 from sie_sdk.types import Item
@@ -341,18 +338,22 @@ def tag_windows(
     """Send the windows to NuNER Zero in batches; return its result per window id.
 
     A window with nothing in it comes back as ``entities: []``, not an error. A call that
-    fails for a reason that may pass (see `transient`) marks every window in its batch with
-    that error, so those reports go to review and the run still writes its outputs. Any other
-    SIE error (a bad key, an unknown model, no credits) stops the run: every batch would fail
-    the same way. An error that isn't an SIE error is a bug in this code and is raised as is.
+    fails for a reason that may pass (a lost connection, a timeout, a server error, a rate
+    limit) marks every window in its batch with that error, so those reports go to review and
+    the run still writes its outputs. Two cases stop the run with SIEStopped instead: a refusal
+    every batch would repeat (see `is_fatal`), and a run where no call succeeded at all, since
+    then nothing was tagged. An error that isn't an SIE error is a bug in this code and is
+    raised as is.
     """
     model, labels = rules["models"]["entities"], list(rules["labels"].values())
     options = {"threshold": rules["thresholds"]["min_entity_score"]}
     size = rules["thresholds"]["batch_size"]
     results: dict[str, dict[str, Any]] = {}
-    failures: list[str] = []
+    failures: list[SIEError] = []
+    calls = 0
     for start in range(0, len(items), size):
         batch = items[start : start + size]
+        calls += 1
         try:
             found = client.extract(
                 model,
@@ -362,39 +363,96 @@ def tag_windows(
                 provision_timeout_s=WAIT_S,
             )
         except SIEError as error:
-            message = f"{type(error).__name__}: {str(error)[:ERROR_CHARS]}"
-            if not transient(error):
-                raise RuntimeError(f"SIE refused the call, so the run stops: {message}") from error
-            failures.append(message)
-            failed = {"error": f"the SIE call failed: {message}"}
+            if is_fatal(error):
+                raise SIEStopped(stop_message(error, model)) from error
+            failures.append(error)
+            failed = {"error": f"the SIE call failed: {short(error)}"}
             results.update({item_id: failed for item_id, _ in batch})
             continue
         for (item_id, _), result in zip(batch, jsonable(found), strict=True):
             results[item_id] = result
+    if failures and len(failures) == calls:
+        raise SIEStopped(
+            f"Every SIE call failed ({calls} of {calls} to {model}), so the run stops: "
+            f"{describe(failures[0])}: {failures[0]}. Check SIE_BASE_URL and your network. "
+            "No outputs were written."
+        ) from failures[0]
     if failures:
         n = len(failures)
         print(
-            f"{n} SIE call{'s' * (n != 1)} failed; their reports go to review. First: {failures[0]}"
+            f"{n} of {calls} SIE calls failed; their reports go to review. "
+            f"First: {short(failures[0])}"
         )
     return results
 
 
-def transient(error: SIEError) -> bool:
-    """True for an SIE error that may pass on another run or concerns only this batch: a
-    refused or timed-out connection, a server error, a model still loading or no capacity yet,
-    a rate limit, or a window too long for the model. A bad key, an unknown model, no
-    credits, a spend limit, an inactive account or a model that can't load are not: the next
-    batch would fail the same way.
-    """
+class SIEStopped(RuntimeError):
+    """SIE refused the call for a reason a retry won't fix, or no call succeeded; the run
+    stops without outputs."""
+
+
+def is_fatal(error: SIEError) -> bool:
+    """A refusal that fails every call the same way: a 4xx (bad key 401, forbidden 403, model
+    not found 404, no credits or spend limit 402, inactive account) or a model the server
+    marked as permanently unable to load. A rate limit, an over-long input, a timeout, a lost
+    connection, a model still loading and a 5xx are transient or per-batch: those windows go
+    to review."""
     if isinstance(error, ModelLoadFailedError):
-        return not error.permanent
-    if isinstance(error, RateLimitError | InputTooLongError):
-        return True
-    if isinstance(error, RequestError):
-        return False
-    return isinstance(
-        error, SIEConnectionError | ServerError | ProvisioningError | ModelLoadingError
+        return bool(error.permanent)
+    return isinstance(error, RequestError) and not isinstance(
+        error, (RateLimitError, InputTooLongError)
     )
+
+
+def describe(error: SIEError) -> str:
+    """The error's class, with its HTTP status and SIE error code when the SDK has them."""
+    details = [
+        f"{label} {value}"
+        for label, value in (
+            ("HTTP", getattr(error, "status_code", None)),
+            ("code", getattr(error, "code", None)),
+        )
+        if value is not None
+    ]
+    return f"{type(error).__name__}" + (f" ({', '.join(details)})" if details else "")
+
+
+def short(error: SIEError) -> str:
+    """The error for a per-report reason or the summary line, its message cut short."""
+    return f"{describe(error)}: {str(error)[:ERROR_CHARS]}"
+
+
+def stop_message(error: SIEError, model: str) -> str:
+    """The message a fatal error stops the run with: SIE's full message, status and code, and
+    what to check.
+
+    A RequestError with no HTTP error status is a reply the SDK couldn't parse (a malformed or
+    wrongly shaped body), not a refusal, so the key and model name are not the thing to check.
+    """
+    status = getattr(error, "status_code", None)
+    if isinstance(error, ModelLoadFailedError):
+        return (
+            f"SIE can't load {model}, {describe(error)}: {error}. Check the model name in "
+            "rules.yaml, then run again. No outputs were written."
+        )
+    if status is None or status < 400:
+        return (
+            f"SIE returned a reply the recipe couldn't read for {model}, {describe(error)}: "
+            f"{error}. Check that SIE_BASE_URL points at an SIE server, then run again. No "
+            "outputs were written."
+        )
+    return (
+        f"SIE refused the call to {model}, {describe(error)}: {error}. Check SIE_API_KEY, the "
+        "model name in rules.yaml and your SIE account, then run again. No outputs were written."
+    )
+
+
+def stop_on_refusal[T](work: Callable[[], T]) -> T:
+    """Run the work; turn SIEStopped into a clean exit. Any other error keeps its traceback."""
+    try:
+        return work()
+    except SIEStopped as error:
+        raise SystemExit(f"Stopped: {error}") from None
 
 
 def model_entities(
@@ -754,10 +812,7 @@ def main() -> None:
     args = parser.parse_args()
     output = args.output or RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     with make_client() as client:
-        try:
-            tagged = tag_reports(client, *_setup())
-        except RuntimeError as error:  # SIE refused the call: a bad key, model or account
-            raise SystemExit(str(error)) from error
+        tagged = stop_on_refusal(lambda: tag_reports(client, *_setup()))
     write_outputs(output, tagged)
     for report in tagged:
         ids = ", ".join(t["id"] for t in report.candidate_techniques) or "-"

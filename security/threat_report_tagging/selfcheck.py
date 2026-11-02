@@ -7,13 +7,28 @@ replies. Nothing here calls SIE or replays a recorded response. Run it with
 
 from __future__ import annotations
 
+import contextlib
+import io
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
 from sie_sdk import SIEClient
-from sie_sdk.client.errors import InsufficientCreditsError, SIEConnectionError
+from sie_sdk.client.errors import (
+    AccountInactiveError,
+    InputTooLongError,
+    InsufficientCreditsError,
+    ModelLoadFailedError,
+    ModelLoadingError,
+    ProvisioningError,
+    RateLimitError,
+    RequestError,
+    ServerError,
+    SIEConnectionError,
+    SIEError,
+    SpendLimitError,
+)
 
 import recipe
 
@@ -196,13 +211,17 @@ def check_review() -> None:
 
 
 class Broken:
-    """Stands in for SIEClient when the call itself raises the given error."""
+    """Stands in for SIEClient: each call raises the next listed error, or, for None, returns
+    no entities for every window."""
 
-    def __init__(self, error: Exception) -> None:
-        self.error = error
+    def __init__(self, *errors: Exception | None) -> None:
+        self.errors = list(errors)
 
     def extract(self, model: str, items: list[Any], **_: Any) -> list[dict[str, Any]]:
-        raise self.error
+        error = self.errors.pop(0) if self.errors else None
+        if error is not None:
+            raise error
+        return [{"entities": []} for _ in items]
 
 
 def check_fallback() -> None:
@@ -230,36 +249,107 @@ def check_fallback() -> None:
     print("fallback: any-case table names; an overlapping model span keeps the exact name ok")
 
 
+TRANSIENT: list[SIEError] = [
+    SIEConnectionError("connection refused"),
+    ServerError("unavailable", status_code=503),
+    RateLimitError("slow down"),
+    InputTooLongError("too long"),
+    ProvisioningError("no GPU yet"),
+    ModelLoadingError("loading"),
+    ModelLoadFailedError("try later", permanent=False),
+    SIEError("an SIE error with no subclass"),
+]
+FATAL: list[SIEError] = [
+    RequestError("bad key", status_code=401),
+    RequestError("no such model", status_code=404),
+    InsufficientCreditsError("no credits"),
+    SpendLimitError("spend limit"),
+    AccountInactiveError("inactive"),
+    ModelLoadFailedError("gated", permanent=True),
+]
+
+
+def stopped(call: Callable[[], object]) -> str:
+    """The SIEStopped message the call raises; fails when it raises nothing."""
+    try:
+        call()
+    except recipe.SIEStopped as error:
+        return str(error)
+    raise AssertionError("the run did not stop")
+
+
+def raised(call: Callable[[], object]) -> BaseException:
+    """Whatever the call raises, SystemExit included; fails when it raises nothing."""
+    try:
+        call()
+    except BaseException as error:  # SystemExit too: the check is on which one it was
+        return error
+    raise AssertionError("nothing was raised")
+
+
 def check_sie_failure() -> None:
+    for error in TRANSIENT:
+        assert not recipe.is_fatal(error), f"{type(error).__name__} should be transient"
+    for error in FATAL:
+        assert recipe.is_fatal(error), f"{type(error).__name__} should stop the run"
     techniques = recipe.load_techniques()
-    table = recipe.AliasTable.build(RULES, techniques)
+    rules = {**RULES, "thresholds": {**RULES["thresholds"], "batch_size": 1}}
+    table = recipe.AliasTable.build(rules, techniques)
     reports = [recipe.Report(i, "2099-01-01", "t", "Ashen Heron ran Mimikatz.") for i in "AB"]
 
-    def tag(error: Exception) -> list[recipe.TaggedReport]:
-        client = cast(SIEClient, Broken(error))
-        return recipe.tag_reports(client, reports, table, techniques, RULES)
+    def tag(*errors: Exception | None) -> list[recipe.TaggedReport]:
+        client = cast(SIEClient, Broken(*errors))
+        with contextlib.redirect_stdout(io.StringIO()):  # the run's "1 of 2 failed" line
+            return recipe.tag_reports(client, reports, table, techniques, rules)
 
-    tagged = tag(SIEConnectionError("connection refused " + "x" * 300))
-    assert [r.status for r in tagged] == ["review", "review"]
+    # A transient error on one call of two: that report goes to review, the other is tagged.
+    for error in TRANSIENT:
+        tagged = tag(error, None)
+        assert [r.status for r in tagged] == ["review", "tagged"], type(error).__name__
+    long = "connection refused " + "x" * 300
+    tagged = tag(SIEConnectionError(long), None)
     reason = "window 1 was not tagged: the SIE call failed: SIEConnectionError: connection refused"
     assert tagged[0].reasons[0].startswith(reason)
     assert len(tagged[0].reasons[0]) == len(reason) - len("connection refused") + 200
-    assert tagged[1].actors == ["Ashen Heron"]  # the table still finds known names
+    assert tagged[0].actors == ["Ashen Heron"]  # the table still finds known names
     with tempfile.TemporaryDirectory() as folder:
         recipe.write_outputs(Path(folder), tagged)
         assert (Path(folder) / "entities.csv").read_text(encoding="utf-8").count("\n") == 5
-    # An error every batch would repeat stops the run; a bug in our own code is not hidden.
-    for error, kind in [
-        (InsufficientCreditsError("no credits"), RuntimeError),
-        (TypeError("bad argument"), TypeError),
-    ]:
-        try:
-            tag(error)
-        except kind:
-            pass
-        else:
-            raise AssertionError(f"{type(error).__name__} did not stop the run")
-    print("sie failure: a connection error sends reports to review; credits or a bug stop ok")
+    # Every call failed (a dead SIE_BASE_URL): the run stops, with the full message.
+    message = stopped(lambda: tag(SIEConnectionError(long), SIEConnectionError(long)))
+    assert message.startswith("Every SIE call failed (2 of 2 to numind/NuNER_Zero)"), message
+    assert long in message
+    # A refusal stops the run at once, with the full message, HTTP status and code.
+    message = stopped(lambda: tag(None, InsufficientCreditsError("no credits " + "y" * 300)))
+    assert "InsufficientCreditsError (HTTP 402, code INSUFFICIENT_CREDITS)" in message, message
+    assert "y" * 300 in message
+    assert "SIE_API_KEY" in message
+    # A malformed reply has no HTTP status: the hint doesn't blame the key.
+    message = stopped(lambda: tag(RequestError("unexpected body")))
+    assert "SIE_API_KEY" not in message, message
+    assert "SIE_BASE_URL" in message, message
+    # A bug in our own code is not hidden: it is raised as is, and main doesn't turn a
+    # RuntimeError that isn't SIEStopped into a clean exit.
+    try:
+        tag(TypeError("bad argument"))
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("TypeError was swallowed")
+
+    def bug() -> None:
+        raise RuntimeError("a bug in recipe.py")
+
+    def refusal() -> None:
+        raise recipe.SIEStopped("SIE refused")
+
+    caught = raised(lambda: recipe.stop_on_refusal(bug))
+    assert type(caught) is RuntimeError, f"a RuntimeError became {type(caught).__name__}"
+    assert str(caught) == "a bug in recipe.py"
+    caught = raised(lambda: recipe.stop_on_refusal(refusal))
+    assert type(caught) is SystemExit, "SIEStopped did not stop the run cleanly"
+    assert str(caught) == "Stopped: SIE refused"
+    print("sie failure: transient errors go to review; refusals and all-failed stop; bugs raise ok")
 
 
 def check_held_reason() -> None:
