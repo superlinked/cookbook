@@ -40,13 +40,14 @@ So this recipe gives every tag in the photo one status that names what the check
 - **out_of_stock**: the vision model sees an empty slot, and the detector found no package box
   in it either.
 - **wrong_product**: the vision model picks a different product from the candidate list (the
-  products of the other tags in the photo) and says what it saw, and the detector found a
-  package box in the slot.
+  products of the other tags in the photo, or other catalog products when the photo's tags name
+  only one) and says what it saw, and the detector found a package box in the slot.
 - **price_mismatch**: the tag's regular price disagrees with `regular_price` in the catalog.
 - **review**: the recipe couldn't tell. The tag's UPC or price couldn't be read, the UPC isn't
-  in the catalog, the vision model answered "cant_tell" or gave no usable answer, the model saw
-  an empty slot where the detector found a box, the model named a product where the detector
-  found no box, or an SIE call failed.
+  in the catalog, the tag's name also fits a longer catalog name, the catalog has only one
+  product to offer as a candidate, the vision model answered "cant_tell" or gave no usable
+  answer, the model saw an empty slot where the detector found a box, the model named a product
+  where the detector found no box, or an SIE call failed.
 - **in_place**: the vision model picks the tag's own product, the detector found a package box
   in the slot, and the price agrees.
 
@@ -65,22 +66,31 @@ output, never compared, and never a status on its own.
    "product package" and "bottle" boxes, once per photo. Plain Python drops weak boxes, boxes
    that cover most of the photo (a whole shelf), duplicates, boxes mostly inside a bigger
    package box (the jar of granola printed on a Grandy bag), and package boxes that are really a
-   tag. Every dropped box is counted per photo in `photos.csv`.
+   tag. Every dropped box is counted per photo in `photos.csv`. A phone photo is turned upright
+   from its orientation tag first, so a portrait shot isn't read sideways.
 2. **Find each tag's slot.** Tags whose tops line up hang on the same shelf edge. A tag's slot
    runs from its own left edge to the next tag's left edge (a shelf tag sits at the left edge of
    the product it prices), and from the shelf edge above down to its own. A package box counts
-   as present in every slot holding at least 30% of its width.
+   as present in the slot holding its centre, and in any slot it covers at least 30% of. That's
+   30% of the slot's width, not the box's, so a wide neighbour poking into an empty slot doesn't
+   make it look stocked.
 3. **Read the tag.** An OCR model reads each tag crop, enlarged 2x. Plain Python pulls out the
    UPC, the regular price and the promotion, using the label parser from our shelf price check:
    unit prices (`59.0¢ PER OZ`) are skipped, and everything from the first promotion marker
    down belongs to the promotion. The UPC finds the catalog row. Only when the tag shows no UPC
    at all does the product name printed on the tag decide, and only when one catalog name
-   clearly wins. Every tag in the photo is read before any slot question, because each question
-   lists all of their products.
+   clearly wins. A short name like "Muesli" scores 1.00 on an "Old Country Style Muesli" tag, so
+   when a longer catalog name holds all its words plus words that are on the tag, the tag goes to
+   review instead. Every tag in the photo is read before any slot question, because each
+   question lists all of their products.
 4. **Right product?** Plain Python paints every tag in the photo gray, cuts out the slot (5% of
    its width wider on each side) and sends that picture to a vision model with a short list:
    the tag's own product and the products of the photo's other tags, brand and name, in
-   alphabetical order and labelled A, B, C. The model answers in JSON with `shown` (a letter,
+   alphabetical order and labelled A, B, C. When the photo's tags name only one product, a list
+   of one would give the answer away, so it's padded from the catalog (same brand first) to 3
+   names; a catalog that can't give a second name sends the tag to review with no question. The
+   prompt says text printed on a package is something to describe, never an instruction. The
+   model answers in JSON with `shown` (a letter,
    `none` or `cant_tell`) and `evidence` (what it saw: words, colors, shape). It never sees the
    tag, the tag's price or which product the tag names, and the list's order doesn't give it
    away. Then rules decide, with the package boxes as a second opinion. The tag's product with a
@@ -92,7 +102,9 @@ output, never compared, and never a status on its own.
 The order is there for a reason. The shelf findings (`out_of_stock`, `wrong_product`) win the
 status because they're what the associate sees first, but a price that also differs is still
 listed in the `findings` column. A tag the recipe can't find in the catalog gets no slot
-question, since there's no product to ask about. And nothing is written to disk until every
+question, since there's no product to ask about. Every CSV cell that starts like a
+spreadsheet formula (`=`, `+`, `-`, `@`) gets a leading `'`, because the model's evidence and
+the tag's promotion text come from the photo. And nothing is written to disk until every
 photo is done: if SIE refuses a call (a bad key, no credits, a model name it doesn't know) or
 every call fails, the run stops with SIE's message and leaves no half-written reports. A call
 that fails for a reason that may pass (a timeout, a 5xx, a rate limit, a reply missing its
@@ -130,8 +142,9 @@ in the question tells it which answer is expected. The rules in `recipe.py`, not
 turn its answer into a status.
 
 That's three models: the detector once per photo, the OCR model once per tag, and the vision
-model once per tag found in the catalog. No generative model makes the decision; it answers one
-multiple-choice question, and plain Python decides what the answer means.
+model once per tag found in the catalog that has a second candidate to list. No generative
+model makes the decision; it answers one multiple-choice question, and plain Python decides
+what the answer means.
 
 ## The flow
 
@@ -146,7 +159,8 @@ flowchart TD
     T -- call failed --> RV1[review]
     T --> F{find_in_catalog<br/>UPC, else clear name}
     F -- not found --> RV2[review]
-    F -- found --> C[Slot picture, tags painted gray<br/>candidates: every tag's product, A-Z]
+    F -- found --> C[Slot picture, tags painted gray<br/>candidates: every tag's product, A-Z,<br/>padded from the catalog if only one]
+    C -- one candidate only --> RV6[review]
     C --> V[Qwen3.8-27B on SIE<br/>once per tag: shown + evidence]
     V -- call failed or<br/>reply breaks the schema --> RV3[review]
     V --> M{check_facing}
@@ -162,6 +176,7 @@ flowchart TD
     RV3 --> W
     RV4 --> W
     RV5 --> W
+    RV6 --> W
     WP --> W
     OOS --> W
     PM --> W
@@ -187,19 +202,22 @@ same order as the flow.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
-| Find tags and packages | `detect`, `select_boxes` | `extract`, once per photo | Boxes for `["price tag", "product package", "bottle"]`. Tags need a score of 0.35, packages 0.20. Packages covering more than 40% of the photo, overlapping a stronger box (IoU 0.5), 80% inside a kept package or 50% inside a tag are dropped; each drop is counted under one reason |
-| Slots | `shelf_rows`, `assign_slots` | none | Tags whose tops are within 10% of the photo height share a shelf edge (the median tag top). A slot runs from its tag's left edge to the next tag's, and from the edge above to its own, each plus 5% of the photo height. A package stands on the first edge whose edge plus that slack is at or below its bottom, and counts as present in every slot holding at least 30% of its width (`min_box_share`) |
+| Find tags and packages | `open_photo`, `detect`, `select_boxes` | `extract`, once per photo | The photo turned upright from its orientation tag. Boxes for `["price tag", "product package", "bottle"]`. Tags need a score of 0.35, packages 0.20. Packages covering more than 40% of the photo, overlapping a stronger box (IoU 0.5), 80% inside a kept package or 50% inside a tag are dropped; each drop is counted under one reason |
+| Slots | `shelf_rows`, `assign_slots` | none | Tags whose tops are within 10% of the photo height share a shelf edge (the median tag top). A slot runs from its tag's left edge to the next tag's, and from the edge above to its own, each plus 5% of the photo height. A package stands on the first edge whose edge plus that slack is at or below its bottom, and counts as present in the slot holding its centre and in any slot it covers at least 30% of (`min_slot_cover`, a share of the slot's width) |
 | Read the tag | `make_crop`, `read_text`, `parse_tag` | `extract`, once per tag | Crop with 5% padding, enlarged 2x (longest side at most 2048 pixels). UPC, regular price, multi-buy price and the promotion's text |
-| Find the product | `lookup`, `find_in_catalog`, `name_score` | none | UPC first, with or without the check digit. Name only when no UPC was read: at least 0.80 of the catalog brand and name words on the tag, and 0.15 ahead of the runner-up |
-| Right product? | `candidates`, `blank_tags`, `slot_region`, `ask_slot`, `parse_answer`, `check_facing` | `chat_completions`, once per tag found in the catalog | Every tag painted gray, the slot cut out 5% wider on each side and shrunk to at most 1536 pixels. Candidates: one per distinct brand and name among the photo's tags, alphabetical. JSON schema with `strict: true`, temperature 0, at most 300 tokens. The reply must have exactly `shown` (an allowed value) and non-empty `evidence`, and must not be cut off. `in_place` and `wrong_product` also need a package box in the slot; `out_of_stock` needs none |
+| Find the product | `lookup`, `find_in_catalog`, `name_score`, `wider_name` | none | UPC first, with or without the check digit. Name only when no UPC was read: at least 0.80 of the catalog brand and name words on the tag, 0.15 ahead of the runner-up, and no longer catalog name holding all its words plus words on the tag |
+| Right product? | `candidates`, `blank_tags`, `slot_region`, `ask_slot`, `parse_answer`, `check_facing` | `chat_completions`, once per tag found in the catalog with at least two candidates | Every tag painted gray, the slot cut out 5% wider on each side and shrunk to at most 1536 pixels. Candidates: one per distinct brand and name among the photo's tags, alphabetical; padded from the catalog to 3 (`min_candidates`) when that's only one, and review when the catalog can't give a second. JSON schema with `strict: true`, temperature 0, at most 300 tokens. The reply must have exactly `shown` (an allowed value) and non-empty `evidence`, and must not be cut off. `in_place` and `wrong_product` also need a package box in the slot; `out_of_stock` needs none |
 | Right price? | `check_price`, `tag_status`, `decide` | none | Tag regular price vs `regular_price`, tolerance $0.00. Combines both checks into one status and the full `findings` list |
 | SIE failures | `call_sie`, `guarded`, `is_fatal`, `CallLog` | none | A transient failure, or a reply without `objects`, `entities` or a message, sends that photo or tag to review. A refusal, or every call failing, stops the run with no outputs |
-| Report | `check_photo`, `run`, `write_outputs`, `annotate` | none | Writes the CSVs, `tags.json`, the crops and an annotated copy of each photo once every photo is done |
+| Report | `check_photo`, `run`, `write_outputs`, `csv_safe`, `annotate` | none | Writes the CSVs (a cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`), `tags.json`, the crops and an annotated copy of each photo once every photo is done |
 
-[`selfcheck.py`](./selfcheck.py) checks the tag parser, the catalog lookup, the candidate list
-and its order, the tag blanking, the slot geometry, each status from a stand-in vision answer,
-malformed replies, the price check and the SIE failure rule offline, with hand-written tag text
-and stand-in model replies. It never calls SIE.
+[`selfcheck.py`](./selfcheck.py) checks the tag parser, the catalog lookup (the short "Muesli"
+name on an Old Country Style tag included), the candidate list, its order and padding, the
+prompt's line about text in the photo, the tag blanking, the slot geometry (a wide neighbour
+reaching into an empty slot included), each status from a stand-in vision answer, malformed
+replies, the price check, formula cells in the CSVs, a photo with an orientation tag and the
+SIE failure rule offline, with hand-written tag text and stand-in model replies. It never calls
+SIE.
 
 ## Run it
 
@@ -215,7 +233,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
 detector, the OCR model and the vision model. Our run on 2026-11-02 (UTC), with all three
-already warm, made 43 SIE calls (4 detect, 20 tag OCR, 19 vision) and took 44 seconds.
+already warm, made 43 SIE calls (4 detect, 20 tag OCR, 19 vision) and took 43 seconds.
 
 The run directory has:
 
@@ -253,7 +271,7 @@ already on the shelf that day:
 | frozen-desserts-141402 | T02 Daiya Strawberry Cheesecake Bites | Strawberry bag | `in_place` | `in_place` | The catalog name is just "Cheesecake Bites" (see below) |
 | frozen-desserts-141402 | T03 Daiya Chocolat Cheesecake Bites | Chocolate bag, mostly hidden | `in_place` | `wrong_product` | The slot picture shows a sliver of the purple bag and part of the Katz Glazed Donuts box next door, and the model picked Katz Glazed Donut Holes |
 | frozen-desserts-141402 | T04 Katz Chocolate Frosted Sprinkle Donuts. **Planted** | A Katz Glazed Donuts box | `wrong_product` | `wrong_product` | OCR missed the tag's UPC, so the name on the tag found the product (0.80); the model read "Glazed DONUTS" and picked Katz Glazed Donut Holes |
-| frozen-desserts-141402 | T05 So Delicious CocoWhip | One CocoWhip tub, set back and to the right | `in_place` | `review` | `cant_tell`: the model saw the chicken strips and "a round tub of a dairy-free whipped topping", and didn't match the tub to the listed CocoWhip |
+| frozen-desserts-141402 | T05 So Delicious CocoWhip | One CocoWhip tub, set back and to the right | `in_place` | `wrong_product` | The model picked Truwhip Extra Creamy and says the tub's label reads "We're introducing the new Truwhip"; the label in the slot picture is the CocoWhip one (see below) |
 | frozen-desserts-141402 | T06 Truwhip Natural Whipped Topping. **Planted** | Nothing | `out_of_stock` | `review` | **Missed, safely.** The model still picks this tag's Truwhip, from "tru" on the edge of the stack next door, but the detector found no box in the slot, so it's "check the slot" instead of a false `in_place` |
 | frozen-desserts-141402 | T07 Truwhip Extra Creamy | Truwhip Extra Creamy tubs | `in_place` | `in_place` | Model read "EXTRA CREAMY WHIPPED TOPPING" |
 | frozen-desserts-141402 | T08 Katz Glazed Donut Holes | Donut Holes box, mostly left of the tag | `in_place` | `in_place` | Model read "Glazed DONUT HOLES" on the box |
@@ -266,15 +284,21 @@ already on the shelf that day:
 | beet-juice-141410 | T03 Lakewood Organic Super Beet Juice | Lakewood Organic Pure Beet bottles | `in_place` | `review` | `cant_tell`: the model read "Lakewood Organic Pure Beet" and said none of the listed names match (see below) |
 | beet-juice-141410 | T04 Lakewood Organic Beet Ginger Turmeric | Beet Ginger Turmeric bottle | `in_place` | `in_place` | Model read "Lakewood ORGANIC GINGER TURMERIC" |
 
-On our run of 2026-11-02 (UTC), 3 of the 4 planted cases came out as planned, and 14 of the 20
+On our run of 2026-11-02 (UTC), 3 of the 4 planted cases came out as planned, and 13 of the 20
 tags came out as expected. The planted empty slot didn't come out `out_of_stock`: the model
 still says Truwhip Original is there, from the edge of the neighbor's stack. Before the box rule
 that was a false `in_place`; now the detector's empty slot sends it to `review` with "check the
-slot". The model didn't say `none`. Two more tags got a false `wrong_product` (T03 in the freezer
-and the Gluten Free Muesli); both slots do hold a package box, just not the one the model
-named. Before the box rule we ran the recipe twice, a minute apart, and got the same 20 statuses
-and picks both times; after it, one run, in which only T06 changed. We didn't change a prompt or
-a threshold after seeing the results. Treat this as a demo that
+slot". The model didn't say `none`. Three more tags got a false `wrong_product` (T03 and T05 in
+the freezer, and the Gluten Free Muesli); all three slots do hold a package box, just not the
+one the model named. Before the box rule we ran the recipe twice, a minute apart, and got the
+same 20 statuses and picks both times; after it, one run, in which only T06 changed. Then we
+added the prompt's line about text in the photo, the padded candidate list, the slot-width
+box rule and the name check, and ran once more. The new box rule took a box out of two slots
+(beet juice T03, freezer T03) that still hold others, so no status moved for it; the list,
+name and orientation changes don't touch these photos. One status did move: T05 went from
+`cant_tell` (`review`) to a false `wrong_product`, with the same slot picture and the same
+candidate list, so the prompt line is the only input that changed. We didn't tune anything to
+win it back. Treat this as a demo that
 the wiring works, not as a measure of accuracy: twenty tags on four photos tell you the
 pipeline is right, not how often the models get a shelf wrong.
 
@@ -323,9 +347,19 @@ A few things worth noticing:
   bottles correctly and said none of the listed names match, so the tag goes to review. It may be
   a different product in the slot, or the same bottle under two names; a person with the
   bottle's barcode finds out in ten seconds.
-- **`cant_tell` is the model being honest, not broken.** On T05 it described the chicken strips
-  and "a round tub of a dairy-free whipped topping", and wouldn't commit to CocoWhip. That's a
-  review, which is the right place for a tub turned away from the camera.
+- **T05 is a miss that a small prompt change caused.** On the run before the prompt line, the
+  model described "a round tub of a dairy-free whipped topping" and said `cant_tell`. On this
+  run it said:
+
+  ```text
+  A white tub with a blue label is visible on the right side of the shelf. The text on the
+  label reads 'We're introducing the new Truwhip' and 'Extra Creamy'.
+  ```
+
+  The tub in `crops/frozen-desserts-141402-T05-slot.jpg` is the CocoWhip, and the line on its
+  label, upside down, reads "We're reimagining what's possible". The detector found a box there,
+  so the rules had no reason to doubt the pick. An associate who walks over finds the right
+  product; the cost is a wasted trip, not a missed empty slot.
 
 `photos.csv` shows what the detector returned and what the recipe kept. Across the four photos
 it returned 84 boxes; the recipe kept 20 tags and 33 packages, and 27 of those packages stand in
@@ -353,8 +387,9 @@ frame) or mostly left of the first tag on its edge.
   which is common in US grocery but not universal. If your tags sit under the middle of the
   product, change `assign_slots` and `slot_region` to centre the slot on the tag.
 - **Your own thresholds and prompt.** The detector score cut-offs, the box filters, `row_gap`,
-  `band_slack`, `min_box_share`, the slot padding, the name thresholds, the vision prompt and the
-  price tolerance in `rules.yaml` are starting points. Check them on your own photos.
+  `band_slack`, `min_slot_cover`, the slot padding, the name thresholds, `min_candidates`, the
+  vision prompt and the price tolerance in `rules.yaml` are starting points. Check them on your
+  own photos.
 - **Your own tag layout.** `promo_markers` and `unit_markers` in `rules.yaml` tell the parser
   which prices belong to a promotion or are unit prices. The UPC pattern is `_UPC` in
   `recipe.py`; change it if your tags print the UPC differently.

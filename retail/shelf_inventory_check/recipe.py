@@ -14,7 +14,8 @@ SIE pipeline (three models):
            extract           zai-org/GLM-OCR                    called once per kept tag: the
                                                                 tag text
            chat_completions  Qwen/Qwen3.8-27B-FP8               called once per tag found in
-                                                                the catalog, with a picture of
+                                                                the catalog with at least two
+                                                                candidates, with a picture of
                                                                 its slot (every tag blanked
                                                                 out): which listed product is
                                                                 there, in JSON
@@ -57,7 +58,7 @@ from typing import Any, cast
 
 import yaml
 from dotenv import load_dotenv
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 from sie_sdk import SIEClient
 from sie_sdk.client.errors import (
     InputTooLongError,
@@ -79,6 +80,8 @@ WAIT_S = 900
 PHOTO_SUFFIXES = (".webp", ".jpg", ".jpeg", ".png")
 # A failed SIE call's message is cut to this many characters in reasons and the summary line.
 ERROR_CHARS = 200
+# A CSV cell starting with one of these is a formula in a spreadsheet; it gets a leading '.
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 # Tag statuses, in the order the run prints them. Each names what the checks found; a person
 # at the shelf decides what to do about it (restock, move a product, reprint a tag).
@@ -170,6 +173,12 @@ def load_catalog(path: Path = CATALOG_PATH) -> list[CatalogRow]:
             )
             for row in csv.DictReader(handle)
         ]
+
+
+def open_photo(path: Path) -> Image.Image:
+    """The photo upright (its EXIF orientation applied, as a phone camera records it), in RGB."""
+    with Image.open(path) as opened:
+        return ImageOps.exif_transpose(opened).convert("RGB")
 
 
 def photos(data_dir: Path = DATA_DIR) -> list[Path]:
@@ -478,8 +487,10 @@ def assign_slots(
     the next tag's left edge (the last one to the photo's right edge), and from the edge above
     (the top of the photo for the first row) down to its own edge, each plus `band_slack` of
     the photo height. A package stands on the first edge, top to bottom, whose edge plus the
-    slack is at or below its bottom, and counts as present in every slot of that edge holding
-    at least `min_box_share` of its width. A package below the last edge belongs to a tag out of
+    slack is at or below its bottom. It counts as present in a slot of that edge when its
+    horizontal centre lies in the slot, or when it covers at least `min_slot_cover` of the
+    slot's width: a share of the slot, not of the box, so a wide neighbour reaching a little way
+    into an empty slot doesn't fill it. A package below the last edge belongs to a tag out of
     frame.
     """
     width, height = image_size
@@ -500,10 +511,15 @@ def assign_slots(
         row_number = next((n for n, edge in enumerate(edges) if bottom <= edge + slack), None)
         if row_number is None or box[2] <= 0:
             continue
+        centre = box[0] + box[2] / 2
         inside = False
         for slot in slots:
-            share = max(0.0, min(box[0] + box[2], slot.right) - max(box[0], slot.left)) / box[2]
-            if slot.row == row_number and share >= shelf["min_box_share"]:
+            if slot.row != row_number:
+                continue
+            overlap = max(0.0, min(box[0] + box[2], slot.right) - max(box[0], slot.left))
+            width_of_slot = slot.right - slot.left
+            covers = width_of_slot > 0 and overlap >= shelf["min_slot_cover"] * width_of_slot
+            if slot.left <= centre < slot.right or covers:
                 slot.packages.append(package)
                 inside = True
         placed += inside
@@ -614,7 +630,9 @@ def find_in_catalog(
     """The catalog row for this tag and how it was found, or None and why.
 
     The UPC decides. Only when the tag shows no UPC at all does the product name on the tag
-    decide, and only when one catalog name clearly beats the rest.
+    decide, and only when one catalog name clearly beats the rest and no longer catalog name
+    holds all its words plus words that are also on the tag ("Muesli" on an "Old Country Style
+    Muesli" tag).
     """
     if len(reading.upcs) > 1:
         return None, f"More than one UPC in the tag crop ({', '.join(reading.upcs)})."
@@ -646,7 +664,27 @@ def find_in_catalog(
             f"No UPC read and the tag's name matches more than one catalog product "
             f"({best_score:.2f} vs {runner_up:.2f})."
         )
+    longer = wider_name(best, reading.words, catalog, similarity)
+    if longer is not None:
+        return None, (
+            f"No UPC read and the tag's name fits {display_name(best)} ({best_score:.2f}), but "
+            f"also the longer {display_name(longer)}, whose extra words are on the tag."
+        )
     return best, f"No UPC read; matched by the name on the tag ({best_score:.2f})."
+
+
+def wider_name(
+    best: CatalogRow, tag_words: list[str], catalog: list[CatalogRow], similarity: float
+) -> CatalogRow | None:
+    """A catalog row whose name holds every word of `best`'s name plus at least one more word
+    that is on the tag, or None. A short name always scores 1.00 on a longer name's tag, so the
+    short name winning says nothing when the tag also shows the longer name's extra words."""
+    wanted = set(_name_words(display_name(best)))
+    for row in catalog:
+        theirs = set(_name_words(display_name(row)))
+        if wanted < theirs and any(_found(word, tag_words, similarity) for word in theirs - wanted):
+            return row
+    return None
 
 
 # --- Words, for the name printed on the tag (plain Python) ----------------------------------
@@ -672,16 +710,29 @@ def display_name(row: CatalogRow) -> str:
     return f"{row.brand} {row.product}"
 
 
-def candidates(row: CatalogRow, others: list[CatalogRow]) -> list[tuple[str, str]]:
+def candidates(
+    row: CatalogRow, others: list[CatalogRow], catalog: list[CatalogRow], minimum: int
+) -> list[tuple[str, str]]:
     """The products the vision model picks from: the tag's own product and the product of every
     other tag found in the same photo, one per distinct name, labelled A, B, C...
 
     They're in alphabetical order, so where the tag's own product lands depends only on its
     name, never on which tag is being asked about. Two catalog rows with the same name are one
-    option: the photo can't tell them apart, and neither can the model.
+    option: the photo can't tell them apart, and neither can the model. When that leaves only
+    the tag's own product (a list of one gives the answer away), the list is padded with other
+    catalog products, the same brand first, up to `minimum` names. A catalog with one product
+    name gives a list of one; the caller sends that tag to review.
     """
-    names = sorted({display_name(other) for other in [row, *others]}, key=str.casefold)
-    return [(chr(ord("A") + index), name) for index, name in enumerate(names)]
+    names = {display_name(other) for other in [row, *others]}
+    if len(names) == 1:
+        same_brand = [other for other in catalog if other.brand.casefold() == row.brand.casefold()]
+        rest = [other for other in catalog if other.brand.casefold() != row.brand.casefold()]
+        for other in same_brand + rest:
+            if len(names) >= minimum:
+                break
+            names.add(display_name(other))
+    ordered = sorted(names, key=str.casefold)
+    return [(chr(ord("A") + index), name) for index, name in enumerate(ordered)]
 
 
 def blank_tags(image: Image.Image, tags: list[dict[str, Any]]) -> Image.Image:
@@ -935,7 +986,7 @@ def check_photo(
     Every tag is read first, because each slot question lists the products of all the photo's
     tags found in the catalog.
     """
-    image = Image.open(photo).convert("RGB")
+    image = open_photo(photo)
     objects, failed = detect(client, calls, photo, image, rules)
     tags, packages, dropped = select_boxes(objects, image.size, rules["detection"])
     slots, placed = assign_slots(tags, packages, image.size, rules["shelf"])
@@ -981,18 +1032,27 @@ def check_photo(
         elif row is None:
             decision = decide(reading, row, how, (FACING_UNREADABLE, ""), rules)
         else:
-            options = candidates(row, [other for other in found if other is not row])
-            crop = blanked.crop((region[0], region[1], region[2], region[3]))
-            result.crops[f"{tag_id}-slot"] = crop
-            choice, call_failed = ask_slot(client, calls, crop, options, rules)
-            if choice is None:
-                problem = f"Slot not checked: {call_failed}"
+            others = [other for other in found if other is not row]
+            options = candidates(row, others, catalog, rules["vision"]["min_candidates"])
+            if len(options) < 2:
+                # A list of one tells the model the answer; a person looks instead.
+                options = []
+                facing = (
+                    FACING_UNREADABLE,
+                    "Only one candidate; can't ask without giving the answer away.",
+                )
             else:
-                content = str(choice.get("content") or "")
-                allowed = [letter for letter, _ in options] + [NONE, CANT_TELL]
-                answer, why = parse_answer(choice, allowed)
-                problem = f"The vision model's reply couldn't be used: {why}."
-            facing = check_facing(answer, problem, options, row, len(slot.packages))
+                crop = blanked.crop((region[0], region[1], region[2], region[3]))
+                result.crops[f"{tag_id}-slot"] = crop
+                choice, call_failed = ask_slot(client, calls, crop, options, rules)
+                if choice is None:
+                    problem = f"Slot not checked: {call_failed}"
+                else:
+                    content = str(choice.get("content") or "")
+                    allowed = [letter for letter, _ in options] + [NONE, CANT_TELL]
+                    answer, why = parse_answer(choice, allowed)
+                    problem = f"The vision model's reply couldn't be used: {why}."
+                facing = check_facing(answer, problem, options, row, len(slot.packages))
             decision = decide(reading, row, how, facing, rules)
         result.rows.append(
             {
@@ -1049,11 +1109,19 @@ def run(
     return results, calls
 
 
+def csv_safe(value: Any) -> str:
+    """A leading ' on a cell a spreadsheet would run as a formula; anything else as written."""
+    text = str(value)
+    return "'" + text if text.startswith(FORMULA_START) else text
+
+
 def _write_csv(path: Path, rows: list[dict[str, Any]], fields: tuple[str, ...]) -> None:
+    """Every cell through `csv_safe`: the vision model's evidence and the tag's promotion text
+    come from the photo, and a cell like `=HYPERLINK(...)` must not run in a spreadsheet."""
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows({key: csv_safe(value) for key, value in row.items()} for row in rows)
 
 
 COLORS = {
