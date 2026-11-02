@@ -49,6 +49,17 @@ from typing import Any, cast
 import yaml
 from dotenv import load_dotenv
 from sie_sdk import SIEClient
+from sie_sdk.client.errors import (
+    InputTooLongError,
+    ModelLoadFailedError,
+    ModelLoadingError,
+    ProvisioningError,
+    RateLimitError,
+    RequestError,
+    ServerError,
+    SIEConnectionError,
+    SIEError,
+)
 from sie_sdk.types import Item
 
 ROOT = Path(__file__).resolve().parent
@@ -58,6 +69,8 @@ RULES_PATH = ROOT / "rules.yaml"
 RUNS_DIR = ROOT / "runs"
 # Cold models can take minutes to start; every call waits up to this long.
 WAIT_S = 900
+# A failed SIE call's message is cut to this many characters in reasons and the summary line.
+ERROR_CHARS = 200
 
 ACTOR, MALWARE, TOOL = "actor", "malware", "tool"
 TAGGED, REVIEW, NEW = "tagged", "review", "new"
@@ -328,13 +341,16 @@ def tag_windows(
     """Send the windows to NuNER Zero in batches; return its result per window id.
 
     A window with nothing in it comes back as ``entities: []``, not an error. A call that
-    raises (a timeout, a refused connection, an HTTP error) marks every window in its batch
-    with that error, so those reports go to review and the run still writes its outputs.
+    fails for a reason that may pass (see `transient`) marks every window in its batch with
+    that error, so those reports go to review and the run still writes its outputs. Any other
+    SIE error (a bad key, an unknown model, no credits) stops the run: every batch would fail
+    the same way. An error that isn't an SIE error is a bug in this code and is raised as is.
     """
     model, labels = rules["models"]["entities"], list(rules["labels"].values())
     options = {"threshold": rules["thresholds"]["min_entity_score"]}
     size = rules["thresholds"]["batch_size"]
     results: dict[str, dict[str, Any]] = {}
+    failures: list[str] = []
     for start in range(0, len(items), size):
         batch = items[start : start + size]
         try:
@@ -345,13 +361,40 @@ def tag_windows(
                 options=options,
                 provision_timeout_s=WAIT_S,
             )
-        except Exception as error:
-            failed = {"error": f"the SIE call failed: {type(error).__name__}: {error}"}
+        except SIEError as error:
+            message = f"{type(error).__name__}: {str(error)[:ERROR_CHARS]}"
+            if not transient(error):
+                raise RuntimeError(f"SIE refused the call, so the run stops: {message}") from error
+            failures.append(message)
+            failed = {"error": f"the SIE call failed: {message}"}
             results.update({item_id: failed for item_id, _ in batch})
             continue
         for (item_id, _), result in zip(batch, jsonable(found), strict=True):
             results[item_id] = result
+    if failures:
+        n = len(failures)
+        print(
+            f"{n} SIE call{'s' * (n != 1)} failed; their reports go to review. First: {failures[0]}"
+        )
     return results
+
+
+def transient(error: SIEError) -> bool:
+    """True for an SIE error that may pass on another run or concerns only this batch: a
+    refused or timed-out connection, a server error, a model still loading or no capacity yet,
+    a rate limit, or a window too long for the model. A bad key, an unknown model, no
+    credits, a spend limit, an inactive account or a model that can't load are not: the next
+    batch would fail the same way.
+    """
+    if isinstance(error, ModelLoadFailedError):
+        return not error.permanent
+    if isinstance(error, RateLimitError | InputTooLongError):
+        return True
+    if isinstance(error, RequestError):
+        return False
+    return isinstance(
+        error, SIEConnectionError | ServerError | ProvisioningError | ModelLoadingError
+    )
 
 
 def model_entities(
@@ -544,7 +587,8 @@ def resolve(report_id: str, entity: Entity, table: AliasTable, rules: dict[str, 
 
 
 def technique_cue(text: str, tag: Tag, cues: list[str]) -> str:
-    """The first cue in the sentence around a tool mention, or "" when there is none.
+    """The first `technique_cues` entry (in list order) found in the sentence around a tool
+    mention, or "" when none is there.
 
     A tool's techniques come from its name, not from what the report says it did, so
     "No Mimikatz execution was observed" or "used rclone to back up the file server" must not
@@ -571,7 +615,8 @@ class TaggedReport:
     actors: list[str]
     malware: list[str]
     tools: list[str]
-    # Associated with the tools mentioned; an analyst confirms the behavior before use.
+    # Associated with the tools mentioned; an analyst confirms the behavior before use. A tool
+    # whose techniques a cue held back adds none here; see Tag.techniques_held.
     candidate_techniques: list[dict[str, str]]
     tags: list[Tag]
     indicators: list[Indicator]  # candidate observables, not vetted indicators
@@ -620,7 +665,8 @@ def tag_reports(
             if cue := technique_cue(report.text, tag, rules["technique_cues"]):
                 tag.techniques_held = True
                 held = ", ".join(tag.candidate_techniques)
-                tag.reason = f"candidate techniques {held} held: the sentence says {cue!r}"
+                note = f"candidate techniques {held} held: the sentence says {cue!r}"
+                tag.reason = "; ".join(part for part in (tag.reason, note) if part)
         reasons += [
             f"{tag.mention}: {tag.reason}"
             for tag in tags
@@ -708,7 +754,10 @@ def main() -> None:
     args = parser.parse_args()
     output = args.output or RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     with make_client() as client:
-        tagged = tag_reports(client, *_setup())
+        try:
+            tagged = tag_reports(client, *_setup())
+        except RuntimeError as error:  # SIE refused the call: a bad key, model or account
+            raise SystemExit(str(error)) from error
     write_outputs(output, tagged)
     for report in tagged:
         ids = ", ".join(t["id"] for t in report.candidate_techniques) or "-"

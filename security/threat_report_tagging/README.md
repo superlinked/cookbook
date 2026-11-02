@@ -121,9 +121,12 @@ Each kind of thing in a report needs a different tool, so the recipe splits the 
    the report and the report goes to review.
 8. **Escalate.** An unknown actor or malware, an alias listed under two names, a tool with no
    mapping, held techniques, a live URL, a malformed indicator, an invalid model span or a window
-   the model failed to tag: the report goes to review with the reason. A failed SIE call counts
-   as a failed window for every window in its batch, so the run still writes its outputs.
-   Otherwise the report is tagged.
+   the model failed to tag: the report goes to review with the reason. An SIE call that fails
+   for a reason that may pass (a dropped connection, a timeout, a server error) counts as a
+   failed window for every window in its batch, so the run still writes its outputs, and the run
+   prints one line with the count and the first error. One that every call would repeat (a bad
+   key, an unknown model, no credits, an inactive account) stops the run with that error. So
+   does an error in the recipe's own code. Otherwise the report is tagged.
 
 The order matters most at the end. The model proposes names, but the alias table and the policy
 decide. When the table and the model disagree, the table wins, and when the table can't decide,
@@ -257,7 +260,7 @@ offensive-security tools.
 | R-07 | Near miss: `build 4.2.0.118` and `mothvine_cfg.dat` look like an IP and a domain | tagged | Only the defanged `cdn-sync[.]example[.]org` counts |
 | R-08 | Patch summary, no threats | tagged | Nothing found |
 | R-09 | Near miss: administrators used `rclone` to back up a file server | **review** | rclone tagged, its candidate T1567.002 held: the sentence says "back up" |
-| R-10 | Near miss: "No Mimikatz execution was observed" | **review** | Copper Moth and Mimikatz tagged, T1003.001 held: the sentence says "no". NuNER Zero also tagged "mail gateway" as a tool (score 0.91), a second review reason |
+| R-10 | Near miss: "No Mimikatz execution was observed" | **review** | Copper Moth and Mimikatz tagged, T1003.001 held: the sentence says "no". NuNER Zero called Mimikatz malware, which the table overrules, and also tagged "mail gateway" as a tool (score 0.91), a second review reason |
 
 Treat the planted cases as a demo that the recipe works. They say nothing about accuracy: ten
 reports tell you the wiring is right, not how often it's wrong. On this run that's 4 tagged and
@@ -293,8 +296,11 @@ A few things worth noticing:
 
   ```text
   R-09,tool,rclone,20,26,model,0.98828125,rclone,T1567.002,True,tagged,candidate techniques T1567.002 held: the sentence says 'back up'
-  R-10,tool,Mimikatz,106,114,model,0.98974609375,Mimikatz,T1003.001,True,tagged,candidate techniques T1003.001 held: the sentence says 'no'
+  R-10,tool,Mimikatz,106,114,model,0.98974609375,Mimikatz,T1003.001,True,tagged,model said malware; the table lists Mimikatz as tool; candidate techniques T1003.001 held: the sentence says 'no'
   ```
+
+  A held tag keeps its earlier reason, so R-10 also shows that NuNER Zero called Mimikatz
+  malware. Earlier runs gave the same span and score, but the held note replaced that reason.
 
   The cue check is a keyword list, so it's blunt. It would hold Mimikatz back in "the operators
   ran Mimikatz, not PsExec", and it misses "rclone handled the nightly sync". Even R-02's
@@ -338,8 +344,8 @@ Everything below lives in `rules.yaml` unless it says otherwise.
   A name reason that's off (unknown actor or malware, ambiguous alias, unmapped tool) is recorded
   as `new` and doesn't send the report to review. An indicator reason that's off (live URL,
   malformed hash, IP, CVE ID or domain) is dropped; the indicator row still keeps its `malformed`
-  flag and note. An invalid model span, a window the model failed to tag or a failed SIE call
-  always sends the report to review.
+  flag and note. An invalid model span, a window the model failed to tag or an SIE call that
+  failed for a reason that may pass always sends the report to review.
 - **What the model looks for.** `labels`, `generic_words` and `ignore_mentions` control what the
   model looks for and which of its spans get thrown away as not being names. You can change the
   label words the model sees, but not the keys: the code reads `actor`, `malware` and `tool`, and

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from sie_sdk import SIEClient
+from sie_sdk.client.errors import InsufficientCreditsError, SIEConnectionError
 
 import recipe
 
@@ -195,10 +196,13 @@ def check_review() -> None:
 
 
 class Broken:
-    """Stands in for SIEClient when the call itself fails (a timeout, a refused connection)."""
+    """Stands in for SIEClient when the call itself raises the given error."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
 
     def extract(self, model: str, items: list[Any], **_: Any) -> list[dict[str, Any]]:
-        raise ConnectionError("connection refused")
+        raise self.error
 
 
 def check_fallback() -> None:
@@ -230,16 +234,56 @@ def check_sie_failure() -> None:
     techniques = recipe.load_techniques()
     table = recipe.AliasTable.build(RULES, techniques)
     reports = [recipe.Report(i, "2099-01-01", "t", "Ashen Heron ran Mimikatz.") for i in "AB"]
-    tagged = recipe.tag_reports(cast(SIEClient, Broken()), reports, table, techniques, RULES)
+
+    def tag(error: Exception) -> list[recipe.TaggedReport]:
+        client = cast(SIEClient, Broken(error))
+        return recipe.tag_reports(client, reports, table, techniques, RULES)
+
+    tagged = tag(SIEConnectionError("connection refused " + "x" * 300))
     assert [r.status for r in tagged] == ["review", "review"]
-    assert tagged[0].reasons == [
-        "window 1 was not tagged: the SIE call failed: ConnectionError: connection refused"
-    ]
+    reason = "window 1 was not tagged: the SIE call failed: SIEConnectionError: connection refused"
+    assert tagged[0].reasons[0].startswith(reason)
+    assert len(tagged[0].reasons[0]) == len(reason) - len("connection refused") + 200
     assert tagged[1].actors == ["Ashen Heron"]  # the table still finds known names
     with tempfile.TemporaryDirectory() as folder:
         recipe.write_outputs(Path(folder), tagged)
         assert (Path(folder) / "entities.csv").read_text(encoding="utf-8").count("\n") == 5
-    print("sie failure: a call that raises sends its reports to review, outputs still written ok")
+    # An error every batch would repeat stops the run; a bug in our own code is not hidden.
+    for error, kind in [
+        (InsufficientCreditsError("no credits"), RuntimeError),
+        (TypeError("bad argument"), TypeError),
+    ]:
+        try:
+            tag(error)
+        except kind:
+            pass
+        else:
+            raise AssertionError(f"{type(error).__name__} did not stop the run")
+    print("sie failure: a connection error sends reports to review; credits or a bug stop ok")
+
+
+def check_held_reason() -> None:
+    # Two tools, a cue in only one sentence: Mimikatz keeps its technique, rclone's is held.
+    text = "Operators ran Mimikatz. Administrators used rclone to back up the server."
+    report = run(
+        text, [{"entities": [span(text, "Mimikatz", "tool"), span(text, "rclone", "tool")]}]
+    )
+    assert [(t.mention, t.techniques_held) for t in report.tags] == [
+        ("Mimikatz", False),
+        ("rclone", True),
+    ]
+    assert [t["id"] for t in report.candidate_techniques] == ["T1003.001"]
+    with tempfile.TemporaryDirectory() as folder:
+        recipe.write_outputs(Path(folder), [report])
+        rows = (Path(folder) / "entities.csv").read_text(encoding="utf-8").splitlines()[1:]
+        assert [row.split(",")[9] for row in rows] == ["False", "True"]
+    # Holding techniques keeps the tag's earlier reason ("normalised to ...").
+    text = "Administrators ran RCLONE to back up the server."
+    report = run(text, [{"entities": [span(text, "RCLONE", "tool")]}])
+    assert report.tags[0].reason == (
+        "normalised to rclone; candidate techniques T1567.002 held: the sentence says 'back up'"
+    ), report.tags[0].reason
+    print("held reason: one tool held, the other kept; the earlier reason is kept ok")
 
 
 def check_technique_cues() -> None:
@@ -282,4 +326,5 @@ if __name__ == "__main__":
     check_fallback()
     check_sie_failure()
     check_technique_cues()
+    check_held_reason()
     check_planted()
