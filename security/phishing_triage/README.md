@@ -196,8 +196,10 @@ flowchart TD
     X --> M
     M --> I[Regex IOCs, plus model<br/>URLs and domains it missed]
     I --> S[Signals, blocklist,<br/>injection patterns]
-    S --> F[Blocklist hit or injection:<br/>verdict = phishing,<br/>analyst reason]
-    F --> D{Any analyst reason?}
+    S --> F{Blocklist hit<br/>or injection?}
+    F -- yes --> H[verdict = phishing,<br/>analyst reason]
+    F -- no --> D{Any analyst reason?}
+    H --> D
     D -- yes --> A[route: analyst]
     D -- no --> U[route: auto]
     A --> O[verdicts.csv, iocs.csv,<br/>observables.csv]
@@ -210,13 +212,13 @@ Everything you'd want to argue about lives in [`rules.yaml`](./rules.yaml): the 
 the Decide question and verdict descriptions, the entity labels, your own domains and networks,
 the blocklist, the injection patterns, which styles count as hidden, what counts as unusual HTML,
 the thresholds, and the policy that says what each signal does to the verdict. `recipe.py` is
-about 1,100 lines, mostly parsing, and reads top to bottom in the same order as the flow.
+about 1,200 lines, mostly parsing, and reads top to bottom in the same order as the flow.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Parse the `.eml` | `parse_eml`, `_HtmlText` | none | Python `email` and `html.parser`. Headers, link targets, the text the recipient sees, and hidden HTML text kept apart. Raises the `unusual_html` and `unusual_mime` reasons |
 | Windows | `windows`, `window_items` | none | 150-word windows of the visible text, with the header in each |
-| Verdict | `classify_windows`, `verdict_schema` | `extract` + `output_schema` (one choice question) | `fastino/GLiNER2.5-Decide`. One score per verdict, from the `rules.yaml` descriptions. An overflow comes back as an error and sends the email to an analyst. A call that raises (`_failed`) becomes an error reply for every window in the batch |
+| Verdict | `classify_windows`, `verdict_schema` | `extract` + `output_schema` (one choice question) | `fastino/GLiNER2.5-Decide`. One score per verdict, from the `rules.yaml` descriptions. An overflow comes back as an error and sends the email to an analyst. A call that raises a transient error (`_failed`) becomes an error reply for every window in the batch; a refusal no retry fixes (`is_fatal`) stops the run |
 | Spans | `extract_windows`, `_extract_spans` | `extract` + `labels` | `fastino/gliner2-large-v1`. Payment request, urgency, sender, plus URL and domain spans. Retries one window at a time on the empty-result 500; any other failure becomes an error reply, as for the verdict |
 | Merge | `read_reports`, `merge_probabilities` | none | Each verdict's highest score over the windows, rescaled to sum to 1, so the one window that holds the lure isn't washed out by the harmless ones. Drops spans not in the window, and a reply without exactly our three verdicts is an error |
 | Pull IOCs | `regex_iocs`, `body_urls`, `with_nested`, `model_iocs` | none | Python (regex, `ipaddress`, `urllib`). URLs (and URLs nested in a URL's path, query or fragment, even percent-encoded, plus `www.` links), domains, IPs and sender addresses, from the body, attached text parts and the From, Reply-To and Subject headers. Model URL and domain spans only add what the regex missed |
@@ -292,11 +294,17 @@ Three CSVs:
 A cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a
 spreadsheet shows a sender like `=cmd@...` instead of running it.
 
-If a model call raises instead (a timeout, a server error, a lost connection), every email in
-that batch gets `call failed (<error>)` as an analyst reason. The header checks, IOCs and
-blocklist hits still come from Python, the email's verdict is `unknown` if the verdict call was
-the one that failed, and the run still writes all three CSVs. The run prints how many window
-replies failed.
+If a model call raises instead (a timeout, a server error such as a 503, a lost connection, a
+rate limit), every email in that batch gets `call failed (<error>)` as an analyst reason. The
+header checks, IOCs and blocklist hits still come from Python, and the run still writes all
+three CSVs. If any of an email's verdict windows failed, its verdict is `unknown`, even when its
+other windows answered: the missing window may be the one that holds the lure. The run prints
+how many windows had a failed call and the first error.
+
+A refusal that no retry will fix stops the run instead, with SIE's message and no CSVs: a bad
+or missing key (401, 403), a model name SIE doesn't serve (404), no credits or a spent key
+limit (402), an inactive account, or a model SIE has marked as permanently unable to load.
+Routing all seven emails to an analyst with the same error would only hide the real problem.
 
 One SIE quirk the recipe works around: when gliner2 finds no spans in a window, SIE Cloud has
 answered with an HTTP 500 instead of an empty list. That's our reading of the runs we watched,
@@ -328,9 +336,12 @@ header URLs, defanging, look-alikes). Then it runs `data/` through the same wind
 routing code as a live run, with a stand-in client that answers `extract` with hand-written
 replies. That covers the planted verdicts and routes, the 37 IOCs and 13 observables, the
 empty-result 500 retry, a reply with the wrong verdict keys or a span that isn't in the text, a
-blocklist hit the model agrees with (still an analyst), and a stand-in that raises a timeout on
-each model in turn (every email to an analyst, deterministic findings kept, CSVs written). It
-never calls SIE and prints one line per group, exiting non-zero on a failure.
+blocklist hit the model agrees with (still an analyst), the observables' `source` column, and a
+stand-in that raises a timeout, a 503 or a cooling-down model on each model in turn (every email
+to an analyst, each failed window counted once, deterministic findings kept, CSVs written). A
+401, a 404, missing credits or a model that will never load stop the run instead, and an email
+with one failed verdict window out of two comes out `unknown`. It never calls SIE and prints
+one line per group, exiting non-zero on a failure.
 
 ## What came out
 

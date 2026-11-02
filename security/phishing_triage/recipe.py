@@ -15,9 +15,10 @@ SIE pipeline:
                                               (plus URLs and domains the regex missed)
 Output:    verdicts.csv (a content-based verdict, route auto | analyst and why), iocs.csv
            (every URL, domain, IP and sender, defanged, with blocklist hits) and
-           observables.csv (external IOCs of phishing verdicts for an analyst to investigate
-           before anything is blocked). `auto` only means no analyst reason was found; the
-           recipe writes CSVs and never closes a ticket, quarantines mail or blocks anything.
+           observables.csv (external IOCs of phishing verdicts, and of unknown ones as
+           pending_analyst, for an analyst to investigate before anything is blocked). `auto`
+           only means no analyst reason was found; the recipe writes CSVs and never closes a
+           ticket, quarantines mail or blocks anything.
 Why SIE:   The classifier returns a label and scores, never text, so an instruction in an
            email can't make it write anything or drop an IOC. Text can still move its scores,
            so it reads only the visible text; hidden text and instructions aimed at an AI are
@@ -47,7 +48,14 @@ from urllib.parse import unquote
 import yaml
 from dotenv import load_dotenv
 from sie_sdk import SIEClient
-from sie_sdk.client.errors import ServerError, SIEError
+from sie_sdk.client.errors import (
+    InputTooLongError,
+    ModelLoadFailedError,
+    RateLimitError,
+    RequestError,
+    ServerError,
+    SIEError,
+)
 from sie_sdk.types import Item
 
 ROOT = Path(__file__).resolve().parent
@@ -754,17 +762,40 @@ def classify_windows(
                 provision_timeout_s=WAIT_S,
             )
         except SIEError as exc:
-            results = _failed(batch, exc)
+            results = _failed(batch, exc, model)
         for (item_id, _), result in zip(batch, results, strict=True):
             answers[item_id] = jsonable(result)
     return answers
 
 
-def _failed(batch: list[tuple[str, str]], exc: SIEError) -> list[dict[str, Any]]:
-    """An error reply for every window of a batch whose call raised (a timeout, a server
-    error). Each becomes an analyst reason, and the run still writes its CSVs."""
-    message = f"call failed ({type(exc).__name__}): {str(exc)[:200]}"
-    return [{"id": item_id, "error": message} for item_id, _ in batch]
+class SIEStopped(RuntimeError):
+    """SIE refused the call for a reason a retry won't fix; the run stops without CSVs."""
+
+
+def is_fatal(exc: SIEError) -> bool:
+    """A refusal that fails every call the same way: a 4xx (bad key 401, forbidden 403, model
+    not found 404, no credits or spend limit 402, inactive account) or a model the server
+    marked as permanently unable to load. A rate limit, an over-long input, a timeout, a lost
+    connection and a 5xx are transient or per-batch: those windows go to an analyst."""
+    if isinstance(exc, ModelLoadFailedError):
+        return bool(exc.permanent)
+    return isinstance(exc, RequestError) and not isinstance(
+        exc, (RateLimitError, InputTooLongError)
+    )
+
+
+def _failed(batch: list[tuple[str, str]], exc: SIEError, model: str) -> list[dict[str, Any]]:
+    """An error reply for every window of a batch whose call raised a transient error (a
+    timeout, a server error). Each becomes an analyst reason, and the run still writes its
+    CSVs. A fatal error (see is_fatal) stops the run instead, with SIE's message."""
+    name = type(exc).__name__
+    if is_fatal(exc):
+        raise SIEStopped(
+            f"SIE refused the call to {model} ({name}): {exc}. Check SIE_API_KEY, the model "
+            "names in rules.yaml and your SIE account, then run again. No CSVs were written."
+        ) from exc
+    message = f"call failed ({name}): {str(exc)[:200]}"
+    return [{"id": item_id, "error": message, "call_failed": True} for item_id, _ in batch]
 
 
 def _extract_spans(
@@ -815,7 +846,7 @@ def extract_windows(
         try:
             results = _extract_spans(client, model, batch, labels, options)
         except SIEError as exc:
-            results = _failed(batch, exc)
+            results = _failed(batch, exc, model)
         for (item_id, _), result in zip(batch, results, strict=True):
             answers[item_id] = jsonable(result)
     return answers
@@ -832,6 +863,7 @@ class Reading:
     spans: dict[str, list[str]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     empty_windows: list[str] = field(default_factory=list)  # got SIE's empty-result 500
+    failed_windows: set[str] = field(default_factory=set)  # a call for it raised (either model)
 
 
 def _error_text(result: dict[str, Any]) -> str | None:
@@ -870,12 +902,17 @@ def read_reports(
     texts = dict(items)
     readings = {report.name: Reading() for report in reports}
     window_probs: dict[str, list[dict[str, float]]] = {report.name: [] for report in reports}
+    no_verdict: set[str] = set()  # emails with a verdict window that errored
     for item_id, _ in items:
         name = item_id.split("#", 1)[0]
         reading = readings[name]
         answer = verdicts[item_id]
+        entity = spans[item_id]
+        if answer.get("call_failed") or entity.get("call_failed"):
+            reading.failed_windows.add(item_id)
         if error := _error_text(answer):
             reading.errors.append(f"verdict model: {error}")
+            no_verdict.add(name)
         else:
             probs = ((answer.get("data") or {}).get(QUESTION_ID) or {}).get("probabilities")
             # A reply without a probability for exactly our verdicts is an error, not a guess.
@@ -884,7 +921,7 @@ def read_reports(
             else:
                 got = sorted(map(str, probs)) if isinstance(probs, dict) else "no probabilities"
                 reading.errors.append(f"verdict model: unexpected verdicts {got} in {item_id}")
-        entity = spans[item_id]
+                no_verdict.add(name)
         if error := _error_text(entity):
             reading.errors.append(f"entity model: {error}")
             continue
@@ -901,8 +938,11 @@ def read_reports(
             values = reading.spans.setdefault(column, [])
             if text.casefold() not in map(str.casefold, values):
                 values.append(text)
+    # An email with any verdict window missing gets no model verdict (it becomes unknown): the
+    # missing window may be the one that holds the lure, so the others can't speak for it.
     for name, probs in window_probs.items():
-        readings[name].probabilities = merge_probabilities(probs)
+        if name not in no_verdict:
+            readings[name].probabilities = merge_probabilities(probs)
     return readings
 
 
@@ -1069,7 +1109,8 @@ class Outcome:
     iocs: list[dict[str, Any]]
     observables: list[dict[str, Any]]
     empty_windows: int  # windows read as "no spans" after SIE's empty-result error
-    failed_windows: int  # windows whose SIE call raised (timeout, server error): analyst
+    failed_windows: int  # windows with a raised SIE call (timeout, server error): analyst
+    first_failure: str  # the first such call's error, to print
 
 
 def run(client: SIEClient, rules: dict[str, Any], reports: list[Report]) -> Outcome:
@@ -1080,10 +1121,15 @@ def run(client: SIEClient, rules: dict[str, Any], reports: list[Report]) -> Outc
         ioc_rows(results, rules),
         observables(results, rules),
         sum(len(reading.empty_windows) for reading in readings.values()),
-        sum(
-            reason.count("call failed (")
-            for reading in readings.values()
-            for reason in reading.errors
+        sum(len(reading.failed_windows) for reading in readings.values()),
+        next(
+            (
+                error
+                for reading in readings.values()
+                for error in reading.errors
+                if "call failed (" in error
+            ),
+            "",
         ),
     )
 
@@ -1116,7 +1162,10 @@ def main() -> None:
     rules = load_rules()
     reports = load_reports(rules)
     with make_client() as client:
-        outcome = run(client, rules, reports)
+        try:
+            outcome = run(client, rules, reports)
+        except SIEStopped as exc:
+            raise SystemExit(f"Stopped: {exc}") from None
     write_outputs(output, outcome)
     for row in outcome.verdicts:
         print(f"{row['email']:<34} {row['verdict']:<9} {row['route']:<8} {row['analyst_reasons']}")
@@ -1124,7 +1173,10 @@ def main() -> None:
         f"\n{outcome.empty_windows} entity windows read as no spans after SIE's empty-result error"
     )
     if outcome.failed_windows:
-        print(f"{outcome.failed_windows} window replies failed; those emails go to an analyst")
+        print(
+            f"{outcome.failed_windows} windows had a failed SIE call; their emails go to an "
+            f"analyst. First failure: {outcome.first_failure}"
+        )
     print(f"{len(outcome.iocs)} IOCs, {len(outcome.observables)} observables to investigate:")
     for row in outcome.observables:
         print(f"  {row['status']:<16} {row['type']:<7} {row['defanged']}")

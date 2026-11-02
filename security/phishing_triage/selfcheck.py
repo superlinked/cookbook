@@ -18,7 +18,14 @@ from typing import Any
 from urllib.parse import quote
 
 import yaml
-from sie_sdk.client.errors import ServerError, SIEConnectionError
+from sie_sdk.client.errors import (
+    InsufficientCreditsError,
+    ModelLoadFailedError,
+    RequestError,
+    ServerError,
+    SIEConnectionError,
+    SIEError,
+)
 
 import recipe
 from recipe import Report
@@ -332,16 +339,28 @@ class StandIn:
     """Stands in for SIEClient: answers `extract` from `replies`, keyed by email name.
 
     An email with no spans gets SIE Cloud's empty-result 500, for its batch and on its own.
-    `drop` leaves the last result off each verdict batch. `fail` names a model whose every
-    call raises a timeout, the way the SDK reports one.
+    `drop` leaves the last result off each verdict batch. `fail` names the models whose calls
+    raise `error` (a timeout by default, the way the SDK reports one); `skip` lets that many
+    of a failing model's calls through first.
     """
 
-    def __init__(self, replies: dict[str, Any], drop: bool = False, fail: str = "") -> None:
-        self.replies, self.drop, self.fail = replies, drop, fail
+    def __init__(
+        self,
+        replies: dict[str, Any],
+        drop: bool = False,
+        fail: tuple[str, ...] = (),
+        error: SIEError | None = None,
+        skip: int = 0,
+    ) -> None:
+        self.replies, self.drop, self.fail, self.skip = replies, drop, fail, skip
+        self.error = error or SIEConnectionError("Request timed out after 900s")
 
     def extract(self, model: str, items: Any, **kwargs: Any) -> Any:
-        if model == self.fail:
-            raise SIEConnectionError("Request timed out after 900s")
+        if model in self.fail:
+            if self.skip:
+                self.skip -= 1
+            else:
+                raise self.error
         if isinstance(items, dict):  # one Item, the one-at-a-time retry
             return self.extract(model, [items], **kwargs)[0]
         names = [item["id"].split("#")[0] for item in items]
@@ -356,10 +375,8 @@ class StandIn:
         ]
 
 
-def run(
-    replies: dict[str, Any], reports: list[Report], drop: bool = False, fail: str = ""
-) -> list[recipe.Triage]:
-    client: Any = StandIn(replies, drop, fail)
+def run(replies: dict[str, Any], reports: list[Report], drop: bool = False) -> list[recipe.Triage]:
+    client: Any = StandIn(replies, drop)
     readings = recipe.read_reports(client, reports, RULES)
     return [recipe.triage(report, readings[report.name], RULES) for report in reports]
 
@@ -389,6 +406,11 @@ def check_planted() -> None:
     found = recipe.observables(results, RULES)
     assert len(found) == OBSERVABLE_COUNT, len(found)
     assert not [row for row in found if row["email"].startswith(("06", "07"))], found
+    sources = {(row["email"][:2], row["type"], row["source"]) for row in found}
+    assert ("02", "sender", "header") in sources, sources
+    assert ("02", "ip", "header") in sources, sources  # the Received hop
+    assert {row["source"] for row in found} <= {"header", "body", "html link", "model"}, found
+    assert list(found[0]) == list(recipe.OBSERVABLE_FIELDS), found[0]
     print(
         f"planted data: 7 verdicts and routes, {IOC_COUNT} IOCs, {OBSERVABLE_COUNT} observables, "
         "invented span dropped, bulletin to an analyst"
@@ -439,29 +461,90 @@ def check_routing() -> None:
 
 
 def check_transport_failure() -> None:
-    """A timeout on one model's call sends every email to an analyst, keeps the deterministic
-    findings and still writes the three CSVs."""
+    """A transient error (a timeout, a 503) on one model's call sends every email to an
+    analyst, keeps the deterministic findings and still writes the three CSVs."""
     reports = recipe.load_reports(RULES)
-    for model in RULES["models"].values():
-        client: Any = StandIn(REPLIES, fail=model)
-        outcome = recipe.run(client, RULES, reports)
-        assert {row["route"] for row in outcome.verdicts} == {"analyst"}, outcome.verdicts
-        assert all("call failed (SIEConnectionError)" in row["analyst_reasons"] for row in
-                   outcome.verdicts), outcome.verdicts  # fmt: skip
-        assert outcome.failed_windows == len(reports), outcome.failed_windows
-        vendor = outcome.verdicts[1]
-        assert "reply_to_mismatch" in vendor["signals"], vendor
-        assert len(outcome.iocs) == IOC_COUNT, len(outcome.iocs)
-        with tempfile.TemporaryDirectory() as folder:
-            recipe.write_outputs(Path(folder), outcome)
-            written = sorted(path.name for path in Path(folder).iterdir())
-        assert written == ["iocs.csv", "observables.csv", "verdicts.csv"], written
+    windows = len(recipe.window_items(reports, RULES["thresholds"]["max_words_per_window"]))
+    transient = [
+        SIEConnectionError("Request timed out after 900s"),
+        ServerError("Service Unavailable", status_code=503),
+        ModelLoadFailedError("cooling down after OOM", error_class="OOM", permanent=False),
+    ]
+    for error in transient:
+        for model in RULES["models"].values():
+            client: Any = StandIn(REPLIES, fail=(model,), error=error)
+            outcome = recipe.run(client, RULES, reports)
+            assert {row["route"] for row in outcome.verdicts} == {"analyst"}, outcome.verdicts
+            reason = f"call failed ({type(error).__name__})"
+            assert all(reason in row["analyst_reasons"] for row in outcome.verdicts), reason
+            assert outcome.failed_windows == windows, outcome.failed_windows
+            assert reason in outcome.first_failure, outcome.first_failure
+            vendor = outcome.verdicts[1]
+            assert "reply_to_mismatch" in vendor["signals"], vendor
+            assert len(outcome.iocs) == IOC_COUNT, len(outcome.iocs)
+            with tempfile.TemporaryDirectory() as folder:
+                recipe.write_outputs(Path(folder), outcome)
+                written = sorted(path.name for path in Path(folder).iterdir())
+            assert written == ["iocs.csv", "observables.csv", "verdicts.csv"], written
+    # Both models failed on every window: each window counts once, not once per model.
+    client = StandIn(REPLIES, fail=tuple(RULES["models"].values()))
+    outcome = recipe.run(client, RULES, reports)
+    assert outcome.failed_windows == windows, outcome.failed_windows
     # The verdict call failed: every phishing-looking email's IOCs wait for the analyst.
-    client = StandIn(REPLIES, fail=RULES["models"]["verdict"])
+    client = StandIn(REPLIES, fail=(RULES["models"]["verdict"],))
     outcome = recipe.run(client, RULES, reports)
     assert {row["verdict"] for row in outcome.verdicts} == {"unknown", "phishing"}
     assert {row["status"] for row in outcome.observables} == {"pending_analyst"}
-    print("transport failure: a timeout on either model sends every email to an analyst, CSVs kept")
+    print(
+        f"transport failure: a timeout, a 503 or a cooling-down model on either model sends "
+        f"every email to an analyst, {windows} failed windows counted once, CSVs kept"
+    )
+
+
+def check_fatal_error() -> None:
+    """A refusal no retry fixes (bad key, unknown model, no credits, a model that will never
+    load) stops the run with SIE's message instead of routing every email to an analyst."""
+    reports = recipe.load_reports(RULES)
+    fatal = [
+        RequestError("Invalid API key", code="UNAUTHORIZED", status_code=401),
+        RequestError("Model not found", code="MODEL_NOT_FOUND", status_code=404),
+        InsufficientCreditsError("Insufficient credits"),
+        ModelLoadFailedError("gated model", error_class="GATED", permanent=True),
+    ]
+    for error in fatal:
+        for model in RULES["models"].values():
+            client: Any = StandIn(REPLIES, fail=(model,), error=error)
+            stopped = ""
+            try:
+                recipe.run(client, RULES, reports)
+            except recipe.SIEStopped as exc:
+                stopped = str(exc)
+            assert stopped, f"{type(error).__name__} on {model} did not stop the run"
+            assert str(error) in stopped, stopped
+            assert model in stopped, stopped
+    print(f"fatal errors: {len(fatal)} refusals (401, 404, credits, gated model) stop the run")
+
+
+def check_partial_verdict() -> None:
+    """One of an email's two verdict windows fails: the email's verdict is unknown, not the
+    surviving window's, and its IOCs wait for an analyst."""
+    vendor = recipe.load_reports(RULES)[1]
+    rules = {**RULES, "thresholds": {**RULES["thresholds"], "batch_size": 1}}
+    words = len(vendor.text.split())
+    rules["thresholds"]["max_words_per_window"] = words // 2 + 1
+    assert len(recipe.window_items([vendor], words // 2 + 1)) == 2
+    # The first verdict batch (window 1, a 0.97 phishing reply) succeeds; the second raises.
+    client: Any = StandIn(REPLIES, fail=(RULES["models"]["verdict"],), skip=1)
+    readings = recipe.read_reports(client, [vendor], rules)
+    assert readings[vendor.name].probabilities == {}, readings[vendor.name]
+    result = recipe.triage(vendor, readings[vendor.name], rules)
+    assert (result.row["verdict"], result.row["route"]) == ("unknown", "analyst"), result.row
+    assert result.row["model_verdict"] == "", result.row
+    assert "call failed (SIEConnectionError)" in result.row["analyst_reasons"], result.row
+    found = recipe.observables([result], rules)
+    assert found, "the unknown email listed no observables"
+    assert {row["status"] for row in found} == {"pending_analyst"}, found
+    print("partial verdict: one failed window of two makes the email unknown, IOCs pending")
 
 
 if __name__ == "__main__":
@@ -475,3 +558,5 @@ if __name__ == "__main__":
     check_planted()
     check_routing()
     check_transport_failure()
+    check_fatal_error()
+    check_partial_verdict()
