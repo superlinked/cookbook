@@ -55,6 +55,7 @@ from sie_sdk.client.errors import (
     ModelLoadFailedError,
     RateLimitError,
     RequestError,
+    SIEConnectionError,
     SIEError,
 )
 from sie_sdk.types import Item
@@ -374,7 +375,7 @@ def tag_windows(
     if failures and len(failures) == calls:
         raise SIEStopped(
             f"Every SIE call failed ({calls} of {calls} to {model}), so the run stops: "
-            f"{describe(failures[0])}: {failures[0]}. Check SIE_BASE_URL and your network. "
+            f"{describe(failures[0])}: {failures[0]}. {every_call_failed_advice(failures[0])} "
             "No outputs were written."
         ) from failures[0]
     if failures:
@@ -386,6 +387,18 @@ def tag_windows(
     return results
 
 
+def every_call_failed_advice(error: SIEError) -> str:
+    """What to check when every SIE call failed, judged by the first failure.
+
+    A lost connection points at SIE_BASE_URL and the network. Any other transient error (a
+    timeout, a model still loading, a 5xx, a rate limit) more likely means the model is still
+    starting or SIE is busy, so the advice is to wait and run again.
+    """
+    if isinstance(error, SIEConnectionError):
+        return "Check SIE_BASE_URL and your network."
+    return "The model may still be starting or SIE is busy; run again in a few minutes."
+
+
 class SIEStopped(RuntimeError):
     """SIE refused the call for a reason a retry won't fix, or no call succeeded; the run
     stops without outputs."""
@@ -394,9 +407,10 @@ class SIEStopped(RuntimeError):
 def is_fatal(error: SIEError) -> bool:
     """A refusal that fails every call the same way: a 4xx (bad key 401, forbidden 403, model
     not found 404, no credits or spend limit 402, inactive account) or a model the server
-    marked as permanently unable to load. A rate limit, an over-long input, a timeout, a lost
-    connection, a model still loading and a 5xx are transient or per-batch: those windows go
-    to review."""
+    marked as permanently unable to load. A RequestError with no HTTP status or a status below
+    400 is a reply the SDK couldn't parse, and is fatal too. A rate limit, an over-long input, a
+    timeout, a lost connection, a model still loading and a 5xx are transient or per-batch:
+    those windows go to review."""
     if isinstance(error, ModelLoadFailedError):
         return bool(error.permanent)
     return isinstance(error, RequestError) and not isinstance(

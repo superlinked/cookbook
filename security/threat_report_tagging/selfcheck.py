@@ -8,6 +8,7 @@ replies. Nothing here calls SIE or replays a recorded response. Run it with
 from __future__ import annotations
 
 import contextlib
+import functools
 import io
 import tempfile
 from collections.abc import Callable
@@ -319,6 +320,27 @@ def check_sie_failure() -> None:
     message = stopped(lambda: tag(SIEConnectionError(long), SIEConnectionError(long)))
     assert message.startswith("Every SIE call failed (2 of 2 to numind/NuNER_Zero)"), message
     assert long in message
+    assert "Check SIE_BASE_URL and your network." in message, message
+    assert "still be starting" not in message, message
+    # Any other transient error on every call more likely means a cold model or a busy SIE.
+    for error in [
+        ProvisioningError("no GPU yet"),
+        ModelLoadingError("loading"),
+        ServerError("unavailable", status_code=503),
+        RateLimitError("slow down"),
+    ]:
+        message = stopped(functools.partial(tag, error, error))
+        assert message.startswith("Every SIE call failed (2 of 2 to numind/NuNER_Zero)"), message
+        assert "may still be starting or SIE is busy; run again in a few minutes." in message, (
+            message
+        )
+        assert "SIE_BASE_URL" not in message, message
+    # A model SIE marked as never loading stops the run and points at the model name.
+    message = stopped(lambda: tag(ModelLoadFailedError("gated", permanent=True)))
+    assert message.startswith("SIE can't load numind/NuNER_Zero, ModelLoadFailedError"), message
+    assert "gated" in message, message
+    assert "Check the model name in rules.yaml" in message, message
+    assert "SIE_API_KEY" not in message, message
     # A refusal stops the run at once, with the full message, HTTP status and code.
     message = stopped(lambda: tag(None, InsufficientCreditsError("no credits " + "y" * 300)))
     assert "InsufficientCreditsError (HTTP 402, code INSUFFICIENT_CREDITS)" in message, message

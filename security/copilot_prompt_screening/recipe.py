@@ -219,6 +219,11 @@ def read_screenshot(client: SIEClient, prompt: Prompt, name: str, rules: dict[st
     raise RuntimeError(f"{model} returned no markdown entity for {prompt.prompt_id}/{name}")
 
 
+def unescape_escapes(text: str) -> str:
+    """Undo only the backslash escapes (`ghp\\_abc` -> `ghp_abc`), keeping any bold markers."""
+    return MARKDOWN_ESCAPE.sub(r"\1", text)
+
+
 def unescape_markdown(text: str) -> str:
     """Undo Markdown bold and backslash escapes so the regex rules can match.
 
@@ -329,6 +334,26 @@ def decide(
 # --- Run ----------------------------------------------------------------------------------------
 
 
+def screenshot_secrets(
+    raw: str, stripped: str, rules: dict[str, Any], source: str
+) -> list[tuple[Finding, str]]:
+    """Secrets in a screenshot, from both the escape-only text and the bold-stripped text.
+
+    Stripping bold can shorten a value below the rule's minimum length (`password = __Tr0ub4x__`
+    reads as `Tr0ub4x`), so the rules also run on the text with only the escapes undone. Findings
+    are merged by value.
+    """
+    found = find_secrets(unescape_escapes(raw), rules, source)
+    found += find_secrets(stripped, rules, source)
+    merged: list[tuple[Finding, str]] = []
+    seen: set[str] = set()
+    for finding, value in found:
+        if value not in seen:
+            seen.add(value)
+            merged.append((finding, value))
+    return merged
+
+
 def screen(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> dict[str, Any]:
     secrets = find_secrets(prompt.text, rules)
     text = masked_text(prompt.text, secrets)
@@ -353,11 +378,15 @@ def screen(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> dict[str
                 }
             )
             continue
-        shot_text = unescape_markdown(read_screenshot(client, prompt, name, rules))
+        raw = read_screenshot(client, prompt, name, rules)
+        shot_text = unescape_markdown(raw)
         if len(shot_text.strip()) < rules["ocr"]["min_chars"]:
             unreadable.append(name)
-        shot_secrets = find_secrets(shot_text, rules, source=name)
-        shot_text = masked_text(shot_text, shot_secrets)
+        shot_secrets = screenshot_secrets(raw, shot_text, rules, name)
+        # A value found before bold stripping may have lost its `**` or `__` in the kept text
+        # (`__Tr0ub4x__` reads `Tr0ub4x`), so that form is masked as well.
+        unbolded = [(f, v.replace("**", "").replace("__", "")) for f, v in shot_secrets]
+        shot_text = masked_text(shot_text, shot_secrets + [(f, v) for f, v in unbolded if v])
         findings += [finding for finding, _ in shot_secrets]
         shot_injection = find_injection(shot_text, rules, source=name)
         secrets += shot_secrets

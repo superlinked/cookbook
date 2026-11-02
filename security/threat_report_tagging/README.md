@@ -128,8 +128,11 @@ Each kind of thing in a report needs a different tool, so the recipe splits the 
    line with the count and the first error. A refusal every call would repeat stops the run
    with SIE's full message and writes nothing: for example a bad key (401), an unknown model
    (404), no credits or a spend limit (402), an inactive account, or a model SIE marks as
-   permanently unable to load. So does a run where every SIE call failed, which is what a
-   wrong `SIE_BASE_URL` looks like, and so does an error in the recipe's own code. Otherwise
+   permanently unable to load (that message points at the model name). So does a run where
+   every SIE call failed: when the first failure is a lost connection the message says to check
+   `SIE_BASE_URL` and your network, and for any other error it says the model may still be
+   starting or SIE is busy, so run again in a few minutes. An error in the recipe's own code
+   stops it too. Otherwise
    the report is tagged.
 
 The order matters most at the end. The model proposes names, but the alias table and the policy

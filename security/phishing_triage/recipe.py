@@ -54,6 +54,7 @@ from sie_sdk.client.errors import (
     RateLimitError,
     RequestError,
     ServerError,
+    SIEConnectionError,
     SIEError,
 )
 from sie_sdk.types import Item
@@ -776,8 +777,10 @@ class SIEStopped(RuntimeError):
 def is_fatal(exc: SIEError) -> bool:
     """A refusal that fails every call the same way: a 4xx (bad key 401, forbidden 403, model
     not found 404, no credits or spend limit 402, inactive account) or a model the server
-    marked as permanently unable to load. A rate limit, an over-long input, a timeout, a lost
-    connection and a 5xx are transient or per-batch: those windows go to an analyst."""
+    marked as permanently unable to load. A RequestError with no HTTP status or a status below
+    400 is a reply the SDK couldn't parse, and is fatal too. A rate limit, an over-long input, a
+    timeout, a lost connection and a 5xx are transient or per-batch: those windows go to an
+    analyst."""
     if isinstance(exc, ModelLoadFailedError):
         return bool(exc.permanent)
     return isinstance(exc, RequestError) and not isinstance(
@@ -793,6 +796,11 @@ def refusal(exc: SIEError, model: str) -> str:
     """
     status, code = getattr(exc, "status_code", None), getattr(exc, "code", None)
     details = [type(exc).__name__] + [str(x) for x in (status, code) if x is not None]
+    if isinstance(exc, ModelLoadFailedError):
+        return (
+            f"SIE can't load {model} ({', '.join(details)}): {exc}. Check the model name in "
+            "rules.yaml, then run again. No CSVs were written."
+        )
     if status is None or status < 400:
         return (
             f"SIE returned a reply the recipe couldn't read for {model} ({', '.join(details)}): "
@@ -809,12 +817,32 @@ def refusal(exc: SIEError, model: str) -> str:
 def _failed(batch: list[tuple[str, str]], exc: SIEError, model: str) -> list[dict[str, Any]]:
     """An error reply for every window of a batch whose call raised a transient error (a
     timeout, a server error). Each becomes an analyst reason, and the run still writes its
-    CSVs. A fatal error (see is_fatal) stops the run instead, with SIE's message."""
+    CSVs, unless every call of both models failed: then read_reports stops the run (see
+    every_call_failed). A fatal error (see is_fatal) stops the run at once, with SIE's
+    message."""
     name = type(exc).__name__
     if is_fatal(exc):
         raise SIEStopped(refusal(exc, model)) from exc
     message = f"call failed ({name}): {str(exc)[:200]}"
-    return [{"id": item_id, "error": message, "call_failed": True} for item_id, _ in batch]
+    connection = isinstance(exc, SIEConnectionError)
+    return [
+        {"id": item_id, "error": message, "call_failed": True, "connection_error": connection}
+        for item_id, _ in batch
+    ]
+
+
+def every_call_failed(first: str, connection_error: bool) -> str:
+    """The message the run stops with when every SIE call failed, with what to check.
+
+    A lost connection points at SIE_BASE_URL and the network. Any other transient error (a
+    timeout, a model still loading, a 5xx, a rate limit) more likely means the model is still
+    starting or SIE is busy, so the advice is to wait and run again.
+    """
+    if connection_error:
+        advice = "Check SIE_BASE_URL and your network."
+    else:
+        advice = "The model may still be starting or SIE is busy; run again in a few minutes."
+    return f"Every SIE call failed, so the run stops: {first}. {advice} No CSVs were written."
 
 
 def _extract_spans(
@@ -959,15 +987,14 @@ def read_reports(
             values = reading.spans.setdefault(column, [])
             if text.casefold() not in map(str.casefold, values):
                 values.append(text)
-    # Every call of both models raised: SIE is unreachable (a dead SIE_BASE_URL, no network),
-    # not one bad batch, so routing every email to an analyst would only hide it.
+    # Every call of both models raised: SIE is unreachable or not ready (a dead SIE_BASE_URL,
+    # no network, a model still starting), not one bad batch, so routing every email to an
+    # analyst would only hide it.
     every_reply = list(verdicts.values()) + list(spans.values())
     if every_reply and all(reply.get("call_failed") for reply in every_reply):
         first = next(iter(readings[items[0][0].split("#", 1)[0]].failed_windows.values()))
-        raise SIEStopped(
-            f"Every SIE call failed, so the run stops: {first}. Check SIE_BASE_URL and your "
-            "network. No CSVs were written."
-        )
+        connection = bool(verdicts[items[0][0]].get("connection_error"))
+        raise SIEStopped(every_call_failed(first, connection))
     # An email with any verdict window missing gets no model verdict (it becomes unknown): the
     # missing window may be the one that holds the lure, so the others can't speak for it.
     for name, probs in window_probs.items():
@@ -1139,7 +1166,9 @@ class Outcome:
     iocs: list[dict[str, Any]]
     observables: list[dict[str, Any]]
     empty_windows: int  # windows read as "no spans" after SIE's empty-result error
-    failed_windows: int  # windows with a raised SIE call (timeout, server error): analyst
+    # windows with a raised SIE call (timeout, server error): analyst; if every call failed,
+    # the run stopped before this (see every_call_failed)
+    failed_windows: int
     first_failure: str  # the first such window's error, to print
 
 

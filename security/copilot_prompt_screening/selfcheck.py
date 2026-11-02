@@ -225,6 +225,21 @@ def check_screenshots() -> None:
         row = recipe.screen(fake(SAFE, bold), Prompt("T-4e", "tester", "Ok?", shot), RULES)
         assert [f["kind"] for f in row["findings"]] == ["secret_assignment"], bold
         assert "longfakevalue1" not in str(row), bold
+    # Stripping bold can shorten a value below the 8-character minimum, so the rules also run on
+    # the text with only the escapes undone: these two are caught there and missed after.
+    short = {
+        "password = __Tr0ub4x__": "__Tr0ub4x__",
+        "password: Abc**123  (**rotated**)": "Abc**123",
+    }
+    for line, value in short.items():
+        assert secret_kinds(recipe.unescape_markdown(line)) == [], line
+        assert secret_kinds(line) == ["secret_assignment"], line
+        row = recipe.screen(fake(SAFE, line), Prompt("T-4h", "tester", "Ok?", shot), RULES)
+        assert row["decision"] == "block", line
+        assert [f["kind"] for f in row["findings"]] == ["secret_assignment"], line
+        assert value.replace("**", "").replace("__", "") not in str(row), line
+        secrets = recipe.screenshot_secrets(line, recipe.unescape_markdown(line), RULES, shot[0])
+        assert [v for _, v in secrets] == [value], line
     # Stripping bold leaves underscores inside words and lone stars alone, and a bold label that
     # names no secret still matches nothing.
     for plain in ["ghp_" + "Fake" * 9, "client_secret", "snake__case__name", "a ** b ** c"]:

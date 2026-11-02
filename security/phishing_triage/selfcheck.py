@@ -22,6 +22,8 @@ from sie_sdk.client.errors import (
     InputTooLongError,
     InsufficientCreditsError,
     ModelLoadFailedError,
+    ModelLoadingError,
+    ProvisioningError,
     RateLimitError,
     RequestError,
     ServerError,
@@ -511,12 +513,32 @@ def check_transport_failure() -> None:
         stopped = str(exc)
     assert stopped.startswith("Every SIE call failed, so the run stops: call failed ("), stopped
     assert "Request timed out" in stopped, stopped
-    assert "SIE_BASE_URL" in stopped, stopped
-    # One call of the verdict model got through: the run goes on, each failed window counted
-    # once, not once per model.
+    assert "Check SIE_BASE_URL and your network." in stopped, stopped
+    assert "still be starting" not in stopped, stopped
+    # Any other transient error on every call (a provisioning timeout, a model still loading, a
+    # 503, a 429) more likely means a cold model or a busy SIE: wait and run again.
+    for error in [
+        ProvisioningError("Provisioning timed out after 900s"),
+        ModelLoadingError("Model still loading", model=RULES["models"]["verdict"]),
+        ServerError("Service Unavailable", status_code=503),
+        RateLimitError("Too many requests", retry_after=30.0),
+    ]:
+        client = StandIn(REPLIES, fail=tuple(RULES["models"].values()), error=error)
+        stopped = ""
+        try:
+            recipe.run(client, RULES, reports)
+        except recipe.SIEStopped as exc:
+            stopped = str(exc)
+        assert stopped.startswith("Every SIE call failed, so the run stops: call failed ("), stopped
+        wait = "The model may still be starting or SIE is busy; run again in a few minutes."
+        assert wait in stopped, stopped
+        assert "SIE_BASE_URL" not in stopped, stopped
+    # One call got through (batch_size 1, so the first verdict window), every other call of
+    # both models failed: the run goes on, and a window that failed on both models counts once.
+    one_each = {**RULES, "thresholds": {**RULES["thresholds"], "batch_size": 1}}
     client = StandIn(REPLIES, fail=tuple(RULES["models"].values()), skip=1)
-    outcome = recipe.run(client, RULES, reports)
-    assert 0 < outcome.failed_windows <= windows, outcome.failed_windows
+    outcome = recipe.run(client, one_each, reports)
+    assert outcome.failed_windows == windows, (outcome.failed_windows, windows)
     # The verdict call failed: every phishing-looking email's IOCs wait for the analyst.
     client = StandIn(REPLIES, fail=(RULES["models"]["verdict"],))
     outcome = recipe.run(client, RULES, reports)
@@ -537,7 +559,6 @@ def check_fatal_error() -> None:
         RequestError("Invalid API key", code="UNAUTHORIZED", status_code=401),
         RequestError("Model not found", code="MODEL_NOT_FOUND", status_code=404),
         InsufficientCreditsError("Insufficient credits"),
-        ModelLoadFailedError("gated model", error_class="GATED", permanent=True),
     ]
     for error in fatal:
         for model in RULES["models"].values():
@@ -567,9 +588,24 @@ def check_fatal_error() -> None:
         assert stopped.startswith("SIE returned a reply the recipe couldn't read"), stopped
         assert str(error) in stopped, stopped
         assert "SIE_API_KEY" not in stopped, stopped
+    # A model SIE marked as never loading (gated, not found) stops the run and points at the
+    # model name, the same advice threat_report_tagging gives.
+    gated = ModelLoadFailedError("gated model", error_class="GATED", permanent=True)
+    for model in RULES["models"].values():
+        client = StandIn(REPLIES, fail=(model,), error=gated)
+        stopped = ""
+        try:
+            recipe.run(client, RULES, reports)
+        except recipe.SIEStopped as exc:
+            stopped = str(exc)
+        assert stopped.startswith(f"SIE can't load {model} (ModelLoadFailedError"), stopped
+        assert "gated model" in stopped, stopped
+        assert "Check the model name in rules.yaml" in stopped, stopped
+        assert "SIE_API_KEY" not in stopped, stopped
     print(
-        f"fatal errors: {len(fatal)} refusals (401, 404, credits, gated model) stop the run with "
-        "status and code; an unreadable reply stops it without blaming the key"
+        f"fatal errors: {len(fatal)} refusals (401, 404, credits) stop the run with status and "
+        "code; a model that will never load names the model; an unreadable reply stops it "
+        "without blaming the key"
     )
 
 

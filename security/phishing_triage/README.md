@@ -310,12 +310,14 @@ either way. The run prints how many windows had a failed call and the first one'
 A refusal that no retry will fix stops the run instead, with SIE's message, HTTP status and
 error code, and no CSVs: a bad or missing key (401, 403), a model name SIE doesn't serve (404),
 no credits or a spent key limit (402), an inactive account, or a model SIE has marked as
-permanently unable to load. A reply the SDK couldn't parse (a broken or wrongly shaped body)
+permanently unable to load (that message points you at the model name in `rules.yaml`). A reply the SDK couldn't parse (a broken or wrongly shaped body)
 stops it too, with a message that says so rather than pointing at your key. And if every call
-of both models failed, the run stops with `Every SIE call failed, so the run stops: <first
-error>. Check SIE_BASE_URL and your network.` That's what a wrong `SIE_BASE_URL` or no network
-looks like. Routing all seven emails to an analyst with the same error would only hide the real
-problem.
+of both models failed, the run stops. When the first failure is a lost connection, it prints
+`Stopped: Every SIE call failed, so the run stops: <first error>. Check SIE_BASE_URL and your
+network. No CSVs were written.` That's what a wrong `SIE_BASE_URL` or no network looks like. For
+any other error that may pass (a timeout, a model still loading, a 5xx, a rate limit) the advice
+reads `The model may still be starting or SIE is busy; run again in a few minutes.` instead.
+Routing all seven emails to an analyst with the same error would only hide the real problem.
 
 One SIE quirk the recipe works around: when gliner2 finds no spans in a window, SIE Cloud has
 answered with an HTTP 500 instead of an empty list. That's our reading of the runs we watched,
@@ -492,7 +494,7 @@ nothing else, and ran the recipe on SIE Cloud.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `entities` | `fastino/gliner2-base-v1` | Same verdicts, routes, 37 IOCs and 13 observables for all 7 emails (rerun on 2 Nov 2026 UTC, after the run above, with only that line changed). Only the span columns changed: it found more urgency on 01 ("today", "within 24 hours", "now"), missed "12 hours" on 05, tagged "Thursday evening" as urgency on the benign 04, and named "Larkfield IT Service Desk" rather than the addressee "Priya" as the sender of 06. |
+| `entities` | `fastino/gliner2-base-v1` | Same verdicts, routes, 37 IOCs and 13 observables for all 7 emails (rerun on 2 Nov 2026 UTC with only that line changed). Only the span columns changed: it found more urgency on 01 ("today", "within 24 hours", "now"), missed "12 hours" on 05, tagged "Thursday evening" as urgency on the benign 04, and named "Larkfield IT Service Desk" rather than the addressee "Priya" as the sender of 06. |
 
 SIE Cloud has no other model for `verdict` (GLiNER2.5-Decide) yet. SIE's catalog has
 `fastino/GLiNER2.5-Decide-1B` and `fastino/GLiNER2.5-multi-Decide` to self-host, but we haven't
