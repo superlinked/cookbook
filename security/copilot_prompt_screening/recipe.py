@@ -64,9 +64,14 @@ RUNS_DIR = ROOT / "runs"
 # Cold models can take minutes to start; every call waits up to this long.
 WAIT_S = 900
 
-# LightOnOCR returns Markdown, which may escape characters like `_` as `\_`. Undone before the
-# rules run, so `ghp\_...` or `client\_secret` still matches.
+# LightOnOCR returns Markdown, which may escape characters like `_` as `\_` or `-` as `\-`, and
+# may bold a label (`**Password:**`). Both are undone before the rules run: an escaped `_` or `-`
+# inside a token (`ghp\_...`, `xoxb\-...`) stops the token rules, and the `**` around a label
+# stops `secret_assignment`.
 MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|<>~])")
+# Paired `**` or `__` emphasis around non-blank text. `__` must not touch a word character on
+# the outside, so an underscore inside a value (`ghp_...`, `client_secret`, `a__b`) is left alone.
+MARKDOWN_STRONG = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*|(?<!\w)__(?=\S)(.+?)(?<=\S)__(?!\w)")
 VERDICT_LINE = re.compile(r"Safety:\s*(Safe|Unsafe|Controversial)\b", re.IGNORECASE)
 CATEGORIES_LINE = re.compile(r"Categories:\s*(.+)", re.IGNORECASE)
 
@@ -92,11 +97,15 @@ def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
 
 
 def load_prompts(path: Path = PROMPTS_PATH) -> list[Prompt]:
+    """Read the prompts, and check every screenshot they attach before any SIE call is made."""
     prompts = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             entry = json.loads(line)
             shots = tuple(entry.get("screenshots", []))
+            for name in shots:
+                if not screenshot_path(name).is_file():
+                    raise ValueError(f"{entry['id']}: screenshot {name!r} not found")
             prompts.append(Prompt(entry["id"], entry["user"], entry["prompt"], shots))
     return prompts
 
@@ -195,18 +204,28 @@ def screenshot_path(name: str) -> Path:
 
 
 def read_screenshot(client: SIEClient, prompt: Prompt, name: str, rules: dict[str, Any]) -> str:
-    """OCR one attached screenshot to text. An empty string means the model read nothing."""
+    """OCR one attached screenshot to text. An empty string means the model read nothing.
+
+    A response with no `markdown` entity at all is an SIE or SDK problem, not a blank image, so
+    it raises instead of returning "" (which would look like a screenshot with nothing on it).
+    """
+    model = rules["models"]["ocr"]
     image = screenshot_path(name).read_bytes()
     item = Item(id=f"{prompt.prompt_id}/{name}", images=[image])
-    response: Any = client.extract(rules["models"]["ocr"], item, provision_timeout_s=WAIT_S)
+    response: Any = client.extract(model, item, provision_timeout_s=WAIT_S)
     for entity in response.get("entities") or []:
         if entity.get("label") == "markdown":
             return str(entity.get("text") or "")
-    return ""
+    raise RuntimeError(f"{model} returned no markdown entity for {prompt.prompt_id}/{name}")
 
 
 def unescape_markdown(text: str) -> str:
-    """Undo Markdown backslash escapes (`ghp\\_abc` -> `ghp_abc`) so the regex rules can match."""
+    """Undo Markdown bold and backslash escapes so the regex rules can match.
+
+    `**Password:** x` -> `Password: x`, `ghp\\_abc` -> `ghp_abc`. Bold goes first, so an escaped
+    `\\*\\*` stays two literal stars.
+    """
+    text = MARKDOWN_STRONG.sub(lambda m: m.group(1) or m.group(2), text)
     return MARKDOWN_ESCAPE.sub(r"\1", text)
 
 
@@ -326,7 +345,13 @@ def screen(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> dict[str
             where = (
                 "the typed prompt" if secrets[0][0].source == "prompt" else "an earlier screenshot"
             )
-            screenshots.append({"file": name, "text": f"(not read: {where} held a credential)"})
+            screenshots.append(
+                {
+                    "file": name,
+                    "status": "not_read",
+                    "text": f"(not read: {where} held a credential)",
+                }
+            )
             continue
         shot_text = unescape_markdown(read_screenshot(client, prompt, name, rules))
         if len(shot_text.strip()) < rules["ocr"]["min_chars"]:
@@ -345,7 +370,8 @@ def screen(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> dict[str
             ]
             shot_text = "(withheld: shows a credential)"
         findings += shot_injection
-        screenshots.append({"file": name, "text": shot_text})
+        status = "withheld" if shot_secrets else "read"
+        screenshots.append({"file": name, "status": status, "text": shot_text})
         copilot_text += f"\n\n[Screenshot {name}]\n{shot_text}"
     answer = ""
     verdict: str | None = None
@@ -377,6 +403,14 @@ def run(client: SIEClient, rules: dict[str, Any], prompts: list[Prompt]) -> list
     return [screen(client, prompt, rules) for prompt in prompts]
 
 
+# How decisions.md introduces each screenshot, by its status.
+SCREENSHOT_LABELS = {
+    "read": "as read by OCR",
+    "withheld": "read by OCR, text withheld",
+    "not_read": "not sent to OCR",
+}
+
+
 def render_markdown(rows: list[dict[str, Any]]) -> str:
     parts = ["# Copilot prompt screening\n"]
     for row in rows:
@@ -384,7 +418,8 @@ def render_markdown(rows: list[dict[str, Any]]) -> str:
         parts.append(f"## {row['prompt']}: {row['decision']}\n\n{quoted}\n")
         for shot in row["screenshots"]:
             shot_quoted = "\n".join(f"> {line}" for line in shot["text"].splitlines())
-            parts.append(f"Screenshot `{shot['file']}`, as read by OCR:\n\n{shot_quoted}\n")
+            label = SCREENSHOT_LABELS[shot["status"]]
+            parts.append(f"Screenshot `{shot['file']}`, {label}:\n\n{shot_quoted}\n")
         parts.append(f"- User: {row['user']}")
         parts.append(f"- Reason: {row['reason']}")
         for finding in row["findings"]:

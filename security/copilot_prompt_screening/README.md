@@ -113,10 +113,15 @@ maps neatly onto "send it to a person".
 The screenshot reader is `lightonai/LightOnOCR-3-4B`. It takes an image and returns its text as
 Markdown, tables included, through SIE's `extract` call. In our run it read the console table
 and the pale grey note at the bottom of the planted email without trouble. Plain text is what we
-want here, since the rules are regexes over text, so the recipe undoes Markdown backslash escapes
-(`ghp\_` back to `ghp_`) before the rules run. On a test image with a fake GitHub token and a
-`client_secret:` line it didn't escape anything, but Markdown allows it, and an escaped `_` would
-stop both rules from matching.
+want here, since the rules are regexes over text, so the recipe undoes Markdown bold
+(`**Password:**` back to `Password:`) and backslash escapes (`ghp\_` back to `ghp_`) before the
+rules run. Markdown allows both, and either one stops a rule: `**` around a label stops the
+`password:`-style rule, and an escaped `_` or `-` inside a token (`ghp\_...`, `xoxb\-...`)
+stops the GitHub or Slack token rule. We haven't seen the model do either. On 2026-11-02 (UTC)
+we gave it one throwaway test image with a fake GitHub token, a fake Slack token, a
+`client_secret:` line and a `Password:` line, and it returned all four as plain text, with no
+escapes and no bold. That's one image on one day, not a promise about the model, so the recipe
+undoes both anyway.
 
 ## The flow
 
@@ -143,13 +148,13 @@ flowchart TD
 
 Everything you'd want to argue about lives in [`rules.yaml`](./rules.yaml): the model names, the
 secret patterns and their allowlist, the injection markers, and what each guard verdict means.
-[`recipe.py`](./recipe.py) is about 450 lines and reads top to bottom in the same order as the
+[`recipe.py`](./recipe.py) is about 480 lines and reads top to bottom in the same order as the
 flow.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Secrets | `find_secrets`, `masked_text` | none | Regex for AWS keys, private keys, GitHub and Slack tokens, JWTs and `password=`-style pairs (env, YAML or JSON, values of 8 characters or more; the key can carry a prefix like `DB_PASSWORD` or `dbPassword`), minus an allowlist of published placeholders. Each hit is masked (`AKIA**************00`) everywhere it's shown |
-| Screenshots | `read_screenshot` | `extract` | One call per attached screenshot, only while no secret has turned up in the typed text or an earlier screenshot. Markdown escapes are undone, then the secret and injection rules run on the returned text, and each finding records which screenshot it came from. A screenshot that reads back as fewer than 20 characters goes to review: we can't screen what we can't read. A name that leads out of `data/screenshots/` raises an error |
+| Screenshots | `read_screenshot` | `extract` | One call per attached screenshot, only while no secret has turned up in the typed text or an earlier screenshot. Markdown bold and escapes are undone, then the secret and injection rules run on the returned text, and each finding records which screenshot it came from. A screenshot that reads back as fewer than 20 characters goes to review: we can't screen what we can't read. A reply with no `markdown` entity at all stops the run, naming the model, since that's an SIE or SDK problem and not a blank image. Every screenshot name is checked when the prompts load, before any SIE call: one that leads out of `data/screenshots/` or names a missing file raises an error |
 | Injection markers | `normalize`, `find_injection` | none | "ignore previous instructions", role switches ("you are now", "developer mode"), requests for the system prompt, text addressed to "AI assistant:", HTML comments, "do not mention this", invisible Unicode. Matched after NFKC, removing zero-width characters and collapsing whitespace, so "ignore" with a zero-width space hidden inside it still counts |
 | Guard | `guard`, `parse_guard` | `chat_completions` | One call per prompt that had no secret anywhere, at temperature 0, on the typed text plus each screenshot's text. A reply with no `Safety:` line goes to review. A reply that isn't a chat message at all stops the run, since that's an SIE or SDK problem and not the model being unsure |
 | Decide | `decide` | none | Collects one action per check that fired and keeps the most severe. The reason names every check, so a reviewer sees all of them, not just the winner |
@@ -177,7 +182,7 @@ multimodal and you forward the original image, it can read anything the rules mi
 secret the OCR model misread. Forwarding only the screened text is the safer default.
 [`selfcheck.py`](./selfcheck.py) checks the rules and the decision logic offline with
 hand-written strings and stand-in model replies (including a screenshot whose "OCR text" holds a
-key, and one with escaped Markdown), so you can change `rules.yaml` and know right away if you broke something.
+key, and ones with escaped or bold Markdown), so you can change `rules.yaml` and know right away if you broke something.
 [`make_data.py`](./make_data.py) draws the three planted screenshots with Pillow.
 
 ## Run it
@@ -290,7 +295,11 @@ A few things worth noticing:
 The run writes the same decisions three ways: `decisions.json` for code, `decisions.csv` for a
 spreadsheet, and `decisions.md` for a person. Detected credentials are masked in all three, and
 `decisions.md` also shows what the OCR model read from each screenshot, so a reviewer can check
-it. In `decisions.csv` a finding read off a screenshot names it, as in
+it. Each screenshot in `decisions.json` has a `status`: `read` (its OCR text is shown),
+`withheld` (it was read, showed a credential, and its text is left out) or `not_read` (an earlier
+credential stopped it before OCR). `decisions.md` labels each one to match, so in this run P-10's
+screenshot says "read by OCR, text withheld" and P-11's and P-12's say "as read by OCR". In
+`decisions.csv` a finding read off a screenshot names it, as in
 `secret:aws_access_key_id@P-10-access-key.png`.
 
 ## Potential improvements
@@ -335,7 +344,7 @@ it. In `decisions.csv` a finding read off a screenshot names it, as in
 
 ## Try another model
 
-Each model is one line under `models:` in `rules.yaml`. On 31 Oct 2026 we checked the one
+Each model is one line under `models:` in `rules.yaml`. On 2026-10-31 (UTC) we checked the one
 alternative SIE Cloud offers for `guard`, and didn't run it, because it isn't a drop-in.
 `ibm-granite/granite-guardian-3.0-2b` answers Yes or No, while `recipe.py` reads a
 "Safety: Safe|Unsafe|Controversial" line, so every prompt the guard sees would land in review as
