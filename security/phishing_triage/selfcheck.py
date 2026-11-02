@@ -18,7 +18,7 @@ from typing import Any
 from urllib.parse import quote
 
 import yaml
-from sie_sdk.client.errors import ServerError
+from sie_sdk.client.errors import ServerError, SIEConnectionError
 
 import recipe
 from recipe import Report
@@ -260,6 +260,8 @@ def check_defang() -> None:
         assert "http" not in out.lower(), out
         assert "." not in out.replace("[.]", ""), out
     assert recipe.defang("sender", "a.b@x.example") == "a[.]b[@]x[.]example"
+    once = recipe.defang("url", "https://evil.example/x")
+    assert recipe.defang_text(f"blocklist hit: {once}") == f"blocklist hit: {once}"  # no [[.]]
     print(f"defang: {len(values)} values, none can open")
 
 
@@ -313,6 +315,16 @@ REPLIES: dict[str, tuple[dict[str, float], list[tuple[str, str]]]] = {
         {PHISH: 0.94, SPAM: 0.04, BENIGN: 0.02},
         [("urgency or deadline", "12 hours")],
     ),
+    "06-genuine-password-notice": (
+        {PHISH: 0.10, SPAM: 0.05, BENIGN: 0.85},
+        [("sender name", "Larkfield IT Service Desk")],
+    ),
+    # Stand-in: suppose the model read the bulletin as benign. The quoted blocked URL and
+    # injection phrase still make it phishing, and an analyst makes the call.
+    "07-security-awareness-bulletin": (
+        {PHISH: 0.15, SPAM: 0.05, BENIGN: 0.80},
+        [("sender name", "Larkfield Security Team")],
+    ),
 }
 
 
@@ -320,13 +332,16 @@ class StandIn:
     """Stands in for SIEClient: answers `extract` from `replies`, keyed by email name.
 
     An email with no spans gets SIE Cloud's empty-result 500, for its batch and on its own.
-    `drop` leaves the last result off each verdict batch.
+    `drop` leaves the last result off each verdict batch. `fail` names a model whose every
+    call raises a timeout, the way the SDK reports one.
     """
 
-    def __init__(self, replies: dict[str, Any], drop: bool = False) -> None:
-        self.replies, self.drop = replies, drop
+    def __init__(self, replies: dict[str, Any], drop: bool = False, fail: str = "") -> None:
+        self.replies, self.drop, self.fail = replies, drop, fail
 
     def extract(self, model: str, items: Any, **kwargs: Any) -> Any:
+        if model == self.fail:
+            raise SIEConnectionError("Request timed out after 900s")
         if isinstance(items, dict):  # one Item, the one-at-a-time retry
             return self.extract(model, [items], **kwargs)[0]
         names = [item["id"].split("#")[0] for item in items]
@@ -341,10 +356,15 @@ class StandIn:
         ]
 
 
-def run(replies: dict[str, Any], reports: list[Report], drop: bool = False) -> list[recipe.Triage]:
-    client: Any = StandIn(replies, drop)
+def run(
+    replies: dict[str, Any], reports: list[Report], drop: bool = False, fail: str = ""
+) -> list[recipe.Triage]:
+    client: Any = StandIn(replies, drop, fail)
     readings = recipe.read_reports(client, reports, RULES)
     return [recipe.triage(report, readings[report.name], RULES) for report in reports]
+
+
+IOC_COUNT, OBSERVABLE_COUNT = 37, 13
 
 
 def check_planted() -> None:
@@ -357,13 +377,22 @@ def check_planted() -> None:
         ("spam", "auto"),
         ("benign", "auto"),
         ("phishing", "analyst"),
+        ("benign", "auto"),
+        ("phishing", "analyst"),
     ], outcome
     assert results[1].row["payment_request"] == "$48,750.00; wire transfer"
     assert "made-up.example.org" not in {ioc.value for ioc in results[3].iocs}  # not in its text
-    assert len(recipe.ioc_rows(results, RULES)) == 27
-    candidates = recipe.blocklist_candidates(results, RULES)
-    assert len(candidates) == 13
-    print("planted data: 5 verdicts and routes, 27 IOCs, 13 candidates, invented span dropped")
+    bulletin = results[6].row
+    assert "blocklist hit but the model said benign" in bulletin["analyst_reasons"], bulletin
+    assert "text aimed at an AI reviewer" in bulletin["analyst_reasons"], bulletin
+    assert len(recipe.ioc_rows(results, RULES)) == IOC_COUNT
+    found = recipe.observables(results, RULES)
+    assert len(found) == OBSERVABLE_COUNT, len(found)
+    assert not [row for row in found if row["email"].startswith(("06", "07"))], found
+    print(
+        f"planted data: 7 verdicts and routes, {IOC_COUNT} IOCs, {OBSERVABLE_COUNT} observables, "
+        "invented span dropped, bulletin to an analyst"
+    )
 
 
 def check_routing() -> None:
@@ -379,9 +408,7 @@ def check_routing() -> None:
     odd = {**REPLIES, ink.name: ({PHISH: 0.1, SPAM: 0.9}, REPLIES[ink.name][1])}
     (result,) = run(odd, [ink])
     assert (result.row["verdict"], result.row["route"]) == ("unknown", "analyst"), result.row
-    assert {row["status"] for row in recipe.blocklist_candidates([result], RULES)} == {
-        "pending_analyst"
-    }
+    assert {row["status"] for row in recipe.observables([result], RULES)} == {"pending_analyst"}
     # A benign verdict on the BEC email still goes to an analyst: Reply-To mismatch, look-alike.
     fooled = {vendor.name: ({PHISH: 0.01, SPAM: 0.01, BENIGN: 0.98}, [("sender name", "Dana")])}
     (result,) = run(fooled, [vendor])
@@ -394,14 +421,47 @@ def check_routing() -> None:
         pass
     else:
         raise AssertionError("a short reply was zipped without an error")
-    # An IOC in an unknown email and an auto-routed phishing email is proposed.
+    # A blocklist hit the model agrees with still goes to an analyst: evidence, not proof.
+    agrees = {"crafted": ({PHISH: 0.95, SPAM: 0.03, BENIGN: 0.02}, [("sender name", "Shop")])}
+    blocked = message("Track it: https://parcel-redelivery.example.net/track")
+    (result,) = run(agrees, [parse(blocked)])
+    assert (result.row["verdict"], result.row["route"]) == ("phishing", "analyst"), result.row
+    assert "blocklist hit: hxxps://parcel-redelivery" in result.row["analyst_reasons"], result.row
+    # An IOC in an unknown email and an auto-routed phishing email is to investigate.
     failed = recipe.triage(vendor, recipe.Reading(errors=["verdict model: timeout"]), RULES)
     auto = run(REPLIES, [vendor])[0]
-    statuses = {
-        row["defanged"]: row["status"] for row in recipe.blocklist_candidates([failed, auto], RULES)
-    }
-    assert set(statuses.values()) == {"propose"}, statuses
-    print("routing: empty-result 500, odd verdict keys, benign BEC, short reply, strongest status")
+    statuses = {row["defanged"]: row["status"] for row in recipe.observables([failed, auto], RULES)}
+    assert set(statuses.values()) == {"investigate"}, statuses
+    print(
+        "routing: empty-result 500, odd verdict keys, benign BEC, short reply, blocklist hit, "
+        "strongest status"
+    )
+
+
+def check_transport_failure() -> None:
+    """A timeout on one model's call sends every email to an analyst, keeps the deterministic
+    findings and still writes the three CSVs."""
+    reports = recipe.load_reports(RULES)
+    for model in RULES["models"].values():
+        client: Any = StandIn(REPLIES, fail=model)
+        outcome = recipe.run(client, RULES, reports)
+        assert {row["route"] for row in outcome.verdicts} == {"analyst"}, outcome.verdicts
+        assert all("call failed (SIEConnectionError)" in row["analyst_reasons"] for row in
+                   outcome.verdicts), outcome.verdicts  # fmt: skip
+        assert outcome.failed_windows == len(reports), outcome.failed_windows
+        vendor = outcome.verdicts[1]
+        assert "reply_to_mismatch" in vendor["signals"], vendor
+        assert len(outcome.iocs) == IOC_COUNT, len(outcome.iocs)
+        with tempfile.TemporaryDirectory() as folder:
+            recipe.write_outputs(Path(folder), outcome)
+            written = sorted(path.name for path in Path(folder).iterdir())
+        assert written == ["iocs.csv", "observables.csv", "verdicts.csv"], written
+    # The verdict call failed: every phishing-looking email's IOCs wait for the analyst.
+    client = StandIn(REPLIES, fail=RULES["models"]["verdict"])
+    outcome = recipe.run(client, RULES, reports)
+    assert {row["verdict"] for row in outcome.verdicts} == {"unknown", "phishing"}
+    assert {row["status"] for row in outcome.observables} == {"pending_analyst"}
+    print("transport failure: a timeout on either model sends every email to an analyst, CSVs kept")
 
 
 if __name__ == "__main__":
@@ -414,3 +474,4 @@ if __name__ == "__main__":
     check_rules()
     check_planted()
     check_routing()
+    check_transport_failure()

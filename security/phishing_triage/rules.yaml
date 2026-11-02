@@ -4,7 +4,7 @@
 # (RFC 5737); replace them with your own.
 
 models:
-  verdict: fastino/GLiNER2.5-Decide     # phishing | spam | benign, with a probability for each
+  verdict: fastino/GLiNER2.5-Decide     # phishing | spam | benign, with a score for each
   entities: fastino/gliner2-large-v1    # sender, URL, domain, payment request, urgency spans
 
 # The question GLiNER2.5-Decide answers. Each verdict's description becomes one option.
@@ -17,7 +17,7 @@ verdicts:
     tries to steal credentials or money: fake login or password reset, shared-document lure,
     impersonated executive or vendor asking for a payment, wire transfer or gift cards
   spam: unsolicited bulk marketing or advertising with an unsubscribe link, but no attempt to steal
-  benign: a legitimate message from a known colleague, internal team or real business contact
+  benign: an ordinary work message or notice that asks for no credentials, payment or secrecy
 
 # gliner2-large-v1 labels, as {output field: entity label}. The code expects exactly these
 # five output fields (load_rules checks); the labels on the right are yours to change.
@@ -30,23 +30,23 @@ entity_labels:
   payment_request: payment request
   urgency: urgency or deadline
 
-# Our own mail domains. A sender or host here is internal and never a blocklist candidate. The
+# Our own mail domains. A sender or host here is internal and never an observable to investigate. The
 # first label of each (larkfield) is also the brand the look-alike and display-name checks use.
 internal_domains: [larkfield.example.com]
 
 # Our own networks and relays, as CIDRs. An IP in these (e.g. the Received hop of our own
-# mail.larkfield.example.com in email 04) is internal and never a blocklist candidate.
+# mail.larkfield.example.com in email 04) is internal and never an observable to investigate.
 # RFC 1918, loopback, then our relay. Don't swap this list for Python's "is private" test: it
 # counts the documentation ranges as private too, so every sender IP in data/ would read as ours.
 internal_networks: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, "::1/128",
                     192.0.2.10/32]
 
-# Shared webmail providers: thousands of real users send from these, so the domain is never a
-# blocklist candidate. The sender address on it is. (mailbox.example.net stands in for one.)
+# Shared webmail providers: thousands of real users send from these, so the domain is never an
+# observable to investigate. The sender address on it is. (mailbox.example.net stands in for one.)
 shared_mail_domains: [mailbox.example.net]
 
 # The team's blocklist. In production this is your mail gateway or TIP export; here it lives in
-# rules.yaml so the data/ folder holds only the five reported emails.
+# rules.yaml so the data/ folder holds only the reported emails.
 blocklist:
   domains:
     - free-giftcards.example.org
@@ -100,8 +100,9 @@ unusual_html:
 hidden_padding: '[\s\u034f\u00ad\u200b-\u200d\u2060\ufeff]'
 
 thresholds:
-  min_verdict_score: 0.60     # top verdict probability below this: analyst
-  min_verdict_margin: 0.20    # top-1 minus top-2 probability below this: analyst
+  min_verdict_score: 0.60     # top verdict score below this: analyst (a model score, merged
+                              # over windows, not a calibrated probability)
+  min_verdict_margin: 0.20    # top-1 minus top-2 score below this: analyst
   min_entity_score: 0.40      # gliner2 drops spans scoring below this
   lookalike_max_edits: 2      # look-alike: a From, Reply-To or Return-Path domain with a label
                               # (split on . and -) within this many edits of our brand label
@@ -117,7 +118,11 @@ thresholds:
 
 # What the deterministic checks do to the model's verdict.
 policy:
+  # A blocklist hit or text aimed at an AI reviewer is strong evidence, not proof: a security
+  # bulletin can quote a blocked URL or "ignore previous instructions" as an example. So both
+  # set the verdict and send the email to an analyst, who makes the final call.
   blocklist_hit_verdict: phishing      # any IOC on the blocklist makes the email phishing
+  blocklist_hit_to_analyst: true       # ...and an analyst sees it whatever the model said
   injection_verdict: phishing          # an email that tries to instruct an AI reviewer is phishing
   injection_to_analyst: true           # ...and an analyst sees it whatever the model said
   # Signals that send the email to an analyst whatever the verdict. obfuscated_url is a URL

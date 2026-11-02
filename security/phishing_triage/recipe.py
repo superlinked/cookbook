@@ -1,23 +1,27 @@
-"""Triage emails reported as phishing, pull their IOCs and propose blocklist entries.
+"""Triage emails reported as phishing and pull their IOCs for an analyst to investigate.
 
 Use case:  Triage of the "report phishing" mailbox.
 Who:       SOC analysts.
 Problem:   Users report every odd email, so most of the queue is spam or benign mail. Analysts
            open each one, decide, copy the links and domains out by hand and check them against
            the blocklist before the real phish get any attention.
-Input:     Reported emails as .eml files in data/; the blocklist, internal domains and team
-           rules in rules.yaml.
+Input:     Reported emails as .eml files in data/, the original message as exported from the
+           reporting platform (a report-button wrapper with the original attached goes to an
+           analyst); the blocklist, internal domains and team rules in rules.yaml.
 SIE pipeline:
-           extract  fastino/GLiNER2.5-Decide  phishing | spam | benign, with a probability for
-                                              each (one choice question from rules.yaml)
+           extract  fastino/GLiNER2.5-Decide  phishing | spam | benign, with a score for each
+                                              (one choice question from rules.yaml)
            extract  fastino/gliner2-large-v1  sender name, payment request and urgency spans
                                               (plus URLs and domains the regex missed)
-Output:    verdicts.csv (verdict, route auto | analyst and why), iocs.csv (every URL, domain,
-           IP and sender, defanged, with blocklist hits) and blocklist_candidates.csv.
-Why SIE:   The classifier returns a label and probabilities, never text, so an instruction
-           in an email can't make it write anything or drop an IOC. Text can still move its
-           probabilities, so it reads only the visible text; hidden text and instructions aimed
-           at an AI are caught in Python. Two small encoders, one SIE Cloud call per model
+Output:    verdicts.csv (a content-based verdict, route auto | analyst and why), iocs.csv
+           (every URL, domain, IP and sender, defanged, with blocklist hits) and
+           observables.csv (external IOCs of phishing verdicts for an analyst to investigate
+           before anything is blocked). `auto` only means no analyst reason was found; the
+           recipe writes CSVs and never closes a ticket, quarantines mail or blocks anything.
+Why SIE:   The classifier returns a label and scores, never text, so an instruction in an
+           email can't make it write anything or drop an IOC. Text can still move its scores,
+           so it reads only the visible text; hidden text and instructions aimed at an AI are
+           caught in Python. Two small encoders, one SIE Cloud call per model
            per batch.
 Runs on:   SIE Cloud.
 
@@ -43,7 +47,7 @@ from urllib.parse import unquote
 import yaml
 from dotenv import load_dotenv
 from sie_sdk import SIEClient
-from sie_sdk.client.errors import ServerError
+from sie_sdk.client.errors import ServerError, SIEError
 from sie_sdk.types import Item
 
 ROOT = Path(__file__).resolve().parent
@@ -91,7 +95,7 @@ VERDICT_FIELDS = (
     "sender_name",
 )
 IOC_FIELDS = ("email", "type", "defanged", "source", "on_blocklist", "internal")
-CANDIDATE_FIELDS = ("type", "defanged", "email", "status")
+OBSERVABLE_FIELDS = ("type", "defanged", "source", "email", "status")
 
 # Anything that starts like an http(s) URL, including broken forms (http:/x, https:\\x) and
 # defanged ones quoted whole (hxxp://evil[.]example/x). normal_host decides if it is plain. No
@@ -448,12 +452,13 @@ def defang(kind: str, value: str) -> str:
 
     Control characters and spaces go first (a browser skips them, so ht<tab>tp:// still opens).
     Then every http(s) scheme becomes hxxp(s), including one nested in a URL or written into a
-    sender's local part, and every dot becomes [.]. A sender's last @ becomes [@]. The port
+    sender's local part, and every dot becomes [.] (a dot already written [.] stays, so a reason
+    that names a defanged IOC isn't defanged twice). A sender's last @ becomes [@]. The port
     stays as it is.
     """
     value = re.sub(r"[\x00-\x20\x7f]", "", value)
     value = re.sub(r"http(s?)(?=:|%3a)", r"hxxp\1", value, flags=re.IGNORECASE)
-    value = value.replace(".", "[.]")
+    value = re.sub(r"\[\.\]|\.", "[.]", value)  # an already defanged [.] stays as it is
     if kind == "sender":
         local, _, domain = value.rpartition("@")
         return f"{local}[@]{domain}"
@@ -740,16 +745,26 @@ def classify_windows(
     options = {"overflow_policy": "error"}
     answers: dict[str, dict[str, Any]] = {}
     for batch in _batches(items, rules["thresholds"]["batch_size"]):
-        results = client.extract(
-            model,
-            [Item(id=item_id, text=text) for item_id, text in batch],
-            output_schema=schema,
-            options=options,
-            provision_timeout_s=WAIT_S,
-        )
+        try:
+            results = client.extract(
+                model,
+                [Item(id=item_id, text=text) for item_id, text in batch],
+                output_schema=schema,
+                options=options,
+                provision_timeout_s=WAIT_S,
+            )
+        except SIEError as exc:
+            results = _failed(batch, exc)
         for (item_id, _), result in zip(batch, results, strict=True):
             answers[item_id] = jsonable(result)
     return answers
+
+
+def _failed(batch: list[tuple[str, str]], exc: SIEError) -> list[dict[str, Any]]:
+    """An error reply for every window of a batch whose call raised (a timeout, a server
+    error). Each becomes an analyst reason, and the run still writes its CSVs."""
+    message = f"call failed ({type(exc).__name__}): {str(exc)[:200]}"
+    return [{"id": item_id, "error": message} for item_id, _ in batch]
 
 
 def _extract_spans(
@@ -797,7 +812,10 @@ def extract_windows(
     options = {"threshold": rules["thresholds"]["min_entity_score"]}
     answers: dict[str, dict[str, Any]] = {}
     for batch in _batches(items, rules["thresholds"]["batch_size"]):
-        results = _extract_spans(client, model, batch, labels, options)
+        try:
+            results = _extract_spans(client, model, batch, labels, options)
+        except SIEError as exc:
+            results = _failed(batch, exc)
         for (item_id, _), result in zip(batch, results, strict=True):
             answers[item_id] = jsonable(result)
     return answers
@@ -826,10 +844,12 @@ def _error_text(result: dict[str, Any]) -> str | None:
 
 
 def merge_probabilities(per_window: list[dict[str, float]]) -> dict[str, float]:
-    """Each verdict's highest probability over windows, renormalized.
+    """Each verdict's highest score over windows, renormalized to sum to 1.
 
-    Taking the peak keeps the answer of the one window that holds the lure. An average would
-    let the harmless text in the other windows wash it out.
+    A heuristic, not a probability: taking the peak keeps the answer of the one window that
+    holds the lure, where an average would let the harmless windows wash it out. But a 0.99
+    phishing window next to a 0.99 benign window merges to about 0.5 each, and the small
+    margin sends the email to an analyst.
     """
     if not per_window:
         return {}
@@ -955,6 +975,9 @@ def triage(report: Report, reading: Reading, rules: dict[str, Any]) -> Triage:
         verdict = rule["blocklist_hit_verdict"]
         if model_verdict and model_verdict != verdict:
             reasons.append(f"blocklist hit but the model said {model_verdict}")
+        elif rule["blocklist_hit_to_analyst"]:
+            # Strong evidence, not proof: a security bulletin can quote a blocked URL.
+            reasons.append(f"blocklist hit: {defang(hits[0].kind, hits[0].value)}")
     if injection:
         verdict = rule["injection_verdict"]
         if rule["injection_to_analyst"]:
@@ -1004,30 +1027,33 @@ def ioc_rows(results: list[Triage], rules: dict[str, Any]) -> list[dict[str, Any
     ]
 
 
-def blocklist_candidates(results: list[Triage], rules: dict[str, Any]) -> list[dict[str, Any]]:
-    """External IOCs of phishing and unknown verdicts that are not blocked yet.
+def observables(results: list[Triage], rules: dict[str, Any]) -> list[dict[str, Any]]:
+    """External IOCs of phishing and unknown verdicts that are not blocked yet, for an analyst
+    to investigate. Not a blocklist: a Received IP may be a relay the mail only passed through
+    (or a forged hop), and a link may be a legitimate one the phish quotes.
 
-    ``propose`` when the verdict was automatic, ``pending_analyst`` when an analyst has to
+    ``investigate`` when the verdict was automatic, ``pending_analyst`` when an analyst has to
     confirm the verdict first (always the case for unknown). An IOC in several emails gets the
-    strongest status, so ``propose`` wins. Internal domains, IPs in `internal_networks` (our
-    own relays) and shared webmail domains are never proposed (the sender address on a webmail
-    domain is).
+    strongest status, so ``investigate`` wins. Internal domains, IPs in `internal_networks`
+    (our own relays) and shared webmail domains are never listed (the sender address on a
+    webmail domain is).
     """
     rows: dict[tuple[str, str], dict[str, Any]] = {}
     for result in results:
         if result.row["verdict"] not in (PHISHING, UNKNOWN):
             continue
-        status = "propose" if result.row["route"] == "auto" else "pending_analyst"
+        status = "investigate" if result.row["route"] == "auto" else "pending_analyst"
         for ioc in result.iocs:
             key = (ioc.kind, ioc.value.lower())
             internal = ioc_is_internal(ioc, rules)
             shared = ioc.kind == "domain" and ioc.value in rules["shared_mail_domains"]
-            done = key in rows and (rows[key]["status"] == "propose" or status != "propose")
+            done = key in rows and (rows[key]["status"] == "investigate" or status != "investigate")
             if done or internal or shared or on_blocklist(ioc, rules):
                 continue
             rows[key] = {
                 "type": ioc.kind,
                 "defanged": defang(ioc.kind, ioc.value),
+                "source": ioc.source,
                 "email": result.report.name,
                 "status": status,
             }
@@ -1041,8 +1067,9 @@ def blocklist_candidates(results: list[Triage], rules: dict[str, Any]) -> list[d
 class Outcome:
     verdicts: list[dict[str, Any]]
     iocs: list[dict[str, Any]]
-    candidates: list[dict[str, Any]]
+    observables: list[dict[str, Any]]
     empty_windows: int  # windows read as "no spans" after SIE's empty-result error
+    failed_windows: int  # windows whose SIE call raised (timeout, server error): analyst
 
 
 def run(client: SIEClient, rules: dict[str, Any], reports: list[Report]) -> Outcome:
@@ -1051,8 +1078,13 @@ def run(client: SIEClient, rules: dict[str, Any], reports: list[Report]) -> Outc
     return Outcome(
         [result.row for result in results],
         ioc_rows(results, rules),
-        blocklist_candidates(results, rules),
+        observables(results, rules),
         sum(len(reading.empty_windows) for reading in readings.values()),
+        sum(
+            reason.count("call failed (")
+            for reading in readings.values()
+            for reason in reading.errors
+        ),
     )
 
 
@@ -1073,7 +1105,7 @@ def write_outputs(output_dir: Path, outcome: Outcome) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_csv(output_dir / "verdicts.csv", VERDICT_FIELDS, outcome.verdicts)
     _write_csv(output_dir / "iocs.csv", IOC_FIELDS, outcome.iocs)
-    _write_csv(output_dir / "blocklist_candidates.csv", CANDIDATE_FIELDS, outcome.candidates)
+    _write_csv(output_dir / "observables.csv", OBSERVABLE_FIELDS, outcome.observables)
 
 
 def main() -> None:
@@ -1091,8 +1123,10 @@ def main() -> None:
     print(
         f"\n{outcome.empty_windows} entity windows read as no spans after SIE's empty-result error"
     )
-    print(f"{len(outcome.iocs)} IOCs, {len(outcome.candidates)} blocklist candidates:")
-    for row in outcome.candidates:
+    if outcome.failed_windows:
+        print(f"{outcome.failed_windows} window replies failed; those emails go to an analyst")
+    print(f"{len(outcome.iocs)} IOCs, {len(outcome.observables)} observables to investigate:")
+    for row in outcome.observables:
         print(f"  {row['status']:<16} {row['type']:<7} {row['defanged']}")
     print(f"\noutputs: {output}")
 
