@@ -9,6 +9,7 @@ model card before you rely on it.
 | Model | What the recipes use it for | SIE call | License | Image | Recipes |
 | --- | --- | --- | --- | --- | --- |
 | [`fastino/gliner2-large-v1`](https://huggingface.co/fastino/gliner2-large-v1) | Pull named fields and entities out of text, to a schema | `extract` | Apache 2.0 | `cuda12-default` | [phishing_triage](security/phishing_triage) |
+| [`lightonai/LightOnOCR-3-4B`](https://huggingface.co/lightonai/LightOnOCR-3-4B) | Turn a scanned page, photo or screenshot into text | `extract` | Apache 2.0 | `cuda12-sglang-vision-extract` | [copilot_prompt_screening](security/copilot_prompt_screening) |
 | [`fastino/GLiNER2.5-Decide`](https://huggingface.co/fastino/GLiNER2.5-Decide) | Answer a typed question about a text (pick one, yes or no) with a probability | `extract` | Apache 2.0 | `cuda12-transformers5` | [phishing_triage](security/phishing_triage) |
 | [`numind/NuNER_Zero`](https://huggingface.co/numind/NuNER_Zero) | Tag entities of any type you name | `extract` | MIT | `cuda12-default` | [threat_report_tagging](security/threat_report_tagging) |
 | [`Qwen/Qwen3Guard-Gen-4B`](https://huggingface.co/Qwen/Qwen3Guard-Gen-4B) | Give a safety verdict and categories for a prompt | `chat_completions` | Apache 2.0 | `cuda12-sglang` | [copilot_prompt_screening](security/copilot_prompt_screening) |

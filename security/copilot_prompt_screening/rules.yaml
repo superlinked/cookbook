@@ -6,6 +6,14 @@ models:
   # The model's chat template wraps the prompt in its moderation policy; we send the prompt as
   # the only user message.
   guard: Qwen/Qwen3Guard-Gen-4B
+  # Reads each attached screenshot (a console page, a reported email) and returns its text as
+  # Markdown, so the same secret and injection rules can run on it.
+  ocr: lightonai/LightOnOCR-3-4B
+
+ocr:
+  # A screenshot that reads back shorter than this (a blank capture, a photo of nothing) goes to
+  # review: we can't screen what we can't read.
+  min_chars: 20
 
 guard:
   max_completion_tokens: 64            # the verdict is about ten tokens

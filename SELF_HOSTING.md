@@ -24,7 +24,7 @@ for every model it calls. Grouped:
 | Images | Recipes |
 | --- | --- |
 | `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging) |
-| `cuda12-sglang` | [copilot_prompt_screening](security/copilot_prompt_screening) |
+| `cuda12-sglang` + `cuda12-sglang-vision-extract` | [copilot_prompt_screening](security/copilot_prompt_screening) |
 | `cuda12-default` + `cuda12-transformers5` | [phishing_triage](security/phishing_triage) |
 
 Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB).
@@ -37,11 +37,11 @@ NVIDIA Container Toolkit and a GPU that runs your models (see above).
 ```bash
 docker run --gpus all -p 8080:8080 \
   -v sie-hf-cache:/app/.cache/huggingface \
-  ghcr.io/superlinked/sie-server:v0.10.1-cuda12-sglang
+  ghcr.io/superlinked/sie-server:v0.10.1-cuda12-default
 
 # in a second terminal
 curl http://localhost:8080/readyz      # expect: ok
-cd security/copilot_prompt_screening   # the recipe in the cuda12-sglang row
+cd security/threat_report_tagging      # a recipe in the cuda12-default row
 uv run recipe.py                       # with SIE_BASE_URL=http://localhost:8080 in .env
 ```
 
