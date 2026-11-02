@@ -9,20 +9,21 @@ Problem:   Every vendor writes about the same groups under its own names ("Gorse
            it, and needs to see which edges rest on one publisher or need a closer look.
 Input:     data/reports.jsonl (synthetic threat reports from fictional publishers about fictional
            actors and malware) and rules.yaml (labels, alias table, relation type rules,
-           negation words, thresholds).
+           doubt words (negations and hedges), thresholds).
 SIE pipeline:
            (Python)                                  split each report into paragraphs
            extract  knowledgator/gliner-relex-large-v1.0
                                                      entities plus uses / exploits / targets /
                                                      attributed to / alias of relations
            (Python)                                  check spans; merge names by the alias table;
-                                                     check relation types (turn round or drop);
-                                                     a negation or hedging word in the claim's
+                                                     check relation types (turn round, mark a
+                                                     direction the types can't vouch for, or
+                                                     drop); a doubt word in the claim's
                                                      sentence sends it to review, never to the
                                                      graph; build the graph with every source;
                                                      set each edge's status and queue unsure,
-                                                     turned-round and unknown-entity edges for
-                                                     review
+                                                     turned-round, unverifiable-direction and
+                                                     unknown-entity edges for review
 Output:    graph.json (nodes, edges with sources and status, dropped relations, review items,
            unread reports), graph.mmd (Mermaid) and edges.csv (one row per edge).
 Why SIE:   One model finds entities and relations together. Otherwise you'd need an NER model
@@ -68,6 +69,10 @@ MULTI_PUBLISHER, PROVISIONAL, SINGLE_SOURCE, REVIEW = (
     "review",
 )
 TURNED = "turned round to fit the relation's types"
+# Both ends' types fit the relation either way round (malware uses malware), so the types can't
+# tell whether the model read the sentence the right way round, or two reports that disagree on
+# direction would each look fine.
+EITHER_WAY = "direction unverifiable: the types fit either way round"
 EDGE_FIELDS = ("head", "relation", "tail", "status", "publishers", "reports", "flags")
 # A spreadsheet runs a cell that starts with one of these as a formula.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -333,17 +338,23 @@ def negated_sentence(window: str, head: str, tail: str, rules: dict[str, Any]) -
 
 def orient(
     relation: str, head: Canon, tail: Canon, rules: dict[str, Any]
-) -> tuple[Canon, Canon] | None:
-    """Head and tail in the direction the relation's type rule allows, or None if neither fits."""
+) -> tuple[Canon, Canon, str] | None:
+    """Head and tail in the direction the relation's type rule allows, plus a note, or None.
+
+    The note is TURNED when only the other direction fits, EITHER_WAY when both directions fit
+    (the types can't vouch for the direction), and "" when only the model's direction fits.
+    """
     rule = rules["relations"][relation]
-    if head.type in rule["head"] and tail.type in rule["tail"]:
-        return head, tail
-    if tail.type in rule["head"] and head.type in rule["tail"]:
-        return tail, head
+    forward = head.type in rule["head"] and tail.type in rule["tail"]
+    backward = tail.type in rule["head"] and head.type in rule["tail"]
+    if forward:
+        return head, tail, EITHER_WAY if backward else ""
+    if backward:
+        return tail, head, TURNED
     return None
 
 
-def unusable_end(canon: Canon, text: str, rules: dict[str, Any]) -> str:
+def unusable_end(text: str, rules: dict[str, Any]) -> str:
     """Why this end cannot be a graph node, or "" when it can: a generic word ("operators",
     "we") is never a node."""
     if name_key(text) in {name_key(word) for word in rules["not_entities"]}:
@@ -395,15 +406,15 @@ def check_relation(
     tail = table.resolve(tail_text, labels.get(name_key(tail_text)))
     if head is None or tail is None:
         return "head or tail is not a tagged entity"
-    if reason := unusable_end(head, head_text, rules) or unusable_end(tail, tail_text, rules):
+    if reason := unusable_end(head_text, rules) or unusable_end(tail_text, rules):
         return reason
     if head.name == tail.name:
         return "" if relation == ALIAS_OF else f"both ends are {head.name}"
     oriented = orient(relation, head, tail, rules)
     if oriented is None:
         return f"{head.type} -> {tail.type} does not fit '{relation}'"
-    turned = oriented[0] is not head
-    note = TURNED if turned else ""
+    note = oriented[2]
+    turned = note == TURNED
     negated, sentence = negated_sentence(window, head_text, tail_text, rules)
     head_as, tail_as = (tail_text, head_text) if turned else (head_text, tail_text)
     source = Source(
@@ -452,12 +463,13 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
     - single_source: fewer distinct publishers than min_sources (two reports from one
       publisher are one source).
     - review: an end of the edge is not in the alias table, a claim was turned round to fit
-      the types, or a report has the claim with a negation or hedging word in its sentence.
-      Such a claim never makes or supports an edge: it goes to the review list with its
-      sentence.
+      the types, the types fit either way round so they can't vouch for the direction, or a
+      report has the claim with a doubt word in its sentence. A claim with a doubt word never
+      makes or supports an edge: it goes to the review list with its sentence and score.
     - multi_publisher: at least min_sources publishers and none of the above.
     A relation in note_other_tails (attributed to) with several tails for one head gets a note
-    naming the others. Actors share, buy and leak malware, so that alone is no contradiction.
+    naming the others, and a review item. Actors share, buy and leak malware, so that alone is
+    no contradiction and the status does not change.
     """
     nodes: dict[str, Node] = {}
     types: dict[str, set[str]] = {}
@@ -474,8 +486,8 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
         if claim.negated:
             review.append(
                 f"{claim.source.report}: {claim.head.name} {claim.relation} {claim.tail.name}"
-                f" has a negation or hedging word in its sentence; not an edge:"
-                f" {claim.source.sentence!r}"
+                f" (score {claim.source.score:.2f}) has a negation or hedging word in its"
+                f" sentence; not an edge: {claim.source.sentence!r}"
             )
             negated.append(claim)
             continue
@@ -492,6 +504,7 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
 
     min_sources = rules["thresholds"]["min_sources"]
     note_other_tails = set(rules["note_other_tails"])
+    noted: list[Edge] = []  # edges with an "also attributed to" note
     for edge in edges.values():
         also: list[str] = []
         if edge.relation in note_other_tails:
@@ -508,6 +521,7 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
                     f"also {edge.relation} {', '.join(others)} in other claims"
                     " (shared tooling or a disagreement: analyst to check)"
                 )
+                noted.append(edge)
         unsure = [
             f"{c.source.report} has it in a sentence with a negation or hedging word:"
             f" {c.source.sentence!r}"
@@ -526,7 +540,7 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
             edge.flags.append(
                 f"only {len(edge.publishers)} publisher(s): {', '.join(edge.publishers)}"
             )
-        if unknown or unsure or TURNED in edge.flags:
+        if unknown or unsure or TURNED in edge.flags or EITHER_WAY in edge.flags:
             edge.status = REVIEW
         elif len(edge.publishers) < min_sources:
             edge.status = SINGLE_SOURCE
@@ -543,7 +557,8 @@ def build_graph(claims: list[Claim], dropped: list[Dropped], rules: dict[str, An
         else:
             review.append(f"{node.name} ({node.type}) is not in the alias table: new or an alias?")
     for edge in edges.values():
-        if edge.status == REVIEW:
+        # An "also attributed to" note goes to the analyst queue too, without changing status.
+        if edge.status == REVIEW or edge in noted:
             review.append(f"{edge.head} {edge.relation} {edge.tail}: {'; '.join(edge.flags)}")
     return Graph(
         sorted(nodes.values(), key=lambda n: (n.type, n.name)),

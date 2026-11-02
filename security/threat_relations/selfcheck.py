@@ -204,6 +204,10 @@ assert both.status == recipe.MULTI_PUBLISHER, both
 # Each source keeps the names as the report wrote them, before the alias table.
 written = [(s.head_text, s.tail_text) for s in both.sources]
 assert written == [("Velvet Gorse", "Thornpipe"), ("Gorse Moth", "Thornpipe backdoor")], written
+# ... and graph.json carries them.
+as_json = recipe.graph_json(run(R1, R2))["edges"][0]["sources"]
+written = [(s["head_text"], s["tail_text"]) for s in as_json]
+assert written == [("Velvet Gorse", "Thornpipe"), ("Gorse Moth", "Thornpipe backdoor")], as_json
 one = edge(run(R1, R3), "Velvet Gorse", "uses", "Thornpipe")
 assert one.status == recipe.SINGLE_SOURCE, one
 assert "only 1 publisher(s): A" in one.flags, one
@@ -213,6 +217,29 @@ print("pipeline: multi_publisher, single_source, names as written ok")
 graph = run(R1, R2, ("R-9", "C", "Unread.", {"x": "error"}, []))
 assert graph.unread == ["R-9"], graph.unread
 assert edge(graph, "Velvet Gorse", "uses", "Thornpipe").status == recipe.PROVISIONAL
+# Only multi_publisher becomes provisional: single_source and review edges keep their status.
+graph = run(
+    (
+        "R-5",
+        "A",
+        "Velvet Gorse targets ports.",
+        {"Velvet Gorse": ACTOR, "ports": "sector"},
+        ["Velvet Gorse | targets | ports"],
+    ),
+    (
+        "R-6",
+        "A",
+        "Ashen Lark used Thornpipe.",
+        {"Ashen Lark": ACTOR, "Thornpipe": MALWARE},
+        ["Ashen Lark | uses | Thornpipe"],
+    ),
+    ("R-9", "C", "Unread.", {"x": "error"}, []),
+)
+kept = {(e.head, e.tail): e.status for e in graph.edges}
+assert kept == {
+    ("Velvet Gorse", "port operators"): recipe.SINGLE_SOURCE,
+    ("Ashen Lark", "Thornpipe"): recipe.REVIEW,
+}, kept
 print("pipeline: unread report makes edges provisional ok")
 
 # A doubt word in the sentence: review, never an edge. The edge other reports make is flagged.
@@ -230,7 +257,10 @@ assert flagged.publishers == ["A", "B"], flagged
 assert any(f.startswith("R-4 has it in a sentence with a negation or") for f in flagged.flags)
 alone = run(R4)
 assert alone.edges == [], alone.edges
-assert "R-4: Velvet Gorse uses Thornpipe has a negation or hedging" in alone.review[0], alone.review
+# The review item carries the model's score, so "the model was sure and wrong" can be checked.
+assert alone.review[0].startswith(
+    "R-4: Velvet Gorse uses Thornpipe (score 0.90) has a negation or hedging"
+), alone.review
 print("pipeline: negated claim goes to review ok")
 
 # Two actors for one family is no contradiction by itself (shared or leaked malware): each edge
@@ -255,6 +285,31 @@ graph = run(
 assert [e.status for e in graph.edges] == [recipe.SINGLE_SOURCE] * 2, graph.edges
 assert graph.edges[0].flags[0].startswith("also attributed to Velvet Gorse in other claims")
 assert graph.edges[1].flags[0].startswith("also attributed to Saltmarsh Kettle in other"), graph
+# The note is in the analyst queue too, one item per edge.
+assert sorted(r.split(":")[0] for r in graph.review if "also attributed to" in r) == [
+    "Murkbell attributed to Saltmarsh Kettle",
+    "Murkbell attributed to Velvet Gorse",
+], graph.review
+# A negated attribution makes no edge, so it never shows up in the note.
+graph = run(
+    (
+        "R-1",
+        "A",
+        "Murkbell is run by Velvet Gorse.",
+        {MB: MALWARE, "Velvet Gorse": ACTOR},
+        ["Murkbell | attributed to | Velvet Gorse"],
+    ),
+    (
+        "R-2",
+        "B",
+        "Murkbell is not run by Reedcutter.",
+        {MB: MALWARE, "Reedcutter": ACTOR},
+        ["Murkbell | attributed to | Reedcutter"],
+    ),
+)
+only = edge(graph, MB, "attributed to", "Velvet Gorse")
+assert not any(f.startswith("also attributed to") for f in only.flags), only.flags
+assert not any("also attributed to" in r for r in graph.review), graph.review
 # With a second publisher each, both attributions are multi_publisher, still with the note.
 graph = run(
     *[
@@ -295,14 +350,28 @@ assert recipe.TURNED in turned.flags, turned
 assert [(s.head_text, s.tail_text) for s in turned.sources] == [("Velvet Gorse", "Thornpipe")]
 assert [d.reason for d in graph.dropped] == ["malware -> threat actor does not fit 'targets'"]
 # A turned-round claim sends the edge to review, even when another publisher states it as is.
-turned = edge(
-    run(R1, ("R-2", "B", "Thornpipe, Velvet Gorse.", VG_TP, ["Thornpipe | uses | Velvet Gorse"])),
-    "Velvet Gorse",
-    "uses",
-    "Thornpipe",
+graph = run(
+    R1, ("R-2", "B", "Thornpipe, Velvet Gorse.", VG_TP, ["Thornpipe | uses | Velvet Gorse"])
 )
+turned = edge(graph, "Velvet Gorse", "uses", "Thornpipe")
 assert turned.status == recipe.REVIEW, turned
-print("pipeline: unknown name and orient ok")
+assert graph.review == ["Velvet Gorse uses Thornpipe: turned round to fit the relation's types"]
+
+# Malware uses malware: the types fit either way round, so they can't vouch for the direction.
+# Two publishers that disagree on direction both go to review, neither reaches multi_publisher.
+QS = {"Quillstep": MALWARE, "Murkbell": MALWARE}
+graph = run(
+    ("R-1", "A", "Murkbell drops Quillstep.", QS, ["Murkbell | uses | Quillstep"]),
+    ("R-2", "B", "Quillstep drops Murkbell.", QS, ["Quillstep | uses | Murkbell"]),
+    ("R-3", "C", "Murkbell loads Quillstep.", QS, ["Murkbell | uses | Quillstep"]),
+)
+either_way = {(e.head, e.tail): (e.status, e.publishers) for e in graph.edges}
+assert either_way == {
+    ("Murkbell", "Quillstep"): (recipe.REVIEW, ["A", "C"]),
+    ("Quillstep", "Murkbell"): (recipe.REVIEW, ["B"]),
+}, either_way
+assert all(recipe.EITHER_WAY in e.flags for e in graph.edges), graph.edges
+print("pipeline: unknown name, orient and unverifiable direction ok")
 
 # Dropped: a generic word and a name not in the window. Malware may use software, and an
 # unlisted vulnerability goes to review, not to the dropped list.

@@ -12,7 +12,9 @@ entity_labels: [threat actor, malware, vulnerability, sector, software, campaign
 # Relation labels sent to the model, and the entity types each one may join (head -> tail).
 # A relation whose types fit only the other way round is turned round and goes to review (the
 # model may have read the sentence the wrong way); one that fits neither way is dropped with a
-# reason.
+# reason. When both ends' types fit either way round (malware uses malware), the types can't vouch
+# for the direction, so the edge goes to review too; two reports that disagree on direction then
+# both land there instead of reaching multi_publisher.
 relations:
   uses:   # malware may use a packer, loader or component too
     head: [threat actor, campaign, malware]
@@ -93,5 +95,5 @@ thresholds:
   entity_threshold: 0.40      # entity span score sent to the model (relex needs at least 0.1)
   relation_threshold: 0.70    # relation score sent to the model; the model card says 0.7-0.9
   min_sources: 2              # distinct publishers an edge needs to be "multi_publisher"
-  batch_size: 16              # paragraphs per SIE call
+  batch_size: 16              # windows per SIE call
   max_words_per_window: 200   # longer paragraphs are split on sentences, long sentences on words
