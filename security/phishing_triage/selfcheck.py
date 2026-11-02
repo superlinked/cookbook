@@ -19,8 +19,10 @@ from urllib.parse import quote
 
 import yaml
 from sie_sdk.client.errors import (
+    InputTooLongError,
     InsufficientCreditsError,
     ModelLoadFailedError,
+    RateLimitError,
     RequestError,
     ServerError,
     SIEConnectionError,
@@ -341,7 +343,8 @@ class StandIn:
     An email with no spans gets SIE Cloud's empty-result 500, for its batch and on its own.
     `drop` leaves the last result off each verdict batch. `fail` names the models whose calls
     raise `error` (a timeout by default, the way the SDK reports one); `skip` lets that many
-    of a failing model's calls through first.
+    of a failing model's calls through first. `odd` names window ids whose verdict reply has
+    keys other than our three verdicts.
     """
 
     def __init__(
@@ -351,8 +354,10 @@ class StandIn:
         fail: tuple[str, ...] = (),
         error: SIEError | None = None,
         skip: int = 0,
+        odd: tuple[str, ...] = (),
     ) -> None:
         self.replies, self.drop, self.fail, self.skip = replies, drop, fail, skip
+        self.odd = odd
         self.error = error or SIEConnectionError("Request timed out after 900s")
 
     def extract(self, model: str, items: Any, **kwargs: Any) -> Any:
@@ -365,7 +370,11 @@ class StandIn:
             return self.extract(model, [items], **kwargs)[0]
         names = [item["id"].split("#")[0] for item in items]
         if "output_schema" in kwargs:
-            answers = [{"data": {"verdict": {"probabilities": self.replies[n][0]}}} for n in names]
+            probs = [
+                {"malicious": 0.9, "safe": 0.1} if item["id"] in self.odd else self.replies[n][0]
+                for item, n in zip(items, names, strict=True)
+            ]
+            answers = [{"data": {"verdict": {"probabilities": p}}} for p in probs]
             return answers[:-1] if self.drop else answers
         if not all(self.replies[name][1] for name in names):
             raise ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
@@ -469,6 +478,9 @@ def check_transport_failure() -> None:
         SIEConnectionError("Request timed out after 900s"),
         ServerError("Service Unavailable", status_code=503),
         ModelLoadFailedError("cooling down after OOM", error_class="OOM", permanent=False),
+        # 4xx errors that are per-batch or pass with time: they must not stop the run.
+        RateLimitError("Too many requests", retry_after=30.0),
+        InputTooLongError("Input exceeds 512 tokens", model=RULES["models"]["verdict"]),
     ]
     for error in transient:
         for model in RULES["models"].values():
@@ -479,6 +491,9 @@ def check_transport_failure() -> None:
             assert all(reason in row["analyst_reasons"] for row in outcome.verdicts), reason
             assert outcome.failed_windows == windows, outcome.failed_windows
             assert reason in outcome.first_failure, outcome.first_failure
+            # The printed first failure is the first failed window's own message.
+            first_window = recipe.window_items(reports, 10**6)[0][0]
+            assert outcome.first_failure.endswith(f" in {first_window}"), outcome.first_failure
             vendor = outcome.verdicts[1]
             assert "reply_to_mismatch" in vendor["signals"], vendor
             assert len(outcome.iocs) == IOC_COUNT, len(outcome.iocs)
@@ -486,18 +501,31 @@ def check_transport_failure() -> None:
                 recipe.write_outputs(Path(folder), outcome)
                 written = sorted(path.name for path in Path(folder).iterdir())
             assert written == ["iocs.csv", "observables.csv", "verdicts.csv"], written
-    # Both models failed on every window: each window counts once, not once per model.
+    # Both models failed on every window (a dead SIE_BASE_URL): the run stops, it doesn't
+    # send every email to an analyst.
     client = StandIn(REPLIES, fail=tuple(RULES["models"].values()))
+    stopped = ""
+    try:
+        recipe.run(client, RULES, reports)
+    except recipe.SIEStopped as exc:
+        stopped = str(exc)
+    assert stopped.startswith("Every SIE call failed, so the run stops: call failed ("), stopped
+    assert "Request timed out" in stopped, stopped
+    assert "SIE_BASE_URL" in stopped, stopped
+    # One call of the verdict model got through: the run goes on, each failed window counted
+    # once, not once per model.
+    client = StandIn(REPLIES, fail=tuple(RULES["models"].values()), skip=1)
     outcome = recipe.run(client, RULES, reports)
-    assert outcome.failed_windows == windows, outcome.failed_windows
+    assert 0 < outcome.failed_windows <= windows, outcome.failed_windows
     # The verdict call failed: every phishing-looking email's IOCs wait for the analyst.
     client = StandIn(REPLIES, fail=(RULES["models"]["verdict"],))
     outcome = recipe.run(client, RULES, reports)
     assert {row["verdict"] for row in outcome.verdicts} == {"unknown", "phishing"}
     assert {row["status"] for row in outcome.observables} == {"pending_analyst"}
     print(
-        f"transport failure: a timeout, a 503 or a cooling-down model on either model sends "
-        f"every email to an analyst, {windows} failed windows counted once, CSVs kept"
+        f"transport failure: a timeout, a 503, a cooling-down model, a 429 or an over-long input "
+        f"on either model sends every email to an analyst, {windows} failed windows, CSVs kept; "
+        "every call failing stops the run"
     )
 
 
@@ -522,7 +550,27 @@ def check_fatal_error() -> None:
             assert stopped, f"{type(error).__name__} on {model} did not stop the run"
             assert str(error) in stopped, stopped
             assert model in stopped, stopped
-    print(f"fatal errors: {len(fatal)} refusals (401, 404, credits, gated model) stop the run")
+            assert f"{error.status_code}, {error.code}" in stopped, stopped
+            assert "Check SIE_API_KEY" in stopped, stopped
+    # A reply the SDK couldn't parse (a 200 with a broken body, or no status at all) stops the
+    # run too, but the message doesn't send the reader to check the key and model names.
+    for error in [
+        RequestError("Malformed extract JSON response (status=200)", status_code=200),
+        RequestError("Extract response missing 'items'"),
+    ]:
+        client = StandIn(REPLIES, fail=(RULES["models"]["verdict"],), error=error)
+        stopped = ""
+        try:
+            recipe.run(client, RULES, reports)
+        except recipe.SIEStopped as exc:
+            stopped = str(exc)
+        assert stopped.startswith("SIE returned a reply the recipe couldn't read"), stopped
+        assert str(error) in stopped, stopped
+        assert "SIE_API_KEY" not in stopped, stopped
+    print(
+        f"fatal errors: {len(fatal)} refusals (401, 404, credits, gated model) stop the run with "
+        "status and code; an unreadable reply stops it without blaming the key"
+    )
 
 
 def check_partial_verdict() -> None:
@@ -544,7 +592,21 @@ def check_partial_verdict() -> None:
     found = recipe.observables([result], rules)
     assert found, "the unknown email listed no observables"
     assert {row["status"] for row in found} == {"pending_analyst"}, found
-    print("partial verdict: one failed window of two makes the email unknown, IOCs pending")
+    # No call raised, but window 2's reply has verdict keys we didn't ask for; window 1 is a
+    # clean benign. The benign window can't speak for the other: still unknown, IOCs pending.
+    benign = {vendor.name: ({PHISH: 0.01, SPAM: 0.01, BENIGN: 0.98}, REPLIES[vendor.name][1])}
+    client = StandIn(benign, odd=(f"{vendor.name}#2",))
+    readings = recipe.read_reports(client, [vendor], rules)
+    result = recipe.triage(vendor, readings[vendor.name], rules)
+    assert (result.row["verdict"], result.row["route"]) == ("unknown", "analyst"), result.row
+    assert "unexpected verdicts ['malicious', 'safe']" in result.row["analyst_reasons"], result.row
+    found = recipe.observables([result], rules)
+    assert found, "the unknown email listed no observables"
+    assert {row["status"] for row in found} == {"pending_analyst"}, found
+    print(
+        "partial verdict: one failed or unreadable window of two makes the email unknown, "
+        "IOCs pending"
+    )
 
 
 if __name__ == "__main__":
