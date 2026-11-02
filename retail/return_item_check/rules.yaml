@@ -1,0 +1,81 @@
+# The returns desk's rules and every threshold the recipe uses.
+# Thresholds and the policy below are starting points we did not tune. Check them against your
+# own store policy and your own return photos.
+
+models:
+  ocr: zai-org/GLM-OCR              # reads the text printed on the packaging, once per photo
+  condition: Qwen/Qwen3.8-27B-FP8   # answers the fixed condition questions, once per return
+
+photos:
+  # Each photo is shrunk (never enlarged) so its longest side is at most this many pixels before
+  # it is sent. The files in data/photos/ are never changed by a run.
+  ocr_max_edge_px: 2048
+  condition_max_edge_px: 1536
+
+product_check:
+  # How the packaging text is compared with the sale line, in this order:
+  # 1. A barcode number (UPC-A, EAN-13 or GTIN-14 with a valid check digit) equal to the sale's
+  #    UPC is a match. A different valid barcode number, with the sale's not read, is a mismatch.
+  #    The sale's UPC read together with a different valid barcode number is cant_confirm.
+  # 2. The sale's model number printed on the packaging is a match. A different model number
+  #    that looks this similar to the sale's (0 to 1, difflib ratio) is a mismatch. Only tokens
+  #    with both letters and digits count as model numbers here; all-digit strings are mostly
+  #    dates, prices and quantities.
+  near_model_similarity: 0.60
+  # 3. The brand plus at least this share of the product name's other words is a match, unless
+  #    a model-like token (letters and digits, 4+ characters) that is neither the sale's model
+  #    nor a word of its product name was also read: then it is cant_confirm. The name words
+  #    without the brand is a mismatch: the box names the same kind of product (a "mouse")
+  #    from someone else. Words are compared whole, after lowercasing.
+  min_name_share: 0.50
+  # 4. Anything else is cant_confirm: nothing that identifies the product was read.
+
+condition:
+  # The condition model answers these questions with one allowed value each (the prompt and
+  # JSON schema are in recipe.py). Each answer listed here adds a reason at that guidance level;
+  # an answer not listed adds nothing. The model only answers; these lines decide what an
+  # answer means at your desk.
+  max_completion_tokens: 600
+  findings:
+    packaging:
+      none: [inspect, "Returned without its packaging."]
+      unclear: [inspect, "The photos don't show whether the packaging was opened."]
+      # `opened` is decided per category, under policy below.
+    packaging_damage:
+      major: [inspect, "The packaging looks badly damaged."]
+      unclear: [inspect, "The photos don't show the packaging's condition clearly."]
+    product_damage:
+      minor: [inspect, "The product shows light wear or scratches."]
+      major: [refer, "The product looks damaged."]
+      unclear: [inspect, "The photos don't show the product's condition clearly."]
+    contents:
+      incomplete: [inspect, "Something looks missing or out of the packaging."]
+      unclear: [inspect, "The photos don't show whether the contents are complete."]
+    # Opened or no packaging, but the photos don't show the contents or the product: at least
+    # inspect, even in a category that takes opened returns.
+    unseen_when_open:
+      [inspect, "Contents not seen; open and check before taking it back."]
+
+policy:
+  # Days from the sale to the return, and what an opened package means, per store category.
+  categories:
+    office_supplies: {window_days: 90, opened: accept}
+    computer_accessories: {window_days: 30, opened: inspect}
+    computer_parts: {window_days: 30, opened: inspect}
+    small_appliances: {window_days: 30, opened: inspect}
+    mobile_phones: {window_days: 14, opened: inspect}
+    home_goods: {window_days: 60, opened: accept}
+  past_window: refer          # past the category's window: a manager decides on an exception
+  unknown_category: inspect   # a category with no line above
+
+guidance:
+  # What each product check result means. `not_checked` is an SIE call that failed.
+  product:
+    match: accept
+    mismatch: refer
+    cant_confirm: inspect
+    not_checked: inspect
+  # The condition answers could not be used: the call failed or the reply broke the schema.
+  condition_not_checked: inspect
+  # The most severe level among all reasons is the return's guidance.
+  severity: [accept, inspect, refer]

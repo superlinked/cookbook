@@ -1,0 +1,37 @@
+# Customer care teams and stores for Hollowbrook Home & Garden, a fictional retail chain with
+# an online shop. Synthetic, written for this recipe.
+#
+# teams: every team a customer email can go to. `description` is what GLiNER2.5-Decide reads
+#   when it picks a team, so it names the cues a customer would write, in one short line.
+# stores: one entry per store. `aliases` are other ways customers name the store. A store the
+#   model finds is matched to this list in Python; a name that matches nothing is flagged.
+
+teams:
+  orders-delivery:
+    description: where is my order, tracking, late or missing deliveries, wrong delivery address
+  returns-refunds:
+    description: returning or exchanging an item, return labels, refund not received yet
+  billing:
+    description: charged twice, wrong amount charged, card declined, invoices, gift card balance
+  store-experience:
+    description: in-store visits, store staff, store hours, in-store pickup and stock at a store
+  product-help:
+    description: how to assemble, use or care for a product, sizing, missing parts or manuals
+  loyalty:
+    description: rewards points, member tiers, member coupons and promo codes
+  account:
+    description: website login, password reset, changing the account email, deleting an account
+
+stores:
+  ST-014:
+    name: Maple Grove
+    aliases: [Maple Grove store]
+  ST-022:
+    name: Riverside Plaza
+    aliases: [Riverside]
+  ST-031:
+    name: Downtown Eastport
+    aliases: [Eastport, Eastport downtown]
+  ST-047:
+    name: Cedar Falls
+    aliases: []

@@ -43,9 +43,17 @@ All the data in these recipes is synthetic or comes from public datasets named i
 
 ## Recipes
 
-Run time is the faster of two live runs on SIE Cloud on 31 Oct 2026. A run that has to start a
-cold model can take several minutes longer. Calls counts the recipe's SIE
+Run time is a warm live run on SIE Cloud (31 Oct 2026, or 2 Nov 2026 for the security and retail
+recipes). A run that has to start a cold model can take several minutes longer. Calls counts the recipe's SIE
 requests (one request can carry many items).
+
+### Retail
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Check a shelf from one photo: in stock, right product, right price](retail/shelf_inventory_check) | grounding-dino-base, GLM-OCR, Qwen3.8-27B-FP8 | 43 | 43 s |
+| [Check a returned item against the sale before taking it back](retail/return_item_check) | GLM-OCR, Qwen3.8-27B-FP8 | 15 | 31 s |
+| [Route customer emails to the right team](retail/customer_email_routing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
 
 ### Security
 

@@ -1,0 +1,58 @@
+# Routing rules, model IDs and every threshold the recipe uses.
+# The teams and stores live in data/routing_catalog.yaml; this file says how to route.
+# Thresholds are starting points, not tuned values. Check them against your own emails.
+
+models:
+  team: fastino/GLiNER2.5-Decide     # picks one customer care team for each email
+  fields: fastino/gliner2-large-v1   # finds the order number and the store in each email
+
+# Escalations are checked first, in this order, on the whole email (subject and body).
+# A phrase matches as whole words, ignoring case, so "fire" does not match "fireplace".
+# Any match sends the email to the queue and the team model is not asked. An email that
+# matches both keeps both: the first queue is its team, the other goes in `also_send_to`.
+# List each word form you want caught: there is no stemming. Only these phrases escalate, so an
+# injury told in other words ("a piece cut my child's cheek") is not caught here. Bare "sue" is
+# left out on purpose: it is also a first name ("Sue at the store was helpful").
+escalations:
+  - name: safety
+    queue: product-safety
+    phrases: [injury, injured, injuries, hurt, burn, burned, burns, burnt, fire, caught fire,
+              smoke, smoking, spark, sparks, sparking, electric shock, shocked me, choke, choked,
+              choking, allergic reaction, hospital, emergency room, recall, recalled]
+  - name: legal
+    queue: legal-escalations
+    phrases: [lawyer, attorney, lawsuit, sue you, sue your, suing, legal action, small claims,
+              class action, take you to court]
+
+# Where an email goes when the team model is not sure or one of its SIE calls failed.
+general_queue: customer-care-general
+
+# The question GLiNER2.5-Decide answers. Each catalog team becomes one option (team id plus
+# its description). The question and the options take up to half of the model's window of
+# about 512 tokens, so keep team descriptions to one short line.
+question: Which customer care team should handle this email?
+
+# What gliner2-large-v1 extracts, as {output field: entity label}.
+field_labels:
+  order_number: order number
+  store: store location
+
+# Order numbers: a span counts only when, with spaces, hyphens and "#" removed and in upper
+# case, it matches `pattern`. It is written back as `format` (groups from the pattern).
+order_number:
+  pattern: "^LK(\\d{6})$"
+  format: "LK-{0}"
+
+# Teams that need an order number to act. When none is found the row says to ask for it.
+needs_order_number: [orders-delivery, returns-refunds, billing]
+
+# Words stripped from the ends of a store span before it is matched to the store list.
+store_filler_words: [the, our, your, store, shop, location, branch]
+
+thresholds:
+  min_team_score: 0.50        # top team probability below this: general queue
+  min_team_margin: 0.20       # top-1 minus top-2 probability below this: general queue
+  min_entity_score: 0.40      # gliner2 drops spans scoring below this
+  store_match_cutoff: 0.85    # difflib ratio for a misspelled store name; below: not matched
+  max_words_per_window: 120   # longer emails are split into windows of this many words
+  batch_size: 25              # windows per SIE call
