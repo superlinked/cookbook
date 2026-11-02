@@ -45,7 +45,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Final, Literal, cast
 
 import yaml
 from dotenv import load_dotenv
@@ -68,11 +68,18 @@ MULTI_PUBLISHER, PROVISIONAL, SINGLE_SOURCE, REVIEW = (
     "single_source",
     "review",
 )
-TURNED = "turned round to fit the relation's types"
+TURNED: Final = "turned round to fit the relation's types"
 # Both ends' types fit the relation either way round (malware uses malware), so the types can't
 # tell whether the model read the sentence the right way round, or two reports that disagree on
 # direction would each look fine.
-EITHER_WAY = "direction unverifiable: the types fit either way round"
+EITHER_WAY: Final = "direction unverifiable: the types fit either way round"
+# A claim's direction note: "", TURNED or EITHER_WAY. Literal can't name the constants, so the
+# text is repeated here; mypy fails if the two drift apart.
+DirectionNote = Literal[
+    "",
+    "turned round to fit the relation's types",
+    "direction unverifiable: the types fit either way round",
+]
 EDGE_FIELDS = ("head", "relation", "tail", "status", "publishers", "reports", "flags")
 # A spreadsheet runs a cell that starts with one of these as a formula.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -269,7 +276,7 @@ class Claim:
     tail: Canon
     source: Source
     negated: bool  # a negation or hedging word in its sentence: review, never the graph
-    note: str = ""
+    note: DirectionNote = ""
 
 
 @dataclass
@@ -338,7 +345,7 @@ def negated_sentence(window: str, head: str, tail: str, rules: dict[str, Any]) -
 
 def orient(
     relation: str, head: Canon, tail: Canon, rules: dict[str, Any]
-) -> tuple[Canon, Canon, str] | None:
+) -> tuple[Canon, Canon, DirectionNote] | None:
     """Head and tail in the direction the relation's type rule allows, plus a note, or None.
 
     The note is TURNED when only the other direction fits, EITHER_WAY when both directions fit

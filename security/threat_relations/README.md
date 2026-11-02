@@ -259,7 +259,7 @@ line with `id`, `publisher`, `published` (the date), `title` and `text`.
 | E9 | Near miss: "Velvet Gorse possibly uses the Quillstep loader as well, but we have a single sample." | **review**, with no edge | The model returned the relation (score 0.92); "possibly" is a hedging word |
 | E10 | Near miss: Velvet Gorse and Saltmarsh Kettle both use Larchwick, a commodity stealer (Brindle Point) | both edges **single_source**, no note | Two groups using one stealer is ordinary; nothing flags it as a clash |
 
-We ran it again live on 1 Nov 2026 after the changes above (multi_publisher, hedging words, the
+We ran it again live on 2 Nov 2026 (UTC) after the changes above (multi_publisher, hedging words, the
 attribution note and its review items, review for turned-round claims, direction-unverifiable
 claims and unlisted vulnerabilities, the score in each doubt-word review item, and the new report
 R-06 with E9 and E10). All ten cases came out as the table says, and the run gave 19 nodes, 19

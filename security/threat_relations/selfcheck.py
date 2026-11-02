@@ -370,6 +370,10 @@ assert either_way == {
     ("Murkbell", "Quillstep"): (recipe.REVIEW, ["A", "C"]),
     ("Quillstep", "Murkbell"): (recipe.REVIEW, ["B"]),
 }, either_way
+# Each source keeps the ends as its report wrote them: an either-way claim is never turned.
+sources = {(e.head, e.tail): [(s.head_text, s.tail_text) for s in e.sources] for e in graph.edges}
+assert sources[("Murkbell", "Quillstep")] == [("Murkbell", "Quillstep")] * 2, sources
+assert sources[("Quillstep", "Murkbell")] == [("Quillstep", "Murkbell")], sources
 assert all(recipe.EITHER_WAY in e.flags for e in graph.edges), graph.edges
 print("pipeline: unknown name, orient and unverifiable direction ok")
 
