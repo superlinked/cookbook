@@ -64,6 +64,9 @@ RUNS_DIR = ROOT / "runs"
 # Cold models can take minutes to start; every call waits up to this long.
 WAIT_S = 900
 
+# LightOnOCR returns Markdown, which may escape characters like `_` as `\_`. Undone before the
+# rules run, so `ghp\_...` or `client\_secret` still matches.
+MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|<>~])")
 VERDICT_LINE = re.compile(r"Safety:\s*(Safe|Unsafe|Controversial)\b", re.IGNORECASE)
 CATEGORIES_LINE = re.compile(r"Categories:\s*(.+)", re.IGNORECASE)
 
@@ -182,15 +185,29 @@ def make_client() -> SIEClient:
 # --- Screenshots (LightOnOCR) -------------------------------------------------------------------
 
 
+def screenshot_path(name: str) -> Path:
+    """The file for an attached screenshot; a name that leads out of data/screenshots/ raises."""
+    folder = SCREENSHOTS_DIR.resolve()
+    path = (folder / name).resolve()
+    if not path.is_relative_to(folder):
+        raise ValueError(f"screenshot {name!r} is outside {folder}")
+    return path
+
+
 def read_screenshot(client: SIEClient, prompt: Prompt, name: str, rules: dict[str, Any]) -> str:
     """OCR one attached screenshot to text. An empty string means the model read nothing."""
-    image = (SCREENSHOTS_DIR / name).read_bytes()
+    image = screenshot_path(name).read_bytes()
     item = Item(id=f"{prompt.prompt_id}/{name}", images=[image])
     response: Any = client.extract(rules["models"]["ocr"], item, provision_timeout_s=WAIT_S)
     for entity in response.get("entities") or []:
         if entity.get("label") == "markdown":
             return str(entity.get("text") or "")
     return ""
+
+
+def unescape_markdown(text: str) -> str:
+    """Undo Markdown backslash escapes (`ghp\\_abc` -> `ghp_abc`) so the regex rules can match."""
+    return MARKDOWN_ESCAPE.sub(r"\1", text)
 
 
 # --- Guard model --------------------------------------------------------------------------------
@@ -275,7 +292,9 @@ def decide(
         )
     if unreadable:
         names = ", ".join(unreadable)
-        actions.append(("review", f"No text read from screenshot {names}; a person should look."))
+        actions.append(
+            ("review", f"Too little text read from screenshot {names}; a person should look.")
+        )
     if guard_ran:
         if guard_verdict is None:
             actions.append(("review", "The guard model gave no readable verdict."))
@@ -297,23 +316,36 @@ def screen(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> dict[str
     # Injection evidence quotes the prompt, so it is taken from the masked text.
     findings = [finding for finding, _ in secrets] + find_injection(text, rules)
     # A credential in the typed text blocks the prompt before any SIE call, so its screenshots
-    # are not read either: they stay on this machine.
+    # are not read either: they stay on this machine. Once one screenshot shows a credential, the
+    # rest aren't sent to OCR for the same reason.
     screenshots: list[dict[str, Any]] = []
     unreadable: list[str] = []
     copilot_text = text
-    for name in prompt.screenshots if not secrets else ():
-        shot_text = read_screenshot(client, prompt, name, rules)
+    for name in prompt.screenshots:
+        if secrets:
+            where = (
+                "the typed prompt" if secrets[0][0].source == "prompt" else "an earlier screenshot"
+            )
+            screenshots.append({"file": name, "text": f"(not read: {where} held a credential)"})
+            continue
+        shot_text = unescape_markdown(read_screenshot(client, prompt, name, rules))
         if len(shot_text.strip()) < rules["ocr"]["min_chars"]:
             unreadable.append(name)
         shot_secrets = find_secrets(shot_text, rules, source=name)
         shot_text = masked_text(shot_text, shot_secrets)
         findings += [finding for finding, _ in shot_secrets]
-        findings += find_injection(shot_text, rules, source=name)
+        shot_injection = find_injection(shot_text, rules, source=name)
         secrets += shot_secrets
-        # The image itself can't be masked, so a screenshot that shows a secret keeps its text
-        # out of the outputs too.
-        shown = "(withheld: shows a credential)" if shot_secrets else shot_text
-        screenshots.append({"file": name, "text": shown})
+        if shot_secrets:
+            # The image itself can't be masked, so a screenshot that shows a secret keeps its
+            # text out of the outputs, injection evidence included: OCR text can hold a credential
+            # no rule knows.
+            shot_injection = [
+                Finding(f.rule, f.kind, "(withheld)", f.source) for f in shot_injection
+            ]
+            shot_text = "(withheld: shows a credential)"
+        findings += shot_injection
+        screenshots.append({"file": name, "text": shot_text})
         copilot_text += f"\n\n[Screenshot {name}]\n{shot_text}"
     answer = ""
     verdict: str | None = None
@@ -362,7 +394,8 @@ def render_markdown(rows: list[dict[str, Any]]) -> str:
             cats = ", ".join(row["guard_categories"]) or "none"
             parts.append(f"- Guard: {row['guard_verdict']} (categories: {cats})")
         else:
-            parts.append("- Guard: not called (credential in prompt)")
+            secrets = [Finding(**f) for f in row["findings"] if f["rule"] == "secret"]
+            parts.append(f"- Guard: not called (credential found in {_where(secrets)})")
         parts.append("")
     return "\n".join(parts)
 
@@ -381,7 +414,11 @@ def write_outputs(output_dir: Path, rows: list[dict[str, Any]]) -> None:
                     row["prompt"],
                     row["user"],
                     row["decision"],
-                    " ".join(f"{f['rule']}:{f['kind']}" for f in row["findings"]),
+                    " ".join(
+                        f"{f['rule']}:{f['kind']}"
+                        + ("" if f["source"] == "prompt" else f"@{f['source']}")
+                        for f in row["findings"]
+                    ),
                     row["guard_verdict"] or "",
                     row["reason"],
                 ]
