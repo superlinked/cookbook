@@ -51,6 +51,8 @@ requests (one request can carry many items).
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
+| [Check a shelf from one photo: in stock, right product, right price](retail/shelf_inventory_check) | grounding-dino-base, GLM-OCR, Qwen3.8-27B-FP8 | 43 | 44 s |
+| [Check a returned item against the sale before taking it back](retail/return_item_check) | GLM-OCR, Qwen3.8-27B-FP8 | 15 | 31 s |
 | [Route customer emails to the right team](retail/customer_email_routing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
 
 ### Security

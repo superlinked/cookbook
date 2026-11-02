@@ -26,8 +26,14 @@ for every model it calls. Grouped:
 | `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging) |
 | `cuda12-sglang` + `cuda12-sglang-vision-extract` | [copilot_prompt_screening](security/copilot_prompt_screening) |
 | `cuda12-default` + `cuda12-transformers5` | [customer_email_routing](retail/customer_email_routing), [phishing_triage](security/phishing_triage) |
+| `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [return_item_check](retail/return_item_check) |
+| three or four images | [shelf_inventory_check](retail/shelf_inventory_check) |
 
-Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB).
+Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB), except where a
+note below says otherwise.
+
+- **`Qwen/Qwen3.8-27B-FP8` needs a big GPU.** SIE smoke-tested it on an H100 80GB, an H200 and an
+  RTX PRO 6000. The `cuda13` image also needs NVIDIA driver 580 or newer.
 
 ## One image: one container
 
