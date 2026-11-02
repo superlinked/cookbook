@@ -1,62 +1,54 @@
 # Tag actors, malware and tools in threat reports
 
-**Problem.** Your CTI team files every vendor and partner report into its threat-intel
-platform, tagged with the actors, malware, tools and indicators the report covers. The trouble
-is that nobody agrees on names. One report says "LX-0417", another says "Ashen Heron", a third
-says "Grey Lantern", and two vendors use that last name for two different groups. Indicators
-show up defanged in several styles, and now and then live or truncated. If you merge two names
+## Background
+
+A cyber threat intelligence (CTI) team keeps track of who is attacking companies like yours, with
+what, and how. The people on it are CTI analysts, and a big part of their day is reading. Reports
+come in from security vendors and partners: a write-up of an intrusion at a freight operator, a
+partner advisory about a water utility, a note that a known group is back with a new loader. The
+analyst reads each one and files it in the team's threat-intel platform, tagged with the threat
+actors (the groups behind the attack), the malware they used, the tools they ran (often ordinary
+admin tools like PsExec or rclone) and the indicators the report lists: IP addresses, domains,
+URLs, file hashes and CVE IDs.
+
+The indicators usually arrive defanged. A report writes `hxxps://relay[.]heron-cdn[.]example[.]net`
+instead of the real URL, and `198.51.100[.]23` instead of the IP, so nobody opens a malicious link
+by accident and no mail client turns it into one. Every vendor defangs a little differently, and
+now and then someone forgets and pastes the live link.
+
+Those tags are what makes the reports useful to the rest of the company:
+
+- **Search.** When someone asks "what do we know about Ashen Heron?", the answer is every report
+  tagged with that actor. A report that wasn't tagged doesn't come up.
+- **Detections.** Hashes, domains and IPs feed blocklists and detection rules, and the ATT&CK
+  technique behind a tool ("Mimikatz means credential dumping") tells the people writing
+  detections which behavior to look for.
+- **Linking reports.** Two vendors describe the same group under different names. If both reports
+  carry the same canonical tag, an analyst sees they're about one actor, and the story adds up.
+
+A wrong or missed tag costs you in both directions. Miss an actor or an indicator and the report
+quietly drops out of search, and the hash never makes it into a detection. Merge two names that
+aren't the same group and you've pinned the activity on the wrong actor, which is worse, because
+every later report linked to it inherits the mistake. And a live URL copied into a ticket is one
+click away from someone visiting the attacker's server.
+
+## The problem
+
+Nobody agrees on names. One report says "LX-0417", another says "Ashen Heron", a third says "Grey
+Lantern", and two vendors use that last name for two different groups. (Naming things is hard;
+apparently it's hard for threat-intel vendors too.) Indicators show up defanged in several
+styles, and now and then live or truncated. Tagging by hand is slow, and if you merge two names
 wrongly, you've pinned the activity on the wrong actor.
 
-**Input.**
+The obvious shortcuts each fall short. A list of known names can't find the group you haven't
+heard of yet, and that's the one an analyst most needs to see. A model on its own can find new
+names, but it doesn't know that "LX-0417" and "Ashen Heron" are the same group, and you don't want
+it guessing. And a model is the wrong tool for indicators: a hash is a fixed number of hex
+characters, which a regex reads exactly.
 
-- [`data/reports.jsonl`](./data/reports.jsonl) holds eight short synthetic reports, one per line.
-- [`data/attack_techniques.csv`](./data/attack_techniques.csv) holds nine MITRE ATT&CK
-  Enterprise techniques (ID, name, tactic), just the subset the tool mapping uses.
-- [`rules.yaml`](./rules.yaml) holds the labels, the alias table, the tool-to-technique mapping,
-  the review policy, the thresholds and the model ID.
-
-**Pipeline.**
-
-| Step | SIE call | Model | Why |
-|---|---|---|---|
-| Indicators | Python | | CVE IDs, MD5/SHA-1/SHA-256 by length, defanged URLs, domains, IPs and email domains by regex; live URLs, malformed hashes, IPs, CVE IDs and top-level domains flagged |
-| Split | Python | | Sentences packed into windows of at most 150 words (NuNER Zero reads 384 tokens) |
-| Tag | `extract` + `labels` | `numind/NuNER_Zero` | `threat actor`, `malware` and `tool` spans, zero-shot |
-| Check spans | Python | | Each span must equal the text at its offsets; spans on an indicator, or that are not names ("MD5", "threat group"), are dropped |
-| Fill misses | Python | | Alias-table names and mapped tools written in the text, matched exactly; a match inside an indicator is dropped |
-| Normalise | Python | | Every mention through the alias table to one canonical name; tools to ATT&CK technique IDs |
-| Escalate | Python | | Unknown actor or malware, an alias listed under two names, a tool with no mapping, a live URL, a malformed indicator, an invalid model span or a window the model failed to tag: the report goes to review with the reason |
-
-**Why NuNER Zero and not gliner2-large-v1.** The job is plain span tagging with three labels.
-There's no structure to fill, so `output_schema` adds nothing. When NuNER Zero finds nothing, it
-returns `entities: []`. When a GLiNER2 model finds no spans, SIE Cloud answers with an HTTP 500
-instead of an empty list, with or without `output_schema`, and that fails the whole batch. That's
-our inference from how SIE behaves: `security/phishing_triage` hits the same 500 on a plain
-`labels` call. NuNER Zero's labels are plain words in `rules.yaml`. The alias table already
-knows the familiar names, so what you really need the model for is the names the table doesn't
-know yet (e.g. "Velvet Ostrich", "Chisel"). Those are exactly the ones an analyst has to see.
-
-**Output.** `tags.json` holds every report with its canonical actors, malware and tools, its
-ATT&CK techniques, every mention (offsets, score, and whether it came from the `model` or the
-`table`), its indicators and its status, `tagged` or `review`. `entities.csv` has one row per
-mention, and `iocs.csv` has one row per indicator, always defanged (every `http:` becomes
-`hxxp:`, even one percent-encoded inside a query, and every dot becomes `[.]`, the port stays):
-
-```
-report_id,kind,mention,start,end,source,score,canonical,techniques,status,reason
-R-02,actor,LX-0417,0,7,model,0.96875,Ashen Heron,,tagged,model said malware; the table lists Ashen Heron as actor
-R-03,actor,Grey Lantern,63,75,model,1.0,,,review,ambiguous alias: 'Grey Lantern' is listed under Ashen Heron and Copper Moth
-
-report_id,type,value,live_in_source,malformed,note
-R-06,url,hxxp://192[.]0[.]2[.]44/q[.]ps1,True,False,written live in the report
-```
-
-A URL counts as live when its scheme and host are written the way a browser opens them, so
-`https://evil.example/login[.]php` is live even though its path is defanged. A defanged email
-gives its whole domain: `user@evil[.]example[.]com` is `evil[.]example[.]com`, not
-`example[.]com`. That holds when only the `@` is defanged (`billing[@]evil-pay.example.com`)
-and when the local part is missing, quoted or defanged itself. `john[.]smith@evil[.]example[.]com`
-gives only `evil[.]example[.]com`: the local part is never read as a domain or a hash.
+This recipe tags each report with its canonical actors, malware and tools, its ATT&CK techniques
+and its indicators, and gives it a status: **tagged** when everything resolved cleanly, or
+**review** with a reason an analyst can check.
 
 **What the indicator regexes cover, and what they don't.** They find CVE IDs, hex hashes, URLs
 with an `http`, `https`, `hxxp` or `hxxps` scheme, and IPs, domains and email domains defanged
@@ -73,15 +65,120 @@ A defanged file name looks just like a domain, so `evil[.]exe` comes out as the 
 `evil[.]exe`. Anything else, like an IPv6 address or a domain defanged some other way, isn't
 found at all, so read the report before you trust an empty `iocs.csv`.
 
-When a name is in the alias table, the table decides whether it's an actor, malware or a tool,
-whatever label the model gave it. In R-02 above, the model called `LX-0417` malware, and the
-table overruled it.
+A URL counts as live when its scheme and host are written the way a browser opens them, so
+`https://evil.example/login[.]php` is live even though its path is defanged. A defanged email
+gives its whole domain: `user@evil[.]example[.]com` is `evil[.]example[.]com`, not
+`example[.]com`. That holds when only the `@` is defanged (`billing[@]evil-pay.example.com`)
+and when the local part is missing, quoted or defanged itself. `john[.]smith@evil[.]example[.]com`
+gives only `evil[.]example[.]com`: the local part is never read as a domain or a hash.
 
-**Why SIE.** There's one small zero-shot NER model and no LLM. The labels are plain words in
-`rules.yaml`, so you can add `vulnerability` or `target sector` without training anything.
-Indicators, alias merges and technique mappings are code and tables you can read, so when a
-merge goes wrong, a person can see why. All windows go to SIE Cloud in one batched call, and
-you host nothing.
+## How we'll solve it
+
+Each kind of thing in a report needs a different tool, so the recipe splits the work.
+
+1. **Pull the indicators out with regex.** CVE IDs, MD5/SHA-1/SHA-256 hashes (told apart by
+   length), defanged URLs, domains, IPs and email domains. Live URLs and malformed indicators
+   are flagged here. This comes first because the next steps need to know where the indicators
+   are: a model span or a name that sits inside an indicator is part of that indicator, not a
+   separate tag.
+2. **Split each report into windows.** Sentences are packed into windows of at most 150 words,
+   because NuNER Zero reads 384 tokens. Cutting on sentence ends keeps every name whole.
+3. **Ask the model for names.** NuNER Zero tags `threat actor`, `malware` and `tool` spans,
+   zero-shot. This is the only step that needs a model, and it's here for the names nobody
+   has written down yet.
+4. **Check every span.** Each span must equal the text at its offsets, or it's invalid and the
+   report goes to review. Spans on an indicator, or that are not names ("MD5", "threat group"),
+   are dropped.
+5. **Fill in what the model missed.** Alias-table names and mapped tools written in the text are
+   matched exactly. A match inside an indicator is dropped. Where a model span and a table match
+   overlap, the model span wins.
+6. **Normalize.** Every mention goes through the alias table to one canonical name, and tools go
+   to ATT&CK technique IDs. When a name is in the alias table, the table decides whether it's an
+   actor, malware or a tool, whatever label the model gave it.
+7. **Escalate.** An unknown actor or malware, an alias listed under two names, a tool with no
+   mapping, a live URL, a malformed indicator, an invalid model span or a window the model failed
+   to tag: the report goes to review with the reason. Otherwise it's tagged.
+
+The order matters most at the end. The model proposes names, but the alias table and the policy
+decide. When the table and the model disagree, the table wins, and when the table can't decide,
+a person does.
+
+## Picking the model
+
+The model is `numind/NuNER_Zero` (MIT license), a small zero-shot named-entity model: you give it
+label words, and it returns the spans in the text that match, each with a label, offsets and a
+score. The labels are plain words in `rules.yaml` (the model card asks for lower-case labels), so
+you can add `vulnerability` or `target sector` without training anything. Spans below the 0.50
+`min_entity_score` aren't returned. There's no LLM in this recipe at all.
+
+**Why NuNER Zero and not gliner2-large-v1.** The job is plain span tagging with three labels.
+There's no structure to fill, so `output_schema` adds nothing. When NuNER Zero finds nothing, it
+returns `entities: []`. When a GLiNER2 model finds no spans, SIE Cloud answers with an HTTP 500
+instead of an empty list, with or without `output_schema`, and that fails the whole batch. That's
+our inference from how SIE behaves: `security/phishing_triage` hits the same 500 on a plain
+`labels` call. NuNER Zero's labels are plain words in `rules.yaml`. The alias table already
+knows the familiar names, so what you really need the model for is the names the table doesn't
+know yet (e.g. "Velvet Ostrich", "Chisel"). Those are exactly the ones an analyst has to see.
+
+It isn't perfect, and the recipe is built around that. On our runs it called `LX-0417` malware
+(the table fixed that), tagged "threat group" as an actor and "MD5" as a tool (rules now drop
+those), and tagged the fictional product "Corvane VPN" as a tool at a score of 0.54 (that one
+goes to review). None of these mistakes gets through as a confident tag, which is the point of
+keeping the model to proposing names.
+
+## The flow
+
+```mermaid
+flowchart TD
+    R[Threat reports<br/>data/reports.jsonl] --> W[Sentence windows<br/>max 150 words]
+    R --> I[Indicator regexes<br/>CVEs, hashes, URLs, IPs, domains]
+    W --> N[NuNER Zero on SIE<br/>threat actor / malware / tool]
+    N --> C{Span matches<br/>its offsets?}
+    I --> C
+    C -- no --> V[Invalid span<br/>review reason]
+    C -- yes --> D[Drop spans on an indicator<br/>or not a name]
+    D --> M[Add alias-table names<br/>the model missed]
+    M --> A{Alias table lookup}
+    A -- one name --> T[Canonical name<br/>tools to ATT&CK IDs]
+    A -- two names --> P{Reason on<br/>in policy?}
+    A -- no name --> P
+    P -- no --> NW[Recorded as new]
+    P -- yes --> S
+    I -- live URL or<br/>malformed, if on --> S
+    V --> S
+    T --> S{Any review<br/>reason?}
+    NW --> S
+    S -- yes --> RV[review]
+    S -- no --> TG[tagged]
+    RV --> O[tags.json / entities.csv / iocs.csv]
+    TG --> O
+```
+
+A window the model failed to tag also adds a review reason.
+
+## How it's built
+
+Everything you'd want to argue about lives in [`rules.yaml`](./rules.yaml): the labels, the alias
+table, the tool-to-technique mapping, the review policy, the thresholds and the model ID.
+[`recipe.py`](./recipe.py) holds the regexes and the logic, in the same order as the flow.
+
+| Step | Code | SIE call | What it does |
+| --- | --- | --- | --- |
+| Indicators | `find_indicators`, `domain_indicator`, `defang` | none | CVE IDs, MD5/SHA-1/SHA-256 by length, defanged URLs, domains, IPs and email domains by regex; live URLs, malformed hashes, IPs, CVE IDs and top-level domains flagged |
+| Split | `sentence_windows` | none | Sentences packed into windows of at most 150 words (NuNER Zero reads 384 tokens) |
+| Tag | `tag_windows` | `extract` + `labels` | `threat actor`, `malware` and `tool` spans from `numind/NuNER_Zero`, zero-shot, `batch_size` windows per call |
+| Check spans | `model_entities` | none | Each span must equal the text at its offsets; spans on an indicator, or that are not names ("MD5", "threat group"), are dropped |
+| Fill misses | `table_mentions`, `merge_entities` | none | Alias-table names and mapped tools written in the text, matched exactly; a match inside an indicator is dropped |
+| Normalize | `AliasTable`, `resolve` | none | Every mention through the alias table to one canonical name; tools to ATT&CK technique IDs |
+| Escalate | `resolve`, `tag_reports` | none | Unknown actor or malware, an alias listed under two names, a tool with no mapping, a live URL, a malformed indicator, an invalid model span or a window the model failed to tag: the report goes to review with the reason |
+
+`tag_reports()` runs those steps for every report, and `write_outputs()` writes the three files.
+Indicators, alias merges and technique mappings are code and tables you can read, so when a merge
+goes wrong, a person can see why. All windows go to SIE Cloud in one batched call (each demo
+report fits in one window, well under `batch_size`), and you host nothing.
+[`selfcheck.py`](./selfcheck.py) checks the indicator regexes, the alias table, the review rules
+and the rules check offline, with hand-written strings and stand-in model replies, so you can
+change `rules.yaml` and know right away if you broke something.
 
 ## Run it
 
@@ -91,6 +188,7 @@ You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
 uv run recipe.py
+uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
@@ -98,7 +196,15 @@ writes `runs/<timestamp>/` in this folder. If you'd rather write somewhere else,
 `--output DIR`. The first call can wait a few minutes while SIE Cloud starts the NuNER Zero
 model.
 
-## The planted cases
+## What came out
+
+The input is three files:
+
+- [`data/reports.jsonl`](./data/reports.jsonl) holds eight short synthetic reports, one per line.
+- [`data/attack_techniques.csv`](./data/attack_techniques.csv) holds nine MITRE ATT&CK
+  Enterprise techniques (ID, name, tactic), just the subset the tool mapping uses.
+- [`rules.yaml`](./rules.yaml) holds the labels, the alias table, the tool-to-technique mapping,
+  the review policy, the thresholds and the model ID.
 
 The reports, actors, malware, victims, products and CVE IDs are synthetic, written for this
 recipe. CVE IDs use the year 2099, so they can't collide with a real advisory. Hashes are
@@ -107,50 +213,88 @@ reserved names, and IPs are from the RFC 5737 documentation ranges. The tools (M
 AdFind, rclone, PowerShell, vssadmin, Chisel) are real, widely documented admin and
 offensive-security tools.
 
-| Report | Planted | Result on our live run |
-|---|---|---|
-| R-01 | Canonical names, a CVE, a defanged URL and IP, a SHA-256 | tagged: Ashen Heron, QuillRAT, Mimikatz and PsExec mapped to three techniques |
-| R-02 | Aliases `LX-0417`, `QRAT`, `Mothvine Loader` | tagged: normalised to Ashen Heron, QuillRAT, Mothvine |
-| R-03 | `Grey Lantern`, listed under two actors | **review**: ambiguous alias, both candidates named |
-| R-04 | New actor `Velvet Ostrich` | **review**: not in the alias table; SaltGlass and vssadmin still tagged |
-| R-05 | Tool `Chisel` with no ATT&CK mapping | **review**: no mapping. NuNER Zero also tagged the fictional product "Corvane VPN" as a tool (score 0.54), a second review reason |
-| R-06 | Live `https://` and `http://` URLs, an MD5 one character short | **review**: two live URLs, defanged in the output, and a malformed hash |
-| R-07 | Near miss: `build 4.2.0.118` and `mothvine_cfg.dat` look like an IP and a domain | tagged: only the defanged `cdn-sync[.]example[.]org` counts |
-| R-08 | Patch summary, no threats | tagged, nothing found |
+| Report | What we planted | Result on our live run | Why |
+| --- | --- | --- | --- |
+| R-01 | Canonical names, a CVE, a defanged URL and IP, a SHA-256 | tagged | Ashen Heron, QuillRAT, Mimikatz and PsExec mapped to three techniques |
+| R-02 | Aliases `LX-0417`, `QRAT`, `Mothvine Loader` | tagged | Normalized to Ashen Heron, QuillRAT, Mothvine |
+| R-03 | `Grey Lantern`, listed under two actors | **review** | Ambiguous alias, both candidates named |
+| R-04 | New actor `Velvet Ostrich` | **review** | Not in the alias table; SaltGlass and vssadmin still tagged |
+| R-05 | Tool `Chisel` with no ATT&CK mapping | **review** | No mapping. NuNER Zero also tagged the fictional product "Corvane VPN" as a tool (score 0.54), a second review reason |
+| R-06 | Live `https://` and `http://` URLs, an MD5 one character short | **review** | Two live URLs, defanged in the output, and a malformed hash |
+| R-07 | Near miss: `build 4.2.0.118` and `mothvine_cfg.dat` look like an IP and a domain | tagged | Only the defanged `cdn-sync[.]example[.]org` counts |
+| R-08 | Patch summary, no threats | tagged | Nothing found |
 
-The first live run sent R-08, a patch summary with no threats in it, to review, because NuNER
-Zero tagged "threat group" as an actor. Technically true, and no use to anyone. It also tagged
-"MD5" in R-06 as a tool. We added `ignore_mentions` and a rule that a span made only of
-`generic_words` isn't a name, then ran live again, and the results above come from that second
-run. Both rules are fitted to the demo data. No threshold was changed.
+Treat the planted cases as a demo that the recipe works. They say nothing about accuracy: eight
+reports tell you the wiring is right, not how often it's wrong.
 
-Treat the planted cases as a demo that the recipe works. They say nothing about accuracy.
+`tags.json` holds every report with its canonical actors, malware and tools, its ATT&CK
+techniques, every mention (offsets, score, and whether it came from the `model` or the `table`),
+its indicators and its status, `tagged` or `review`. `entities.csv` has one row per mention, and
+`iocs.csv` has one row per indicator, always defanged (every `http:` becomes `hxxp:`, even one
+percent-encoded inside a query, and every dot becomes `[.]`, the port stays).
 
-## What to change
+A few things worth noticing:
+
+- **The near misses matter most.** R-07 mentions `build 4.2.0.118` and `mothvine_cfg.dat`, which
+  look like an IP and a domain, and R-08 is a patch summary with no threats in it. Both came out
+  tagged, with only the defanged `cdn-sync[.]example[.]org` counted in R-07. A tagger that
+  flagged every version number would bury the analysts it's meant to help.
+- **The table overrules the model.** In R-02 the model called `LX-0417` malware, and the table,
+  which lists it as an alias of the actor Ashen Heron, overruled it. R-03 is where the table
+  can't decide, so it says so and names both candidates:
+
+  ```text
+  report_id,kind,mention,start,end,source,score,canonical,techniques,status,reason
+  R-02,actor,LX-0417,0,7,model,0.96875,Ashen Heron,,tagged,model said malware; the table lists Ashen Heron as actor
+  R-03,actor,Grey Lantern,63,75,model,1.0,,,review,ambiguous alias: 'Grey Lantern' is listed under Ashen Heron and Copper Moth
+  ```
+
+- **R-06 had the attacker's links written live.** Both URLs went to review, and the output
+  defangs them anyway, so `iocs.csv` is safe to paste into a ticket:
+
+  ```text
+  report_id,type,value,live_in_source,malformed,note
+  R-06,url,hxxp://192[.]0[.]2[.]44/q[.]ps1,True,False,written live in the report
+  ```
+
+- **The first live run wasn't this clean.** It sent R-08, a patch summary with no threats in it,
+  to review, because NuNER Zero tagged "threat group" as an actor. Technically true, and no use to
+  anyone. It also tagged "MD5" in R-06 as a tool. We added `ignore_mentions` and a rule that a
+  span made only of `generic_words` isn't a name, then ran live again, and the results above come
+  from that second run. Both rules are fitted to the demo data. No threshold was changed.
+
+## Potential improvements
 
 Everything below lives in `rules.yaml` unless it says otherwise.
 
-- The alias table is `actors` and `malware`: one canonical name each, with the aliases other
-  vendors use. If two groups share an alias, list it under both names, and every mention of it
-  goes to review. A canonical name can sit under only one of `actors`, `malware` and
-  `tool_techniques`; list it under two and the recipe refuses to start. In production, export
-  this table from your threat-intel platform.
-- The tool mapping is `tool_techniques`. Every technique ID must be in
-  `data/attack_techniques.csv`, or the recipe refuses to start. If you need more techniques,
+- **Your own alias table.** The alias table is `actors` and `malware`: one canonical name each,
+  with the aliases other vendors use. If two groups share an alias, list it under both names, and
+  every mention of it goes to review. A canonical name can sit under only one of `actors`,
+  `malware` and `tool_techniques`; list it under two and the recipe refuses to start. In
+  production, export this table from your threat-intel platform.
+- **More tools and techniques.** The tool mapping is `tool_techniques`. Every technique ID must be
+  in `data/attack_techniques.csv`, or the recipe refuses to start. If you need more techniques,
   swap the CSV for the full ATT&CK Enterprise catalog from
   [attack.mitre.org](https://attack.mitre.org/).
-- `policy` turns each name and indicator reason on or off. A name reason that's off (unknown
-  actor or malware, ambiguous alias, unmapped tool) is recorded as `new` and doesn't send the
-  report to review. An indicator reason that's off (live URL, malformed hash, IP, CVE ID or
-  domain) is dropped; the indicator row still keeps its `malformed` flag and note. An invalid
-  model span or a window the model failed to tag always sends the report to review.
-- `labels`, `generic_words` and `ignore_mentions` control what the model looks for and which of
-  its spans get thrown away as not being names. You can change the label words the model sees,
-  but not the keys: the code reads `actor`, `malware` and `tool`, and any other set of keys
-  stops the recipe at start.
-- `min_entity_score`, `max_words_per_window`, `min_hex_run` and `batch_size` are starting
-  points. Check them on your own reports.
-- `models` holds the model ID.
+- **A stricter or looser review policy.** `policy` turns each name and indicator reason on or off.
+  A name reason that's off (unknown actor or malware, ambiguous alias, unmapped tool) is recorded
+  as `new` and doesn't send the report to review. An indicator reason that's off (live URL,
+  malformed hash, IP, CVE ID or domain) is dropped; the indicator row still keeps its `malformed`
+  flag and note. An invalid model span or a window the model failed to tag always sends the
+  report to review.
+- **What the model looks for.** `labels`, `generic_words` and `ignore_mentions` control what the
+  model looks for and which of its spans get thrown away as not being names. You can change the
+  label words the model sees, but not the keys: the code reads `actor`, `malware` and `tool`, and
+  any other set of keys stops the recipe at start.
+- **Thresholds.** `min_entity_score`, `max_words_per_window`, `min_hex_run` and `batch_size` are
+  starting points. Check them on your own reports.
+- **The model.** `models` holds the model ID.
+- **Idea: more indicator formats.** IPv6 addresses and domains defanged some other way aren't
+  found today. If your vendors write them, the regexes in `recipe.py` are the place to add them,
+  with a case in `selfcheck.py` for each.
+- **Idea: measure it.** Eight planted reports prove the wiring. Before you trust it, run it on a
+  month of your own reports and look at what lands in review and what an analyst would have
+  tagged differently.
 
 ## Try another model
 

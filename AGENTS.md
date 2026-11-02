@@ -60,8 +60,12 @@ The first call can wait minutes while SIE Cloud starts a cold model.
 - Do not commit `.env`, `runs/`, `.venv` or caches.
 - When a model's output drifts from what a README states, report the
   difference; do not tune rules to hide it.
-- Write READMEs in plain words: the problem, input, pipeline table, output,
-  how to run it, the planted cases, and what to change. Every README also has
+- Write READMEs in plain words, like a blog post from an engineer to a peer,
+  in this order: background (who does this job and why it matters to the
+  company), the problem, how the flow solves it, why each model, the flow as a
+  Mermaid chart, how it's built (rules vs code, a step table naming the
+  functions), how to run it, what came out (the planted inputs and outputs with
+  a short analysis), and potential improvements. Every README also has
   `## Try another model` (swaps you actually ran, with what changed) and
   `## Run it on your own SIE` (the SIE image for each model);
   `tools/check_tree.py` fails without them.
