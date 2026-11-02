@@ -1,16 +1,21 @@
 """Screen prompts to a security copilot: allow, block or review, with the reason.
 
 Use case:  Screen every prompt before the SOC's internal LLM copilot sees it.
-Who:       The security engineer who runs the copilot, and the analyst on the review queue.
-Problem:   Analysts paste logs, configs and reported emails into the copilot. Some pastes carry
-           live credentials, some carry prompt-injection text aimed at the model, and some users
-           ask for malware or phishing kits. Yet most prompts are legitimate security questions
-           ("explain this CVE", "write a detection rule") that a blunt keyword filter would block.
-Input:     data/prompts.jsonl (9 prompts sent to the copilot, one JSON object per line).
+Who:       The security or AI platform engineer who runs the copilot owns this screen; the
+           SOC lead or on-call senior analyst works the review queue.
+Problem:   Analysts paste logs, configs, reported emails and console screenshots into the
+           copilot. Some pastes carry live credentials, some carry prompt-injection text aimed at
+           the model, and some users ask for malware or phishing kits. Yet most prompts are
+           legitimate security questions ("explain this CVE", "write a detection rule") that a
+           blunt keyword filter would block.
+Input:     data/prompts.jsonl (14 prompts sent to the copilot, one JSON object per line) and the
+           screenshots three of them attach, in data/screenshots/.
 SIE pipeline:
-           (Python)                                 secrets regex: a credential blocks the
-                                                    prompt before any model call, so it is
-                                                    never sent anywhere
+           (Python)                                 secrets regex on the typed text: a credential
+                                                    blocks the prompt before any model call, so
+                                                    neither it nor any screenshot is sent
+           extract lightonai/LightOnOCR-3-4B        each attached screenshot to text; the same
+                                                    secret and injection rules run on that text
            (Python)                                 prompt-injection markers: send the prompt to
                                                     review
            chat_completions Qwen/Qwen3Guard-Gen-4B  safety verdict (Safe / Controversial /
@@ -20,10 +25,13 @@ SIE pipeline:
                                                     review > allow; an unreadable verdict goes
                                                     to review
 Output:    decisions.json, decisions.csv and decisions.md: per prompt the decision, every rule
-           that fired, the guard's verdict and categories, and the reason. Secrets are masked in
-           every output.
-Why SIE:   The guard model is one SIE Cloud chat call per prompt. The rules are plain Python and
-           data in rules.yaml, so the team can read them and change them.
+           that fired, the guard's verdict and categories, and the reason. Detected credentials
+           are masked in every output, and a screenshot that shows one has its text withheld.
+           "allow" means no check objected, not that the prompt is safe. screen() only decides:
+           the caller holds a "review" prompt, stops a "block" one, and never forwards on error.
+Why SIE:   The guard model is one SIE Cloud chat call per prompt, and reading a screenshot is one
+           extract call. The rules are plain Python and data in rules.yaml, so the team can read
+           them and change them.
 Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL set.
 
     uv run recipe.py
@@ -45,15 +53,25 @@ from typing import Any, cast
 import yaml
 from dotenv import load_dotenv
 from sie_sdk import SIEClient
+from sie_sdk.types import Item
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 PROMPTS_PATH = DATA_DIR / "prompts.jsonl"
+SCREENSHOTS_DIR = DATA_DIR / "screenshots"
 RULES_PATH = ROOT / "rules.yaml"
 RUNS_DIR = ROOT / "runs"
 # Cold models can take minutes to start; every call waits up to this long.
 WAIT_S = 900
 
+# LightOnOCR returns Markdown, which may escape characters like `_` as `\_` or `-` as `\-`, and
+# may bold a label (`**Password:**`). Both are undone before the rules run: an escaped `_` or `-`
+# inside a token (`ghp\_...`, `xoxb\-...`) stops the token rules, and the `**` around a label
+# stops `secret_assignment`.
+MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|<>~])")
+# Paired `**` or `__` emphasis around non-blank text. `__` must not touch a word character on
+# the outside, so an underscore inside a value (`ghp_...`, `client_secret`, `a__b`) is left alone.
+MARKDOWN_STRONG = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*|(?<!\w)__(?=\S)(.+?)(?<=\S)__(?!\w)")
 VERDICT_LINE = re.compile(r"Safety:\s*(Safe|Unsafe|Controversial)\b", re.IGNORECASE)
 CATEGORIES_LINE = re.compile(r"Categories:\s*(.+)", re.IGNORECASE)
 
@@ -63,6 +81,7 @@ class Prompt:
     prompt_id: str
     user: str
     text: str
+    screenshots: tuple[str, ...] = ()  # file names in data/screenshots/
 
 
 @dataclass(frozen=True)
@@ -70,6 +89,7 @@ class Finding:
     rule: str  # "secret" | "injection"
     kind: str  # the pattern name from rules.yaml
     evidence: str  # what matched; secrets are masked
+    source: str = "prompt"  # "prompt", or the screenshot it was read from
 
 
 def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
@@ -77,11 +97,16 @@ def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
 
 
 def load_prompts(path: Path = PROMPTS_PATH) -> list[Prompt]:
+    """Read the prompts, and check every screenshot they attach before any SIE call is made."""
     prompts = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             entry = json.loads(line)
-            prompts.append(Prompt(entry["id"], entry["user"], entry["prompt"]))
+            shots = tuple(entry.get("screenshots", []))
+            for name in shots:
+                if not screenshot_path(name).is_file():
+                    raise ValueError(f"{entry['id']}: screenshot {name!r} not found")
+            prompts.append(Prompt(entry["id"], entry["user"], entry["prompt"], shots))
     return prompts
 
 
@@ -98,7 +123,9 @@ def mask(value: str) -> str:
     return f"{value[:4]}{'*' * (len(value) - 6)}{value[-2:]}"
 
 
-def find_secrets(text: str, rules: dict[str, Any]) -> list[tuple[Finding, str]]:
+def find_secrets(
+    text: str, rules: dict[str, Any], source: str = "prompt"
+) -> list[tuple[Finding, str]]:
     """Find every credential-shaped string in the prompt, skipping published placeholders.
 
     Each finding comes back with the raw matched value, so the caller can mask it in the text.
@@ -114,7 +141,7 @@ def find_secrets(text: str, rules: dict[str, Any]) -> list[tuple[Finding, str]]:
             if value in allowlist or value in seen:
                 continue
             seen.add(value)
-            found.append((Finding("secret", kind, mask(value)), value))
+            found.append((Finding("secret", kind, mask(value), source), value))
     return found
 
 
@@ -137,20 +164,20 @@ def normalize(text: str, rules: dict[str, Any]) -> str:
     return " ".join(text.split()).casefold()
 
 
-def find_injection(text: str, rules: dict[str, Any]) -> list[Finding]:
+def find_injection(text: str, rules: dict[str, Any], source: str = "prompt") -> list[Finding]:
     settings = rules["injection"]
     found: list[Finding] = []
     if invisible := re.findall(settings["invisible_characters"], text):
         codes = sorted({f"U+{ord(char):04X}" for char in invisible})
-        found.append(Finding("injection", "invisible_characters", " ".join(codes)))
+        found.append(Finding("injection", "invisible_characters", " ".join(codes), source))
     flat = normalize(text, rules)
     for kind, pattern in settings["markers"].items():
         if match := re.search(pattern, flat):
-            found.append(Finding("injection", kind, match.group(0)[:120]))
+            found.append(Finding("injection", kind, match.group(0)[:120], source))
     return found
 
 
-# --- Guard model --------------------------------------------------------------------------------
+# --- SIE client ---------------------------------------------------------------------------------
 
 
 def make_client() -> SIEClient:
@@ -164,11 +191,60 @@ def make_client() -> SIEClient:
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 
 
-def guard(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> str:
-    """The guard model's raw answer for one prompt: 'Safety: ...' and 'Categories: ...' lines."""
+# --- Screenshots (LightOnOCR) -------------------------------------------------------------------
+
+
+def screenshot_path(name: str) -> Path:
+    """The file for an attached screenshot; a name that leads out of data/screenshots/ raises."""
+    folder = SCREENSHOTS_DIR.resolve()
+    path = (folder / name).resolve()
+    if not path.is_relative_to(folder):
+        raise ValueError(f"screenshot {name!r} is outside {folder}")
+    return path
+
+
+def read_screenshot(client: SIEClient, prompt: Prompt, name: str, rules: dict[str, Any]) -> str:
+    """OCR one attached screenshot to text. An empty string means the model read nothing.
+
+    A response with no `markdown` entity at all is an SIE or SDK problem, not a blank image, so
+    it raises instead of returning "" (which would look like a screenshot with nothing on it).
+    """
+    model = rules["models"]["ocr"]
+    image = screenshot_path(name).read_bytes()
+    item = Item(id=f"{prompt.prompt_id}/{name}", images=[image])
+    response: Any = client.extract(model, item, provision_timeout_s=WAIT_S)
+    for entity in response.get("entities") or []:
+        if entity.get("label") == "markdown":
+            return str(entity.get("text") or "")
+    raise RuntimeError(f"{model} returned no markdown entity for {prompt.prompt_id}/{name}")
+
+
+def unescape_escapes(text: str) -> str:
+    """Undo only the backslash escapes (`ghp\\_abc` -> `ghp_abc`), keeping any bold markers."""
+    return MARKDOWN_ESCAPE.sub(r"\1", text)
+
+
+def unescape_markdown(text: str) -> str:
+    """Undo Markdown bold and backslash escapes so the regex rules can match.
+
+    `**Password:** x` -> `Password: x`, `ghp\\_abc` -> `ghp_abc`. Bold goes first, so an escaped
+    `\\*\\*` stays two literal stars.
+    """
+    text = MARKDOWN_STRONG.sub(lambda m: m.group(1) or m.group(2), text)
+    return MARKDOWN_ESCAPE.sub(r"\1", text)
+
+
+# --- Guard model --------------------------------------------------------------------------------
+
+
+def guard(client: SIEClient, prompt: Prompt, text: str, rules: dict[str, Any]) -> str:
+    """The guard model's raw answer for one prompt: 'Safety: ...' and 'Categories: ...' lines.
+
+    `text` is what the copilot would read: the typed prompt plus the text of each screenshot.
+    """
     response: Any = client.chat_completions(
         rules["models"]["guard"],
-        [{"role": "user", "content": prompt.text}],
+        [{"role": "user", "content": text}],
         max_completion_tokens=rules["guard"]["max_completion_tokens"],
         temperature=0.0,
         provision_timeout_s=WAIT_S,
@@ -203,12 +279,18 @@ def parse_guard(answer: str) -> tuple[str | None, list[str]]:
 # --- Decide -------------------------------------------------------------------------------------
 
 
+def _where(findings: list[Finding]) -> str:
+    sources = sorted({f.source for f in findings}, key=lambda s: (s != "prompt", s))
+    return " and ".join("the prompt" if s == "prompt" else f"screenshot {s}" for s in sources)
+
+
 def decide(
     findings: list[Finding],
     guard_verdict: str | None,
     guard_categories: list[str],
     guard_ran: bool,
     rules: dict[str, Any],
+    unreadable: list[str] | None = None,
 ) -> tuple[str, str]:
     """The most severe action any check gives, and a reason that names every check that fired."""
     order: list[str] = rules["decisions"]
@@ -220,13 +302,22 @@ def decide(
         actions.append(
             (
                 rules["secrets"]["action"],
-                f"Contains a credential ({kinds}); not sent to any model. Remove it and rotate it.",
+                f"Contains a credential ({kinds}) in {_where(secrets)}; not sent to the copilot "
+                "or the guard. Remove it and rotate it.",
             )
         )
     if injection:
         kinds = ", ".join(f.kind for f in injection)
         actions.append(
-            (rules["injection"]["action"], f"Prompt-injection markers ({kinds}) need a reviewer.")
+            (
+                rules["injection"]["action"],
+                f"Prompt-injection markers ({kinds}) in {_where(injection)} need a reviewer.",
+            )
+        )
+    if unreadable:
+        names = ", ".join(unreadable)
+        actions.append(
+            ("review", f"Too little text read from screenshot {names}; a person should look.")
         )
     if guard_ran:
         if guard_verdict is None:
@@ -243,26 +334,93 @@ def decide(
 # --- Run ----------------------------------------------------------------------------------------
 
 
+def screenshot_secrets(
+    raw: str, stripped: str, rules: dict[str, Any], source: str
+) -> list[tuple[Finding, str]]:
+    """Secrets in a screenshot, from both the escape-only text and the bold-stripped text.
+
+    Stripping bold can shorten a value below the rule's minimum length (`password = __Tr0ub4x__`
+    reads as `Tr0ub4x`), so the rules also run on the text with only the escapes undone. Findings
+    are merged by value.
+    """
+    found = find_secrets(unescape_escapes(raw), rules, source)
+    found += find_secrets(stripped, rules, source)
+    merged: list[tuple[Finding, str]] = []
+    seen: set[str] = set()
+    for finding, value in found:
+        if value not in seen:
+            seen.add(value)
+            merged.append((finding, value))
+    return merged
+
+
 def screen(client: SIEClient, prompt: Prompt, rules: dict[str, Any]) -> dict[str, Any]:
     secrets = find_secrets(prompt.text, rules)
     text = masked_text(prompt.text, secrets)
     # Injection evidence quotes the prompt, so it is taken from the masked text.
     findings = [finding for finding, _ in secrets] + find_injection(text, rules)
+    # A credential in the typed text blocks the prompt before any SIE call, so its screenshots
+    # are not read either: they stay on this machine. Once one screenshot shows a credential, the
+    # rest aren't sent to OCR for the same reason.
+    screenshots: list[dict[str, Any]] = []
+    unreadable: list[str] = []
+    copilot_text = text
+    for name in prompt.screenshots:
+        if secrets:
+            where = (
+                "the typed prompt" if secrets[0][0].source == "prompt" else "an earlier screenshot"
+            )
+            screenshots.append(
+                {
+                    "file": name,
+                    "status": "not_read",
+                    "text": f"(not read: {where} held a credential)",
+                }
+            )
+            continue
+        raw = read_screenshot(client, prompt, name, rules)
+        shot_text = unescape_markdown(raw)
+        if len(shot_text.strip()) < rules["ocr"]["min_chars"]:
+            unreadable.append(name)
+        shot_secrets = screenshot_secrets(raw, shot_text, rules, name)
+        # A value found before bold stripping may have lost its `**` or `__` in the kept text
+        # (`__Tr0ub4x__` reads `Tr0ub4x`), so that form is masked as well.
+        unbolded = [(f, v.replace("**", "").replace("__", "")) for f, v in shot_secrets]
+        shot_text = masked_text(shot_text, shot_secrets + [(f, v) for f, v in unbolded if v])
+        findings += [finding for finding, _ in shot_secrets]
+        shot_injection = find_injection(shot_text, rules, source=name)
+        secrets += shot_secrets
+        if shot_secrets:
+            # The image itself can't be masked, so a screenshot that shows a secret keeps its
+            # text out of the outputs, injection evidence included: OCR text can hold a credential
+            # no rule knows.
+            shot_injection = [
+                Finding(f.rule, f.kind, "(withheld)", f.source) for f in shot_injection
+            ]
+            shot_text = "(withheld: shows a credential)"
+        findings += shot_injection
+        status = "withheld" if shot_secrets else "read"
+        screenshots.append({"file": name, "status": status, "text": shot_text})
+        copilot_text += f"\n\n[Screenshot {name}]\n{shot_text}"
     answer = ""
     verdict: str | None = None
     categories: list[str] = []
     guard_ran = not secrets  # a prompt with a credential is never sent, not even to the guard
     if guard_ran:
-        answer = guard(client, prompt, rules)
+        answer = guard(client, prompt, copilot_text, rules)
         verdict, categories = parse_guard(answer)
-    decision, reason = decide(findings, verdict, categories, guard_ran, rules)
+    decision, reason = decide(findings, verdict, categories, guard_ran, rules, unreadable)
     return {
         "prompt": prompt.prompt_id,
         "user": prompt.user,
         "text": text,
+        "screenshots": screenshots,
         "decision": decision,
         "reason": reason,
-        "findings": [{"rule": f.rule, "kind": f.kind, "evidence": f.evidence} for f in findings],
+        "findings": [
+            {"rule": f.rule, "kind": f.kind, "evidence": f.evidence, "source": f.source}
+            for f in findings
+        ],
         "guard_ran": guard_ran,
         "guard_verdict": verdict,
         "guard_categories": categories,
@@ -274,20 +432,34 @@ def run(client: SIEClient, rules: dict[str, Any], prompts: list[Prompt]) -> list
     return [screen(client, prompt, rules) for prompt in prompts]
 
 
+# How decisions.md introduces each screenshot, by its status.
+SCREENSHOT_LABELS = {
+    "read": "as read by OCR",
+    "withheld": "read by OCR, text withheld",
+    "not_read": "not sent to OCR",
+}
+
+
 def render_markdown(rows: list[dict[str, Any]]) -> str:
     parts = ["# Copilot prompt screening\n"]
     for row in rows:
         quoted = "\n".join(f"> {line}" for line in row["text"].splitlines())
         parts.append(f"## {row['prompt']}: {row['decision']}\n\n{quoted}\n")
+        for shot in row["screenshots"]:
+            shot_quoted = "\n".join(f"> {line}" for line in shot["text"].splitlines())
+            label = SCREENSHOT_LABELS[shot["status"]]
+            parts.append(f"Screenshot `{shot['file']}`, {label}:\n\n{shot_quoted}\n")
         parts.append(f"- User: {row['user']}")
         parts.append(f"- Reason: {row['reason']}")
         for finding in row["findings"]:
-            parts.append(f"- {finding['rule']} / {finding['kind']}: `{finding['evidence']}`")
+            where = "" if finding["source"] == "prompt" else f" (in {finding['source']})"
+            parts.append(f"- {finding['rule']} / {finding['kind']}{where}: `{finding['evidence']}`")
         if row["guard_ran"]:
             cats = ", ".join(row["guard_categories"]) or "none"
             parts.append(f"- Guard: {row['guard_verdict']} (categories: {cats})")
         else:
-            parts.append("- Guard: not called (credential in prompt)")
+            secrets = [Finding(**f) for f in row["findings"] if f["rule"] == "secret"]
+            parts.append(f"- Guard: not called (credential found in {_where(secrets)})")
         parts.append("")
     return "\n".join(parts)
 
@@ -306,7 +478,11 @@ def write_outputs(output_dir: Path, rows: list[dict[str, Any]]) -> None:
                     row["prompt"],
                     row["user"],
                     row["decision"],
-                    " ".join(f"{f['rule']}:{f['kind']}" for f in row["findings"]),
+                    " ".join(
+                        f"{f['rule']}:{f['kind']}"
+                        + ("" if f["source"] == "prompt" else f"@{f['source']}")
+                        for f in row["findings"]
+                    ),
                     row["guard_verdict"] or "",
                     row["reason"],
                 ]

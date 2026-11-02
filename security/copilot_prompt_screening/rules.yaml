@@ -6,6 +6,14 @@ models:
   # The model's chat template wraps the prompt in its moderation policy; we send the prompt as
   # the only user message.
   guard: Qwen/Qwen3Guard-Gen-4B
+  # Reads each attached screenshot (a console page, a reported email) and returns its text as
+  # Markdown, so the same secret and injection rules can run on it.
+  ocr: lightonai/LightOnOCR-3-4B
+
+ocr:
+  # A screenshot that reads back shorter than this (a blank capture, a photo of nothing) goes to
+  # review: we can't screen what we can't read.
+  min_chars: 20
 
 guard:
   max_completion_tokens: 64            # the verdict is about ten tokens
@@ -30,8 +38,14 @@ secrets:
     github_token: '\bgh[pousr]_[A-Za-z0-9]{36}\b'
     slack_token: '\bxox[abprs]-[A-Za-z0-9-]{10,}'
     jwt: '\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
-    # key = value pairs whose key names a secret. Group 1 is the value.
-    secret_assignment: '(?i)\b(?:aws_secret_access_key|secret(?:_key)?|password|passwd|api[_-]?key|access[_-]?token|client[_-]?secret)\s*[:=]\s*["'']?([^\s"'']{8,})'
+    # key = value pairs whose key names a secret, in env, YAML or JSON form (`password = x`,
+    # `password: "x"`, `{"password": "x"}`). The key may carry a prefix that ends in `_`, `.`,
+    # `-` or a camelCase step (`DB_PASSWORD`, `export STRIPE_API_KEY=`, `dbPassword`), but must
+    # end in the secret word, so `password_policy` and `passwordless` don't count. Group 1 is the
+    # value. Values shorter than 8 characters don't match: short ones are mostly placeholders
+    # (`xxx`, `secret`, `<pw>`), so a real short password gets through. See README, Potential
+    # improvements.
+    secret_assignment: '(?i)(?<![\w.-])(?:[\w.-]*(?:[_.-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))?(?:secret(?:[_-]?access)?(?:[_-]?key)?|password|passwd|api[_-]?key|access[_-]?token|client[_-]?secret)["'']?\s*[:=]\s*["'']?([^\s"'']{8,})'
   # Published placeholder values (AWS documentation examples). A match on one of these is not a
   # secret.
   allowlist:
@@ -39,8 +53,9 @@ secrets:
     - wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
 injection:
-  # Prompt-injection markers. A guard model is not a usable injection screen (see README), so
-  # these are rules. A marker sends the prompt to review; the guard can still raise it to block.
+  # Prompt-injection markers: warning signs for a reviewer, not a complete injection screen. A
+  # moderation guard judges whether the request is harmful, and an analyst asking to triage an
+  # email isn't (see README). A marker sends the prompt to review; the guard can raise it to block.
   # Matched after NFKC normalisation, removing zero-width characters, collapsing whitespace and
   # casefolding the text, so write every marker in lowercase.
   action: review

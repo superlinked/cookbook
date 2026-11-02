@@ -11,7 +11,7 @@ folder into their own project and it runs with only `uv` and an SIE API key.
 
 - `<industry>/<recipe>/` holds one recipe: `recipe.py`, `README.md`,
   `rules.yaml` (or other config), `data/`, and optionally `make_data.py` or
-  `fetch_data.py` that rebuild the data.
+  `fetch_data.py` that rebuild the data, and `selfcheck.py` (offline checks).
 - Each recipe has its own `pyproject.toml` (`[tool.uv] package = false`),
   `uv.lock`, `.python-version` (3.12) and `.env.example`. There is no root
   Python project and no shared package.
@@ -31,6 +31,7 @@ Run everything from inside the recipe folder:
 - `uvx ruff check . && uvx ruff format --check .` (settings in the root
   `ruff.toml`).
 - `uv run --with mypy mypy --strict --ignore-missing-imports *.py`.
+- `uv run selfcheck.py` where a recipe has one (offline, no SIE call).
 
 A live run needs `SIE_API_KEY` in a `.env` in the
 recipe folder or the repo root, or `SIE_BASE_URL` pointing at a self-hosted SIE
@@ -49,15 +50,22 @@ The first call can wait minutes while SIE Cloud starts a cold model.
 - Keep rules, thresholds and model names in `rules.yaml`, not in code, so a
   reader can change them without editing Python.
 - Recipes run live only: no recorded responses, replay mode, eval sets or
-  scorecards in this repository.
+  scorecards in this repository. A recipe may have a `selfcheck.py`: plain
+  asserts on its own parsing and rule functions, using hand-written strings,
+  the committed `data/` and hand-written stand-in model replies. It never calls
+  SIE and never replays a recorded response. CI runs it.
 - All data is synthetic or from a public dataset that allows redistribution.
   Name the source, revision and license in the recipe README. No real people,
   customers, credentials or live URLs.
 - Do not commit `.env`, `runs/`, `.venv` or caches.
 - When a model's output drifts from what a README states, report the
   difference; do not tune rules to hide it.
-- Write READMEs in plain words: the problem, input, pipeline table, output,
-  how to run it, the planted cases, and what to change. Every README also has
+- Write READMEs in plain words, like a blog post from an engineer to a peer,
+  in this order: background (who does this job and why it matters to the
+  company), the problem, how the flow solves it, why each model, the flow as a
+  Mermaid chart, how it's built (rules vs code, a step table naming the
+  functions), how to run it, what came out (the planted inputs and outputs with
+  a short analysis), and potential improvements. Every README also has
   `## Try another model` (swaps you actually ran, with what changed) and
   `## Run it on your own SIE` (the SIE image for each model);
   `tools/check_tree.py` fails without them.

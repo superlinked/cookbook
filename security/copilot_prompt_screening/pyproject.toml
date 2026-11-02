@@ -9,5 +9,8 @@ dependencies = [
     "sie-sdk>=0.10.1",
 ]
 
+[dependency-groups]
+data = ["pillow>=12.2.0,<13"]
+
 [tool.uv]
 package = false

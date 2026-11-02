@@ -37,6 +37,7 @@ uvx pre-commit run --all-files
 cd <industry>/<recipe>
 uv run --with mypy mypy --strict --ignore-missing-imports ./*.py
 uv run recipe.py --help
+uv run selfcheck.py   # if the recipe has one
 ```
 
 CI runs the same checks on every recipe. It does not call SIE; a maintainer
