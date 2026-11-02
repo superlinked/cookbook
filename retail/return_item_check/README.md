@@ -58,22 +58,28 @@ two photos. Then:
    model number, and the digits printed under a barcode.
 2. **Compare it with the sale.** Plain Python pulls barcode numbers (with a valid check digit),
    model numbers and name words out of that text and compares them with the sale line, most
-   specific evidence first. A matching UPC settles it. If no UPC is readable, the model number
-   decides, and a model number that is close to the sale's but not the same is a mismatch. That
-   one-character-off case is exactly what an associate misses. Only when neither is readable do
-   the brand and the product name's words decide. If nothing identifying is readable at all (a
-   bare phone, a plain shipping carton), the product check says it can't confirm, and the
-   associate looks.
+   specific evidence first. A matching UPC settles it, unless a second, different valid barcode
+   number is also on the packaging: then it can't confirm, and the associate looks. If no UPC is
+   readable, the model number decides, and a model number that is close to the sale's but not
+   the same is a mismatch. That one-character-off case is exactly what an associate misses. Only
+   when neither is readable do the brand and the product name's words decide, and even then a
+   model number on the box that isn't the sale's (and isn't a word of its name, like the "S500"
+   in "HP S500 Wireless Mouse") holds the match back as can't confirm. If nothing identifying is
+   readable at all (a bare phone, a plain shipping carton), the product check says it can't
+   confirm, and the associate looks.
 3. **Ask about condition.** A vision model looks at all of a return's photos at once and answers
    four fixed questions: is the packaging sealed, closed, opened or missing; is the packaging
    damaged; is the product damaged; and if it's opened, do the contents look complete. Each
    answer is one of a few allowed values, plus a sentence of evidence. The model never sees the
    sale line, so it can't lean toward the product the receipt names, and it decides nothing.
-   The recipe checks the reply strictly against the question set, and a reply that doesn't fit
+   The prompt also tells it that text printed in the photos is something to describe, never an
+   instruction. The recipe checks the reply strictly against the question set, and a reply that doesn't fit
    is a reason to inspect, not an answer.
 4. **Apply the policy.** `rules.yaml` says what each answer means at your desk (a cracked product
    goes to a manager, a scuffed box doesn't matter), what an opened package means per category,
-   and each category's return window in days.
+   and each category's return window in days. An opened item, or one with no packaging, whose
+   contents or product the photos don't show is at least `inspect`, even in a category that
+   takes opened returns.
 5. **Pick the most severe level.** Every check adds a reason at a level. The return's guidance is
    the most severe one (refer beats inspect beats accept), and all the reasons are kept, so the
    associate sees each one and not just the winner.
@@ -111,7 +117,9 @@ flowchart TD
     O --> F1{OCR call failed?}
     F1 -- yes --> PN[product: not_checked]
     F1 -- no --> U{Sale's UPC read?}
-    U -- yes --> PM[product: match]
+    U -- yes --> U3{A different valid<br/>barcode too?}
+    U3 -- no --> PM[product: match]
+    U3 -- yes --> PC
     U -- no --> U2{Another valid<br/>barcode read?}
     U2 -- yes --> PX[product: mismatch]
     U2 -- no --> M{Sale's model read?}
@@ -119,12 +127,14 @@ flowchart TD
     M -- no --> M2{Close but different<br/>model number?}
     M2 -- yes --> PX
     M2 -- no --> N{Brand + name words?}
-    N -- both --> PM
+    N -- both --> N2{Another model<br/>number read?}
+    N2 -- no --> PM
+    N2 -- yes --> PC
     N -- name words only --> PX
     N -- neither --> PC[product: cant_confirm]
     V --> F2{Call failed or reply<br/>breaks the schema?}
     F2 -- yes --> CN[condition: not checked]
-    F2 -- no --> CA[One reason per answer<br/>listed in rules.yaml<br/>opened: per category]
+    F2 -- no --> CA[One reason per answer<br/>listed in rules.yaml<br/>opened: per category<br/>opened or no box, not seen: inspect]
     R --> W[Days since the sale<br/>vs the category's window]
     PN & PM & PX & PC & CN & CA & W --> G{Most severe level<br/>refer > inspect > accept}
     G --> OUT[guidance.json / .csv / .md]
@@ -135,16 +145,16 @@ flowchart TD
 Everything you'd want to argue about lives in [`rules.yaml`](./rules.yaml): the model names, the
 photo sizes sent to each model, the near-model and name-word thresholds, what each condition
 answer means, the return window and opened-package rule per category, and the level for each
-product check result. [`recipe.py`](./recipe.py) is about 800 lines, the prompt and schema
+product check result. [`recipe.py`](./recipe.py) is about 820 lines, the prompt and schema
 included, and reads top to bottom in the same order as the flow.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Load | `load_returns` | none | Reads `data/returns.jsonl`. A photo name that leads out of `data/photos/` or names a missing file raises an error before any SIE call |
 | Read the packaging | `read_photo`, `clean_text` | `extract` | One call per photo. The photo is turned upright (EXIF rotation) and shrunk to a longest side of 2048 pixels, never enlarged. Code fences in the reply are dropped |
-| Same product? | `barcodes`, `gtin_valid`, `model_tokens`, `name_words`, `check_product` | none | Barcode numbers are runs of digits on one line, spaces and hyphens dropped, kept only with a valid UPC-A, EAN-13 or GTIN-14 check digit. Then the checks in the order of the flow. A near model number has both letters and digits and a `difflib` ratio of at least 0.60 to the sale's; all-digit strings never count, since they're mostly dates, prices and quantities. Name words are whole words of three letters or more from the product name, minus the brand, and half of them (0.50) must be on the packaging |
+| Same product? | `barcodes`, `gtin_valid`, `model_tokens`, `name_words`, `check_product` | none | Barcode numbers are runs of digits on one line, spaces and hyphens dropped, kept only with a valid UPC-A, EAN-13 or GTIN-14 check digit. Then the checks in the order of the flow. A model number (here and below) is a token of four or more characters with both letters and digits. A near model number has a `difflib` ratio of at least 0.60 to the sale's; all-digit strings never count, since they're mostly dates, prices and quantities. Another model number next to a brand and name match makes it `cant_confirm`, unless the token is a word of the sale's product name. Name words are whole words of three letters or more from the product name, minus the brand, and half of them (0.50) must be on the packaging |
 | Condition | `ask_condition`, `parse_condition` | `chat_completions` | One call per return with all its photos (longest side 1536 pixels), the fixed prompt and the JSON schema. The reply must have exactly the four answers plus `evidence`, each answer from its allowed list, and a finish reason of `stop`. Anything else is a reason to inspect, with what was wrong |
-| Guidance | `condition_reasons`, `policy_reasons`, `most_severe`, `guide` | none | One reason per condition answer listed in `rules.yaml`, the opened-package rule for the category, the return window, and the most severe level as the guidance |
+| Guidance | `condition_reasons`, `policy_reasons`, `most_severe`, `guide` | none | One reason per condition answer listed in `rules.yaml`, the opened-package rule for the category, the `unseen_when_open` rule (opened or no packaging with `contents` or `product_damage` `not_visible` is at least `inspect`), the return window, and the most severe level as the guidance |
 
 The SIE error rule is the same as in the security recipes. A call that fails for a reason that
 may pass (a timeout, a lost connection, a 5xx, a rate limit, a model still loading, or a reply
@@ -155,7 +165,8 @@ outputs. If every call failed, the run stops too. An empty `entities` list is a 
 OCR model read nothing.
 
 [`selfcheck.py`](./selfcheck.py) checks the barcode parser, every branch of the product check,
-the strict condition parsing, the guidance rules and that SIE error rule offline, with
+the prompt's line about printed text, the strict condition parsing, the guidance rules, that the
+committed photos carry no metadata, and that SIE error rule offline, with
 hand-written strings and stand-in model replies, so you can change `rules.yaml` and know right
 away if you broke something.
 
@@ -180,8 +191,8 @@ calls, one per return) and takes about 31 seconds.
 The input is [`data/returns.jsonl`](./data/returns.jsonl): 7 returns, one JSON object per line,
 each with a `return_id`, the `returned_on` date, the `photos` taken at the desk and the `sale`
 line the POS pulled up from the receipt (`transaction_id`, `date`, `sku`, `upc`, `product`,
-`brand`, `model`, `price`, `category`). The photos are in [`data/photos/`](./data/photos), as
-downloaded.
+`brand`, `model`, `price`, `category`). The photos are in [`data/photos/`](./data/photos), with
+their metadata removed.
 
 > **The photos are real, the sales are not.** Every photo is a Creative Commons photo of a real
 > product (see Data and licenses below). The transactions, SKUs, prices, dates and the store are
@@ -196,12 +207,14 @@ All 7 returns came back on 30 Oct 2026; the days since the sale are counted from
 | R-02 | The HP S500 Wireless Mouse box, front and barcode side, against the sale for it | accept | UPC 1944412406274 read and matches; packaging damage `minor` changes nothing; 10 of 30 days |
 | R-03 | **Wrong item.** A Microsoft Modern Mobile Mouse box against the HP S500 sale | refer | The box says "mouse" but none of the sale's brand (HP), model or UPC |
 | R-04 | **Near miss.** A Black+Decker TR1250WD toaster box against the sale for a Black+Decker 2-slice toaster, model TR1300WD | refer | Brand and name words match, but the box shows another model number (read as TR12501WD) |
-| R-05 | An IBM part 32G3606 box, opened, the part in its bag lying next to it | inspect | Brand and "part" read; opened, and contents `incomplete` |
+| R-05 | An IBM part 32G3606 box, opened, the part in its bag lying next to it | inspect | Brand and "part" read; opened, contents `incomplete`, and the product itself not seen |
 | R-06 | A Samsung Galaxy S2 with a shattered screen, no box | refer | Product damage `major`; also no packaging and nothing to read |
 | R-07 | A crumpled shipping carton with a FRAGILE sticker, against an online order for a stoneware dinner set | inspect | Nothing on the carton identifies the product |
 
-On our live run all 7 came out as planned, with the settings as first written, and a second run
-gave the same 7 guidance levels and the same reasons. Two planted details came out differently,
+On our live run on 2 Nov 2026 (UTC) all 7 came out as planned, with the settings as first
+written: the same 7 guidance levels as our runs before the two-barcode, other-model-number and
+opened-and-not-seen checks were added. Those checks added a reason to R-05 and R-06 and changed
+no level. Two planted details came out differently,
 and we left them that way. We planted R-07 as damaged packaging, and the condition model called
 it `minor` damage, so the `inspect` comes from the product check alone. And the condition model
 called R-01's shrink-wrapped box `closed`, not `sealed`; at a desk where sealed and closed lead
@@ -235,7 +248,8 @@ A few things worth noticing:
   numbers, so that misread didn't turn into a false mismatch; the product check matched on the
   brand ("IBM" on the license card) and the word "part". The `inspect` comes from the condition
   model, whose evidence was "the product (a dark item in a plastic bag) is sitting outside the
-  box on the right".
+  box on the carpet", and it said `product_damage` `not_visible`, so the opened-and-not-seen rule
+  adds "Contents not seen; open and check before taking it back."
 - **R-06 is a phone with nothing to read.** No box, no label, and GLM-OCR returned an empty
   block. The product check can't confirm anything and says so (`inspect`), but the condition
   model's `major` damage is the reason that wins:
@@ -245,6 +259,7 @@ A few things worth noticing:
       inspect product   Nothing on the packaging identifies the product: none of the sale's UPC, model, brand or product name was read.
       inspect condition Returned without its packaging.
       refer   condition The product looks damaged.
+      inspect condition Contents not seen; open and check before taking it back.
       accept  policy    4 days since the sale, within 14 days.
   ```
 
@@ -272,8 +287,9 @@ text per photo, the condition answers and evidence, and what the product check r
 - **Ask for the right photo.** R-04 would have been settled by its UPC if the photo showed the
   barcode side. A desk app could ask for a second photo whenever the product check comes back
   `cant_confirm` or matched on name words only.
-- **Several barcodes on one box.** A different valid barcode on the packaging is a mismatch, even
-  if it's an inner pack or a multipack code for the right product. A store with such packaging
+- **Several barcodes on one box.** A different valid barcode on the packaging is a mismatch when
+  the sale's isn't read, and `cant_confirm` next to it, even if it's an inner pack or a multipack
+  code for the right product. A store with such packaging
   would want a list of the GTINs that belong to each SKU.
 - **Measure it.** Seven planted returns prove the wiring. Before you trust the levels, run it on
   a few weeks of your own return photos and see how often `inspect` and `refer` were right.
@@ -285,8 +301,8 @@ at a time, changed nothing else, and ran the recipe on SIE Cloud.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `ocr` | `lightonai/LightOnOCR-3-4B` | Same guidance for all 7 returns. It read no valid barcode number on the diskette pack, so R-01 matched on model number `00350` instead of the UPC. It misread the toaster's model too, as `TRI250WD` rather than GLM-OCR's `TR12501WD`, and R-04 was still a mismatch. |
-| `condition` | `Qwen/Qwen3.5-4B` | Same guidance for all 7 returns. It called R-01's box `sealed` (the 27B model said `closed`) and R-07's carton `opened` with `major` damage (the 27B model said `closed`, `minor`), so R-07's `inspect` had a second reason. |
+| `ocr` | `lightonai/LightOnOCR-3-4B` | Same guidance for all 7 returns. It read no valid barcode number on the diskette pack, so R-01 matched on model number `00350` instead of the UPC. It misread the toaster's model too, as `TRI250WD` rather than GLM-OCR's `TR12501WD`, and R-04 was still a mismatch. On the IBM box it read two other model-like tokens (`P4206379`, `JEREC0000000000`), so R-05's product check was `cant_confirm` rather than a brand-and-name match; R-05 was `inspect` either way. |
+| `condition` | `Qwen/Qwen3.5-4B` | Same guidance for all 7 returns. It called R-01's box `sealed` (the 27B model said `closed`) and R-07's carton `opened` with `major` damage (the 27B model said `closed`, `minor`), so R-07's `inspect` had two more reasons: the damaged packaging, and the contents not seen. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
@@ -309,8 +325,11 @@ with one worker pool per image routes each model to its pool. See
 ## Data and licenses
 
 The transactions in `data/returns.jsonl` are synthetic, written for this recipe to match the
-photos. The photos are real and were downloaded unmodified (the original files, not resized);
-the recipe shrinks them only in memory before sending them to a model. Brand names and logos
+photos. The photos are real: the original files, not resized or re-encoded, with their EXIF,
+XMP and Photoshop metadata (camera, date, GPS position, author name) removed losslessly with
+`jpegtran -copy icc`, which keeps the color profile and every pixel. The licenses below allow
+that change, and this is where we state it. The recipe shrinks the photos only in memory before
+sending them to a model. Brand names and logos
 in the photos are trademarks of their owners, and their use here doesn't mean any owner endorses
 this recipe.
 
@@ -337,7 +356,7 @@ doesn't care, but your associates' photos will look different.
 - `rules.yaml`: models, photo sizes, product check thresholds, condition findings, store policy
   and guidance levels
 - `data/returns.jsonl`: the 7 planted returns
-- `data/photos/`: the 8 photos
+- `data/photos/`: the 8 photos, metadata removed
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
 See the SIE task page for [OCR](https://superlinked.com/ocr) and the
