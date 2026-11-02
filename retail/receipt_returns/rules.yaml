@@ -1,0 +1,68 @@
+# The service desk's rules for receipt photos sent with a return or a missing-points claim, and
+# every threshold the recipe uses. Thresholds are starting points, not tuned values. Check them
+# against your own receipts and your own returns policy.
+
+models:
+  ocr: zai-org/GLM-OCR          # reads each whole receipt photo as text, one receipt line per line
+
+ocr:
+  render_dpi: 150               # render each PDF page at this resolution before OCR
+  max_image_edge_px: 2048       # cap the photo's longest side
+  min_chars: 60                 # OCR text shorter than this is "unreadable" and goes to the desk
+  # One character repeated this many times in a row (separator dashes and stars aside) means the
+  # model is inventing text, as GLM-OCR did on the live run's blurred photo: "unreadable".
+  max_repeat_run: 20
+
+# Our chain and stores. A receipt must name the chain and one of these store numbers.
+chain_names: [BRAMBLEWAY MARKET]
+stores:
+  "0412": Port Ellery, Linden Parade
+  "0418": Eastbrook, Saltmarsh Road
+
+# Line labels read by Python. Lowercase, matched as words or word starts in the line.
+labels:
+  total: [total]                # the TOTAL line (SUBTOTAL is read separately)
+  subtotal: [subtotal, sub total]
+  tax: [tax]
+  discount: [coupon, discount, savings, promo, markdown]
+  payment: [debit, visa, mastercard, amex, cash, change, tender, balance, gift card redeemed]
+
+# Receipt formats: an item line starts with a 6-digit SKU and ends with its line amount.
+# A quantity line prints "2 @ 12.00" before the line amount; one unit is the price after "@".
+receipt:
+  sku_digits: 6
+  date_formats: ["%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"]
+  money_tolerance: "0.00"       # items, discounts and tax must add up to the total to the cent
+
+returns:
+  # Days from the purchase date to the return request, inclusive of the last day.
+  window_days: 30
+  # Departments by SKU prefix, with their own window. The longest matching prefix wins.
+  departments:
+    "4": {name: electronics, window_days: 15}
+  not_returnable_prefixes: ["990"]   # gift cards
+  # Refund = one unit's price, less its prorated share of receipt-level discounts, plus tax at the
+  # rate printed on the receipt. Points earned on that amount are taken back. Two limits: one tax
+  # rate for every item (no tax-exempt lines), and every coupon spread over every returnable item.
+  # A receipt that prints a tax amount without a rate fails refund_worked_out.
+
+points:
+  per_dollar: 1                 # points per whole dollar of eligible spend, rounded down
+  # Eligible spend = item lines + receipt-level discounts, without these SKU prefixes.
+  excluded_prefixes: ["990"]    # gift cards earn no points
+  claim_window_days: 90         # a missing-points claim must come within this many days of purchase
+
+# Any failed or unread check sends the request to the service desk (status service_desk) with
+# the reason; nothing is refused automatically. When every check passes the status is
+# ready_for_staff: staff still inspect the item and decide the refund or credit.
+checks:
+  readable: The receipt photo has enough OCR text to read
+  receipt_fields: Store, date, transaction, total and at least one priced item read
+  receipt_store: The receipt is from one of our stores
+  receipt_math: Item lines, discounts and tax add up to the printed total, and every priced line is understood
+  returned_item: The returned item's SKU is an item line on the receipt and is returnable
+  return_window: The return comes within the department's window
+  refund_worked_out: The refund could be worked out, which needs the tax rate printed on the receipt
+  claim_window: A missing-points claim comes within the claim window
+  receipt_member: The member number on the receipt ends with the claimant's last four digits
+  not_credited: The transaction is not already credited to a member
