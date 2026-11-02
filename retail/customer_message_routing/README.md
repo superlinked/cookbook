@@ -1,0 +1,300 @@
+# Route customer messages to the right team
+
+## Background
+
+Most retailers with an online shop and a few stores run a customer care team. On a normal day
+the agents on that team work through one shared inbox: chat transcripts, emails and web-form
+messages, all mixed together. Most of it is routine. Where is my order, where is my refund, how
+do I put this thing together, why didn't my points show up. A larger retailer splits the work
+into specialist queues (delivery, returns, billing, loyalty and so on), so somebody has to read
+each message first, decide which queue it belongs in, and copy the order number and the store
+into the ticket so the next person doesn't have to ask again.
+
+That first read matters more than it looks. A message in the wrong queue waits until someone
+notices and moves it, and the customer waits with it. A message with no order number gets a
+reply asking for one, and the customer starts the wait again. And every so often a message
+isn't routine at all: a heater that sparked and burned a child, or a customer who has already
+talked to a lawyer. Those belong with product safety or legal, today, not behind fifty "where is
+my order" chats. A missed safety report is the kind of mistake a retailer hears about again,
+from a regulator or a court.
+
+## The problem
+
+Chat, email and web-form messages land in one shared inbox. Someone reads each one, picks a care
+team, and copies the order number and the store into the ticket. Meanwhile, a message about a
+child's burn or a threat to call a lawyer sits in that inbox behind fifty "where is my order"
+chats.
+
+Keywords alone don't get you far. "Refund" shows up in returns, billing and legal complaints
+alike. A single LLM call per message would work, but you'd be paying a generative model to pick
+one of seven labels and you'd have to parse its prose. What you want is a cheap first pass that
+sends safety and legal messages to their queues on rules you can read, suggests a team for the
+rest with a score you can threshold, and pulls the order number and store out so the agent
+doesn't have to.
+
+This recipe produces a **suggested team** for every message, with **escalation**, **model** or
+**general** as the method that picked it, plus the checked **order numbers** and **store**. It
+doesn't assign anything in a ticket system. A care lead (or whoever owns the inbox on that
+shift) confirms each route, or imports the file into the ticket tool and lets agents correct it
+there. The `product-safety` and `legal-escalations` queues need a named person watching them,
+since a suggestion nobody reads is just a nicer-looking inbox.
+
+Two limits up front. Escalation is phrase-only: a message has to contain one of the listed
+phrases to escalate, so an injury told in other words gets past it (M-11 below is planted to
+show exactly that). And everything here is English: the phrases, the team descriptions and the
+planted messages.
+
+## How we'll solve it
+
+1. **Escalate on phrases first, in Python.** Safety phrases (burn, sparking, choking, recall...)
+   send a message to `product-safety`, and legal phrases (attorney, lawsuit, sue you...) send it
+   to `legal-escalations`. This runs before any model, so the model can't talk a burn out of
+   the safety queue because the message is mostly about a late refund. A message that matches
+   both keeps both: it goes to the first queue in `rules.yaml` order, and the other goes in
+   `also_send_to`.
+2. **Write the escalations to disk before any model call.** The models run on SIE Cloud, and
+   the first call can wait minutes while a cold model starts. If SIE refuses the call or every
+   call fails, the run stops. The escalations shouldn't depend on that, so `escalations.csv` is
+   written first, and it stays there whatever happens next.
+3. **Read the order number and store from every message.** A small extraction model finds the
+   spans, including on escalated messages (product safety wants the order number too). Then
+   Python checks them: an order number must fit `LK` + 6 digits, and a store must be on the
+   store list. Anything else becomes a note for the agent.
+4. **Ask a second model to pick a team for the rest.** It returns a probability for every
+   team in the catalog, from the teams' one-line descriptions.
+5. **Only trust a clear pick.** A low top score, a small gap to the runner-up, or a failed SIE
+   call sends the message to the general queue, with the model's guess still shown.
+
+## Picking the models
+
+Both models are small GLiNER encoders from Fastino, and neither is generative, so no generative
+model makes the decision.
+
+The team picker is `fastino/GLiNER2.5-Decide`. It answers a typed question about a text (pick
+one, yes or no) with a score. Here the question is "Which customer care team should handle this
+message?" and each catalog team becomes one option, the team id plus its description. You get
+back a probability per team, which is exactly what you need to set a threshold and a margin. The
+team list is the routing catalog itself, so you add a team by giving it a description, and the
+next run can route to it without any training. The catch is that it goes with the cues in the
+descriptions: if two descriptions share a cue, it can pick the wrong one confidently (M-09
+below). The question and the options take up to half of its window of about 512 tokens, so team
+descriptions stay one short line.
+
+The field reader is `fastino/gliner2-large-v1`. It pulls named spans out of text. We give it
+plain labels (`order number`, `store location`) rather than a schema, because plenty of
+messages have no order number and no store, and labels return an empty list for those instead
+of an error. It finds the span; Python decides whether the span is a real order number or a real
+store.
+
+## The flow
+
+```mermaid
+flowchart TD
+    A[Customer messages<br/>subject + body] --> S{Safety or legal phrase?<br/>every rule, in order}
+    S -- yes --> Q[First matching queue<br/>others in also_send_to]
+    S -- no --> N[Needs a team]
+    Q --> W[escalations.csv<br/>written before any SIE call]
+    N --> W
+    W --> F[gliner2-large-v1 on SIE<br/>order number + store spans<br/>every message]
+    F --> D[GLiNER2.5-Decide on SIE<br/>one probability per team<br/>messages not escalated]
+    F -- refusal or every call failed --> X[Stop: routes not written<br/>escalations.csv stays]
+    D -- refusal or every call failed --> X
+    D --> C[Check spans<br/>order pattern, store list]
+    C --> E{Escalated?}
+    E -- yes --> K[Keep the queue<br/>a failed call is a note]
+    E -- no --> P{Score at least 0.50,<br/>margin at least 0.20,<br/>no failed call?}
+    P -- yes --> T[Suggested team]
+    P -- no --> G[customer-care-general]
+    K --> O[routes.csv / routes.json]
+    T --> O
+    G --> O
+```
+
+## How it's built
+
+The things you'd want to change live in [`rules.yaml`](./rules.yaml): the safety and legal
+phrases, the queues, the order-number pattern, the question the model answers, the thresholds
+and the model IDs. The teams and stores live in
+[`data/routing_catalog.yaml`](./data/routing_catalog.yaml). [`recipe.py`](./recipe.py) is about
+720 lines and reads top to bottom in the same order as the flow.
+
+| Step | Code | SIE call | What it does |
+| --- | --- | --- | --- |
+| Escalate | `escalations`, `screen` | none | Safety phrases, then legal phrases, as whole words in any case on the subject and body. Every match is kept: the first queue is the team, the rest go in `also_send_to`. The team model is not asked |
+| Write escalations | `write_escalations` | none | `escalations.csv`, with the same columns as `routes.csv`, before the client is even built |
+| Find fields | `extract_windows` | `extract` with labels, `fastino/gliner2-large-v1` | Order number and store spans in every message, escalations included. Messages are split into windows of 120 words, and 25 windows go in one call |
+| Pick a team | `classify_windows`, `team_probabilities` | `extract` + `output_schema` (one choice question), `fastino/GLiNER2.5-Decide` | Messages not escalated: one probability per care team. A long message's windows are merged by `merge_probabilities` |
+| Handle SIE errors | `call_in_batches`, `is_fatal`, `reply_error` | | A transient error (timeout, 5xx, rate limit, an over-long window) marks its batch as failed: those messages go to the general queue, and an escalated one keeps its queue with a note. A reply missing `entities` or `data` counts as a failed call; an empty list is a real "nothing found". A refusal (bad key, no credits, unknown model) or every call to a model failing stops the run with SIE's full message |
+| Check fields | `read_fields`, `normalize_order_number`, `match_store` | none | A span must appear in the message; an order number must fit `LK` + 6 digits once spaces, hyphens and `#` are removed; a store must match the store list (name, alias or a close spelling). Anything else becomes a note |
+| Check the pick | `route_by_model` | none | Top score under 0.50, top-2 margin under 0.20 or a failed call: general queue, with the model's suggestion. Orders, returns and billing with no order number get "ask the customer for it" |
+
+[`selfcheck.py`](./selfcheck.py) checks the phrase rules, the field checks, the thresholds and
+the SIE error handling offline, with hand-written strings and stand-in model replies. It also
+runs `main` against a stand-in SIE that refuses the first call, and checks that
+`escalations.csv` still holds M-03, M-04 and M-12 while `routes.csv` was never written.
+
+## Run it
+
+You need [uv](https://docs.astral.sh/uv/) and an SIE API key
+([create one](https://console.superlinked.com/console/api-keys)).
+
+```bash
+cp .env.example .env   # then set SIE_API_KEY
+uv run recipe.py
+uv run selfcheck.py    # optional: offline checks, no SIE call
+```
+
+`uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
+writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
+classification and extraction models; our first run on 2026-11-02 (UTC) took about two minutes
+from start to finish, and a warm run takes a couple of seconds. `--output DIR` changes the output directory.
+
+## What came out
+
+The input is three files:
+
+- [`data/messages.json`](./data/messages.json): twelve customer messages (chat, email, web form)
+  to Hollowbrook Home & Garden, a fictional retailer.
+- [`data/routing_catalog.yaml`](./data/routing_catalog.yaml): seven care teams, each with a
+  one-line description of what customers write to it about, and four stores with aliases.
+- [`rules.yaml`](./rules.yaml): the rules described above.
+
+The retailer, its stores, customers and orders are synthetic, written for this recipe.
+
+The run writes `escalations.csv` first, then `routes.csv` and `routes.json`, one row per
+message. `method` says what picked the team: `escalation` (a safety or legal phrase), `model`
+(GLiNER2.5-Decide, with its score and margin) or `general` (the model wasn't sure or a call
+failed, and `suggested_team` still shows its guess). `escalations` lists every escalation that
+matched, and `also_send_to` the queues after the first.
+
+| Message | Planted | Route on our live run | Why |
+| --- | --- | --- | --- |
+| M-01 | Where is order LK-204517 | `orders-delivery`, model (0.98) | Plain delivery question |
+| M-02 | Refund for an in-store return, order written `lk 208 331` | `returns-refunds`, model (0.79); `LK-208331`, Riverside Plaza | The order check fixes the spacing; "Riverside" is an alias |
+| M-03 | Heater sparked and burned a child's hand | `product-safety`, escalation; order and store still read | `burned`, `sparking`, `recalled` |
+| M-04 | Refund complaint that mentions an attorney | `legal-escalations`, escalation | `attorney` |
+| M-05 | Near miss: "Sue at the Maple Grove store was so helpful" | `store-experience`, model; "Sue" is a name, not a legal threat | Bare "sue" is not a legal phrase |
+| M-06 | Two issues: charged twice and not delivered | `orders-delivery`, model (0.61 vs `billing` 0.36) | Margin 0.25, just over the 0.20 limit |
+| M-07 | Rewards points missing | `loyalty`, model (0.57, margin 0.29) | Clear enough to pass both limits |
+| M-08 | Vague call-back request naming an unknown "Northgate store" | `store-experience`, model (0.98); store flagged as not in the list | "Northgate store" isn't on the store list |
+| M-09 | Assembly question for a garden bed picked up at the Eastport store | `store-experience`, model (0.63 vs `product-help` 0.35) | "picked up at the store" matches the `in-store pickup` cue |
+| M-10 | "Hello? I need some help with something" | `customer-care-general`: top score 0.29 | Under 0.50 |
+| M-11 | Near miss: a glass table top shattered and "a piece cut my child's cheek", no listed phrase | `customer-care-general`: top `product-help` 0.36; not escalated | Phrase-only escalation: nothing in the list matches |
+| M-12 | A ladder collapsed, "my husband was injured", and "we have spoken to a lawyer" | `product-safety`, escalation; `also_send_to` `legal-escalations` | Both flags kept: `injured` and `lawyer` |
+
+On our live run (2026-11-02, UTC) the 12 messages came out as 3 escalated, 7 by model and 2 to
+`customer-care-general`. Four messages didn't go where we wrote them to go, and we left the
+rules and thresholds alone after seeing them: M-06, M-08 and M-09 (more below), and M-11, which
+we planted knowing it would miss the escalation and which is the one to worry about. Treat the
+table as a demo that the wiring works, not as a measure of accuracy: twelve messages tell you
+the pipeline runs end to end, not how often it's wrong.
+
+A few things worth noticing:
+
+- **M-12 keeps both flags.** It mentions an injury and a lawyer, and both queues need to know.
+  It goes to `product-safety` first because safety comes first in `rules.yaml`, and legal is
+  still on the row. Here it is from `routes.csv`, with the empty model columns cut:
+
+  ```text
+  message_id,team,method,escalations,also_send_to,matched_phrases,order_numbers,reason
+  M-12,product-safety,escalation,safety; legal,legal-escalations,injured; lawyer,LK-205588,safety escalation: 'injured'; legal escalation: 'lawyer'
+  ```
+
+  The same row is in `escalations.csv`, written before either model was called, just without
+  the order number yet.
+- **M-11 is the phrase list's blind spot.** A child cut by shattered glass is a safety report,
+  but "cut" and "shattered" aren't in the list, so it didn't escalate. It reached a person in
+  the general queue only because GLiNER2.5-Decide wasn't sure what it was either (top
+  `product-help` at 0.36, `store-experience` next). That's luck, not a rule. A slightly more
+  confident model would have sent it to `product-help` as an assembly question. We didn't add
+  "cut" to the list to make this row look better; for a home and garden retailer, "the mower
+  won't cut" is a Tuesday.
+- **M-06 was written to split between billing and delivery**, but the model chose delivery with
+  a margin of 0.25, just over the 0.20 limit. The customer has two problems and the row names
+  one.
+- **M-08 was written as too vague to route.** The model read "my visit to the Northgate store"
+  as a store matter, which is defensible, and the store check flagged that Northgate isn't on
+  the list.
+- **M-09 is plain wrong.** It's a product question, but "picked up at the ... store" matches the
+  `in-store pickup` cue in the store-experience description, and the model went with the cue at
+  0.63. A confident score doesn't mean the route is right. If your messages route like this,
+  rewrite the team descriptions so the cues don't overlap (move pickup to orders, say "product
+  questions, even for items bought in a store"), or require a higher margin. M-10 was added
+  after the first live run, because no message had reached the general queue.
+
+## Potential improvements
+
+- **Your teams and stores.** They go in `data/routing_catalog.yaml`: `teams` with a one-line
+  description of what customers write to each about, `stores` with names and aliases. The
+  descriptions and the question take up to half of GLiNER2.5-Decide's window of about 512
+  tokens, so keep each to one line.
+- **Your escalation phrases.** They're under `escalations` in `rules.yaml`, one entry per queue,
+  checked in order. Matching is whole words with no stemming, so list every word form you want
+  caught, and keep names out ("sue" alone is also a first name). The phrase match errs toward
+  escalating: "nobody was hurt" still goes to safety, and so would "do you sell smoking chips?".
+- **Your order numbers.** The format is `order_number.pattern` and `format`.
+- **Your thresholds.** `min_team_score`, `min_team_margin`, `min_entity_score`,
+  `store_match_cutoff`, the window size and the batch size are starting points. Check them on
+  your own messages.
+- **Your queue names and models.** The queues are `general_queue` and each escalation's
+  `queue`, and the models are under `models` in `rules.yaml`.
+- **Catch injuries told in other words.** Add a second, model-based safety screen (another
+  GLiNER2.5-Decide yes-or-no question would do) whose "yes" sends a message to a person, on top
+  of the phrase list, so M-11 escalates on meaning rather than on luck.
+- **Keep both issues on a two-issue message.** M-06 needs billing and delivery to talk to each
+  other; listing every team over a probability floor, and letting a person pick the owner,
+  would show that instead of hiding it behind one label.
+- **Ask for an order number only when the request needs one.** `needs_order_number` covers all
+  of billing, but a declined card or a gift card balance usually has no order.
+- **Leave the store open when several are named.** Today the highest-scoring store wins, which
+  can't tell a purchase store from a return store; a person should pick.
+- **Find order numbers with the pattern directly.** They have a fixed format, so a regex over
+  the text would catch them without depending on the model finding the span first.
+- **Send long messages to a person instead of merging windows.** None of the planted messages
+  runs past 120 words, and `merge_probabilities` adds code that a "too long, read it yourself"
+  rule wouldn't.
+- **Test a reply above a quoted old complaint.** A "Thanks, resolved" over a quoted message that
+  names a burn and another store would test stale escalations and store mix-ups.
+- **Other languages.** The phrases, team descriptions and planted messages are all English;
+  another language needs its own phrase list and a check of the descriptions.
+
+## Try another model
+
+Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
+nothing else, and ran the recipe on SIE Cloud on 31 Oct 2026, on the first ten messages (M-11
+and M-12 were added later).
+
+| `rules.yaml` key | Swap in | What happened on this data |
+| --- | --- | --- |
+| `fields` | `fastino/gliner2-base-v1` | Same route, order numbers and stores for all 10 messages. Two notes changed: on M-07 it also read "640 points" as an order number (the pattern check dropped it), and on M-08 it read the unknown store as "Northgate" instead of "Northgate store". |
+
+SIE Cloud has no other model for `team` (GLiNER2.5-Decide) yet. SIE's catalog has
+`fastino/GLiNER2.5-Decide-1B` and `fastino/GLiNER2.5-multi-Decide` to self-host; we have not run
+them here. See [MODELS.md](../../MODELS.md) for every model these recipes use.
+
+## Run it on your own SIE
+
+The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
+[compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
+
+| `rules.yaml` key | Model | Image | Tested on |
+| --- | --- | --- | --- |
+| `team` | `fastino/GLiNER2.5-Decide` | `cuda12-transformers5` | L4 |
+| `fields` | `fastino/gliner2-large-v1` | `cuda12-default` | L4 |
+
+One SIE server runs one image, so these 2 images need a cluster: the
+[sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
+with one worker pool per image routes each model to its pool. See
+[SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.
+
+## Files
+
+- `recipe.py`: the pipeline
+- `rules.yaml`: escalation phrases, queues, order-number pattern, question, thresholds, models
+- `data/`: the messages and the routing catalog
+- `selfcheck.py`: offline checks, no SIE call
+- `pyproject.toml`, `uv.lock`: this recipe's dependencies
+
+See the SIE [classify](https://superlinked.com/classify) task page and the
+[Retail](https://superlinked.com/retail) industry page.

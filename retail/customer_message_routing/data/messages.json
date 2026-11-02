@@ -1,0 +1,77 @@
+{
+  "_note": "Synthetic customer messages to Hollowbrook Home & Garden, a fictional retailer. People, orders and stores are invented for this recipe.",
+  "messages": [
+    {
+      "id": "M-01",
+      "channel": "chat",
+      "subject": "",
+      "body": "Hi, my order LK-204517 was supposed to arrive on Tuesday and the tracking page still says label created. Can you tell me where it is?"
+    },
+    {
+      "id": "M-02",
+      "channel": "email",
+      "subject": "Refund for my return",
+      "body": "I returned the patio chair cushions at your Riverside Plaza store on the 3rd and I still don't see the refund on my card. The order number is lk 208 331. Thanks, Dana"
+    },
+    {
+      "id": "M-03",
+      "channel": "web_form",
+      "subject": "Space heater problem",
+      "body": "The space heater I bought at the Cedar Falls store started sparking last night and my son burned his hand on the front grille. Order LK-199402. Has this model been recalled?"
+    },
+    {
+      "id": "M-04",
+      "channel": "email",
+      "subject": "Third request",
+      "body": "This is the third time I am asking for my refund on order LK-210076. If it is not fixed by Friday I am handing this to my attorney."
+    },
+    {
+      "id": "M-05",
+      "channel": "chat",
+      "subject": "",
+      "body": "Just wanted to say Sue at the Maple Grove store was so helpful finding the right stain for my fence. Please pass it on!"
+    },
+    {
+      "id": "M-06",
+      "channel": "email",
+      "subject": "Charged twice",
+      "body": "I was charged twice for order LK-207145 and the package still hasn't arrived."
+    },
+    {
+      "id": "M-07",
+      "channel": "chat",
+      "subject": "",
+      "body": "The rewards points from my purchase last month never showed up. I should have 640 points by now."
+    },
+    {
+      "id": "M-08",
+      "channel": "web_form",
+      "subject": "Call me",
+      "body": "Please call me back about my visit to the Northgate store last weekend."
+    },
+    {
+      "id": "M-09",
+      "channel": "email",
+      "subject": "Raised garden bed",
+      "body": "How do I put together the cedar raised garden bed I picked up at the Eastport downtown store? The instruction sheet skips from step 3 to step 5."
+    },
+    {
+      "id": "M-10",
+      "channel": "chat",
+      "subject": "",
+      "body": "Hello? I need some help with something, is anyone there?"
+    },
+    {
+      "id": "M-11",
+      "channel": "email",
+      "subject": "Patio table",
+      "body": "The glass top on the patio table from order LK-211904 shattered when I set a mug on it, and a piece cut my child's cheek. What should I do?"
+    },
+    {
+      "id": "M-12",
+      "channel": "web_form",
+      "subject": "Ladder collapsed",
+      "body": "My husband was injured when the step ladder from order LK-205588 folded under him. We have spoken to a lawyer."
+    }
+  ]
+}
