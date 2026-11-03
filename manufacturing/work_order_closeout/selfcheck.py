@@ -39,10 +39,12 @@ TAG = re.compile(RULES["asset_tag_pattern"])
 DECIDE, GLINER = RULES["models"]["codes"], RULES["models"]["fields"]
 
 
-def order(notes: str, asset: str = "P-101", hours: float = 4.0) -> recipe.WorkOrder:
+def order(
+    notes: str, asset: str = "P-101", hours: float = 4.0, wo_id: str = "WO-1"
+) -> recipe.WorkOrder:
     start = datetime(2026, 9, 1, 8, 0, tzinfo=UTC)
     end = datetime.fromtimestamp(start.timestamp() + hours * 3600, UTC)
-    return recipe.WorkOrder("WO-1", asset, "corrective", start, end, notes)
+    return recipe.WorkOrder(wo_id, asset, "corrective", start, end, notes)
 
 
 def decide(probs: dict[str, float]) -> dict[str, Any]:
@@ -70,7 +72,9 @@ class FakeSIE:
         errors: dict[str, list[Exception | None]] | None = None,
     ) -> None:
         self.fields_reply = fields_reply
-        self.decide_reply = decide_reply or (lambda text, picklist: confident(picklist))
+        # By default every picklist gets its first option, except remedy: adjust, so a form
+        # with no part booked isn't flagged by the replace-needs-a-part rule.
+        self.decide_reply = decide_reply or answers(remedy="adjust")
         self.errors = errors or {}
         self.calls: list[str] = []
 
@@ -158,29 +162,41 @@ def check_codes() -> None:
 
 def check_parts() -> None:
     notes = "Replaced 2 x bearing 6205-2RS and 1 x lip seal LS-35. Fitted impeller 44-0918."
-    assert recipe.parse_part("2 x bearing 6205-2RS", notes, CATALOG, TAG) == ("6205-2RS", 2, "")
+    assert recipe.parse_part("2 x bearing 6205-2RS", notes, CATALOG, TAG) == ([("6205-2RS", 2)], [])
     # The quantity the model left out of the span comes from the words just before it.
-    assert recipe.parse_part("lip seal LS-35", notes, CATALOG, TAG) == ("LS-35", 1, "")
+    assert recipe.parse_part("lip seal LS-35", notes, CATALOG, TAG) == ([("LS-35", 1)], [])
     # A neighbouring part number is a different part.
     part = recipe.parse_part("impeller 44-0918", notes, CATALOG, TAG)
-    assert part == ("", None, "44-0918 is not in the parts catalog"), part
+    assert part == ([], ["44-0918 is not in the parts catalog"]), part
     # A part number shaped like an asset tag is still a part.
-    assert recipe.parse_part("1 x FG-100", "", CATALOG, TAG) == ("FG-100", 1, "")
-    # By description, with no quantity: matched, but flagged.
+    assert recipe.parse_part("1 x FG-100", "", CATALOG, TAG) == ([("FG-100", 1)], [])
+    # By description, with no quantity: flagged.
     part = recipe.parse_part("drive belts", "Replaced drive belts.", CATALOG, TAG)
-    assert part == ("BLT-A52", None, "no quantity for BLT-A52"), part
-    assert (
-        recipe.parse_part("gasket", "", CATALOG, TAG)[2]
-        == "'gasket' matches no catalog description"
+    assert part == ([], ["no quantity for BLT-A52"]), part
+    assert recipe.parse_part("gasket", "", CATALOG, TAG) == (
+        [],
+        ["'gasket' matches no catalog description"],
     )
+    # One span with two part numbers: both kept with their own quantities, and flagged.
+    span = "2 x bearing 6205-2RS and 1 x lip seal LS-35"
+    field = recipe.parts_field([span], notes, CATALOG, TAG)
+    assert (field.status, field.value) == ("flagged", "6205-2RS x2; LS-35 x1"), field
+    assert "names 2 part numbers" in field.reason, field.reason
+    # One span with an unknown and a known part number: the known one is kept, and flagged.
+    span = "impeller 44-0918 and 1 x wear ring WR-150"
+    field = recipe.parts_field([span], span, CATALOG, TAG)
+    assert (field.status, field.value) == ("flagged", "WR-150 x1"), field
+    assert "44-0918 is not in the parts catalog" in field.reason, field.reason
     field = recipe.parts_field(["2 x bearing 6205-2RS", "impeller 44-0918"], notes, CATALOG, TAG)
     assert (field.status, field.value) == ("flagged", "6205-2RS x2"), field
-    print("parts: exact catalog match, 44-0918 near miss, tag-shaped FG-100, quantities ok")
+    print("parts: exact catalog match, 44-0918 near miss, two numbers in a span, quantities ok")
 
 
 def check_hours() -> None:
     assert recipe.parse_hours("3.5 h") == (3.5, "")
     assert recipe.parse_hours("45 min") == (0.75, "")
+    assert recipe.parse_hours("3.5h") == (3.5, "")  # glued units
+    assert recipe.parse_hours("45min") == (0.75, "")
     assert recipe.parse_hours("2 x 3.5 h") == (7.0, "")
     assert recipe.parse_hours("03:10 to 05:40") == (2.5, "")
     assert recipe.parse_hours("23:30 to 00:15") == (0.75, "")  # past midnight
@@ -217,8 +233,12 @@ def check_fields() -> None:
     assert forms[0].fields["component"].status == "blank"
     assert forms[0].fields["actions"].status == "flagged"
     assert forms[0].fields["actions"].reason == "required on every closed order"
+
     # A gliner2 reply without its data key is a failed reply: the model fields are flagged.
-    forms = draft(FakeSIE(lambda text: {"entities": []}), [order(notes)])
+    def half(text: str) -> dict[str, Any]:
+        return {"entities": []} if text == notes else {"data": {}}
+
+    forms = draft(FakeSIE(half), [order(notes), order("Other order.", wo_id="WO-2")])
     assert forms[0].fields["component"].status == "flagged"
     assert "the reply has no data" in forms[0].fields["component"].reason
     # SIE Cloud's empty-result HTTP 500 counts as nothing found.
@@ -226,6 +246,70 @@ def check_fields() -> None:
     forms = draft(FakeSIE(GOOD, errors={GLINER: [empty]}), [order(notes)])
     assert forms[0].fields["component"].status == "blank", forms[0].fields["component"]
     print("fields: ungrounded span, required blank, missing data key, empty-result 500 ok")
+
+
+def answers(**chosen: str) -> Callable[[str, str], dict[str, Any]]:
+    """A Decide stand-in that answers each picklist with the label given (0.9), or the first
+    option."""
+
+    def reply(text: str, picklist: str) -> dict[str, Any]:
+        labels = [option["label"] for option in RULES["picklists"][picklist]["options"]]
+        top = chosen.get(picklist, labels[0])
+        return decide({label: 0.9 if label == top else 0.1 / (len(labels) - 1) for label in labels})
+
+    return reply
+
+
+def check_cues() -> None:
+    # The planted WO-26106: the model says leak, the notes say no leak was found.
+    notes = "Operator reported a leak at the P-105 seal. Checked, seal dry, no leak found. 0.5 h."
+    spans = fields(component="P-105 seal", actions=["Checked"], labor="0.5 h")
+    form = draft(FakeSIE(spans, answers(remedy="inspect only")), [order(notes, "P-105")])[0]
+    problem = form.fields["problem"]
+    assert (problem.value, problem.status) == ("NOF", "flagged"), problem
+    assert problem.reason == "the notes say 'no leak'; set to NOF instead of LEAK", problem
+    form = draft(
+        FakeSIE(spans, answers(remedy="inspect only")), [order("Suspected leak, none found.")]
+    )[0]
+    assert form.fields["problem"].value == "NOF", form.fields["problem"]
+    # The model already said no fault found: nothing to flag.
+    form = draft(
+        FakeSIE(spans, answers(problem="no fault found", remedy="inspect only")), [order(notes)]
+    )[0]
+    assert form.fields["problem"].status == "filled", form.fields["problem"]
+    # The planted WO-26110: replaced, but no part came back.
+    notes = "M-701 drive belts worn. Replaced drive belts. 1.5 h."
+    spans = fields(component="drive belts", actions=["Replaced drive belts"], labor="1.5 h")
+    form = draft(FakeSIE(spans, answers()), [order(notes, "M-701")])[0]
+    parts = form.fields["parts_used"]
+    assert parts.status == "flagged", parts
+    assert parts.reason == "remedy REPL says a part went in, but no part is booked", parts
+    form = draft(FakeSIE(spans), [order(notes, "M-701")])[0]
+    assert form.fields["parts_used"].status == "blank", form.fields["parts_used"]
+    # The planted WO-26108: follow-up work in the notes, none extracted.
+    notes = "Greased bearings. Found guard cracked, needs replacing. 1 h."
+    spans = fields(component="guard", actions=["Greased bearings"], labor="1 h")
+    form = draft(FakeSIE(spans, answers(remedy="adjust")), [order(notes)])[0]
+    follow = form.fields["follow_up"]
+    assert follow.status == "flagged", follow
+    assert follow.reason == "the notes say 'needs replacing' but no follow-up work was found"
+    print("cues: no leak found -> NOF flagged; replace with no part; follow-up cue ok")
+
+
+def check_spans() -> None:
+    notes = "Replaced seal on the pump casing. 2 h."
+    # Two component spans: flagged, both in the evidence.
+    spans = fields(component=["seal", "pump casing"], actions=["Replaced seal"], labor="2 h")
+    form = draft(FakeSIE(spans, answers(remedy="adjust")), [order(notes)])[0]
+    component = form.fields["component"]
+    assert (component.status, component.evidence) == ("flagged", "seal; pump casing"), component
+    # The same span twice in one window is one value.
+    replies: list[tuple[str, dict[str, Any]]] = [(notes, {"data": {"labor": ["2 h", "2 h"]}})]
+    assert recipe.field_values(replies, RULES)[0]["labor"] == ["2 h"]
+    # In two windows it is two entries, so labor is flagged instead of quietly merged.
+    replies = [(notes, {"data": {"labor": "2 h"}}), (notes, {"data": {"labor": "2 h"}})]
+    assert recipe.field_values(replies, RULES)[0]["labor"] == ["2 h", "2 h"]
+    print("spans: extra component flagged; duplicates merged within a window only ok")
 
 
 TRANSIENT: list[SIEError] = [
@@ -281,6 +365,24 @@ def check_sie_failure() -> None:
     forms = draft(FakeSIE(GOOD, errors={DECIDE: [None, ServerError("busy", status_code=503)]}), two)
     assert [f.fields["cause"].status for f in forms] == ["flagged", "flagged"]
     assert [f.fields["problem"].status for f in forms] == ["filled", "filled"]
+    # A batch reply with the wrong number of results takes the transient path.
+    short = FakeSIE(GOOD)
+    real = short.extract
+
+    def one_short(model: str, items: Any, **kwargs: Any) -> Any:
+        found = real(model, items, **kwargs)
+        return found[:-1] if model == DECIDE and short.calls.count(DECIDE) == 1 else found
+
+    short.extract = one_short  # type: ignore[method-assign]
+    forms = draft(short, two)
+    assert [f.fields["problem"].status for f in forms] == ["flagged", "flagged"]
+    assert "the reply had 1 results for 2 windows" in forms[0].fields["problem"].reason
+    # Replies missing their key on every call to a model count as every call failed.
+    message = stopped(lambda: draft(FakeSIE(lambda text: {"entities": []}), two))
+    assert message.startswith(f"Every SIE call failed (2 of 2 to {GLINER})"), message
+    assert "Check the model names in rules.yaml" in message, message
+    message = stopped(lambda: draft(FakeSIE(GOOD, lambda text, name: {"data": {}}), two))
+    assert message.startswith(f"Every SIE call failed (3 of 3 to {DECIDE})"), message
     # Every call to one model failed: the run stops and says what to check.
     errors: dict[str, list[Exception | None]] = {GLINER: [SIEConnectionError("down")] * 2}
     message = stopped(lambda: draft(FakeSIE(GOOD, errors=errors), two))
@@ -345,6 +447,8 @@ if __name__ == "__main__":
     check_hours()
     check_asset()
     check_fields()
+    check_cues()
+    check_spans()
     check_sie_failure()
     check_csv()
     print("all checks passed")

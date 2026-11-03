@@ -25,7 +25,7 @@ Output:    completion_forms.csv (one draft per order) and drafts.json (every fie
            CMMS record is saved; nothing is written to the CMMS.
 Why SIE:   Two small encoder models; no generative model fills or decides anything. The
            picklists and schema are data you edit in rules.yaml, and there is nothing to host.
-Runs on:   SIE Cloud.
+Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -41,7 +41,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import yaml
 from dotenv import load_dotenv
@@ -73,8 +73,13 @@ EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing sett
 # A cell starting with one of these runs as a formula in a spreadsheet.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
-FILLED, BLANK, FLAGGED = "filled", "blank", "flagged"
-CHECKS_PASSED, REVIEW = "checks_passed", "review"
+FieldStatus = Literal["filled", "blank", "flagged"]
+FormStatus = Literal["checks_passed", "review"]
+FILLED: FieldStatus = "filled"
+BLANK: FieldStatus = "blank"
+FLAGGED: FieldStatus = "flagged"
+CHECKS_PASSED: FormStatus = "checks_passed"
+REVIEW: FormStatus = "review"
 CODE_FIELDS = ("problem", "cause", "remedy")
 # rules.yaml `fields` name -> form field it fills.
 SPAN_FIELDS = {
@@ -125,7 +130,7 @@ class Field:
 
     value: str = ""
     evidence: str = ""
-    status: str = BLANK
+    status: FieldStatus = BLANK
     reason: str = ""
 
 
@@ -134,7 +139,7 @@ class Form:
     wo_id: str
     asset_id: str
     work_type: str
-    status: str
+    status: FormStatus
     fields: dict[str, Field]
 
 
@@ -251,7 +256,11 @@ def field_schema(rules: dict[str, Any]) -> dict[str, Any]:
 
 
 def call_sie(
-    calls: Calls, model: str, work: Callable[[], Any], ids: list[str]
+    calls: Calls,
+    model: str,
+    work: Callable[[], Any],
+    ids: list[str],
+    has_answer: Callable[[dict[str, Any]], bool],
 ) -> dict[str, dict[str, Any]]:
     """Run one SIE call and return its result per window id.
 
@@ -260,6 +269,10 @@ def call_sie(
     those fields are flagged and the run still writes its outputs. A refusal every call would
     repeat (see `is_fatal`) stops the run with SIEStopped. An error that isn't an SIE error is
     a bug in this code and is raised as is.
+
+    A reply with the wrong number of results takes the transient path too. A reply where some
+    result lacks its answer (``has_answer``) counts as a failed call toward the every-call-failed
+    stop; the result itself is flagged later, when its fields are read.
     """
     calls.made[model] = calls.made.get(model, 0) + 1
     try:
@@ -270,7 +283,16 @@ def call_sie(
         calls.failed.setdefault(model, []).append(error)
         return {item_id: {"error": f"the SIE call failed: {short(error)}"} for item_id in ids}
     results = found if isinstance(found, list) else [found]
-    return {item_id: result for item_id, result in zip(ids, results, strict=True)}
+    if len(results) != len(ids):
+        wrong = BadReply(f"the reply had {len(results)} results for {len(ids)} windows")
+        calls.failed.setdefault(model, []).append(wrong)
+        return {item_id: {"error": f"the SIE call failed: {short(wrong)}"} for item_id in ids}
+    if not all(isinstance(r, dict) and has_answer(r) for r in results):
+        calls.failed.setdefault(model, []).append(BadReply("a reply is missing its answer key"))
+    return {
+        item_id: result if isinstance(result, dict) else {}
+        for item_id, result in zip(ids, results, strict=True)
+    }
 
 
 def check_calls(calls: Calls) -> None:
@@ -315,7 +337,8 @@ def ask_codes(
                     provision_timeout_s=WAIT_S,
                 )
 
-            answers[name] |= call_sie(calls, model, work, [item_id for item_id, _ in batch])
+            ids = [item_id for item_id, _ in batch]
+            answers[name] |= call_sie(calls, model, work, ids, has_probabilities)
     return answers
 
 
@@ -341,8 +364,21 @@ def ask_fields(
                     raise
                 return {"data": {}, "empty_result": True}
 
-        results |= call_sie(calls, model, work, [item_id])
+        results |= call_sie(calls, model, work, [item_id], has_data)
     return results
+
+
+def has_probabilities(result: dict[str, Any]) -> bool:
+    """A Decide result carries data.answer.probabilities."""
+    answer = (
+        (result.get("data") or {}).get("answer") if isinstance(result.get("data"), dict) else None
+    )
+    return isinstance(answer, dict) and isinstance(answer.get("probabilities"), dict)
+
+
+def has_data(result: dict[str, Any]) -> bool:
+    """A gliner2 schema result carries a data object (it may be empty: nothing found)."""
+    return isinstance(result.get("data"), dict)
 
 
 def every_call_failed_advice(error: SIEError) -> str:
@@ -354,7 +390,14 @@ def every_call_failed_advice(error: SIEError) -> str:
     """
     if isinstance(error, SIEConnectionError):
         return "Check SIE_BASE_URL and your network."
+    if isinstance(error, BadReply):
+        return "Check the model names in rules.yaml and that SIE_BASE_URL points at an SIE server."
     return "The model may still be starting or SIE is busy; run again in a few minutes."
+
+
+class BadReply(SIEError):  # type: ignore[misc]
+    """A reply SIE sent that doesn't have the shape the recipe reads: the wrong number of
+    results, or a result without its answer key."""
 
 
 class SIEStopped(RuntimeError):
@@ -499,11 +542,13 @@ def field_values(
 
     Returns the spans and the problems per field. A failed call or a reply without its
     ``data`` key is a problem for every field (key ``*``); a span that isn't in the window's
-    text is a problem for its own field, and is dropped, never used.
+    text is a problem for its own field, and is dropped, never used. The same span twice in one
+    window counts once.
     """
     found: dict[str, list[str]] = {name: [] for name in rules["fields"]}
     problems: dict[str, list[str]] = {}
     for number, (text, result) in enumerate(per_window, start=1):
+        seen: dict[str, set[str]] = {name: set() for name in found}
         if error := result.get("error"):
             problems.setdefault("*", []).append(f"window {number}: {error}")
             continue
@@ -521,7 +566,10 @@ def field_values(
                 value = value.strip()
                 if _squash(value) not in _squash(text):
                     problems.setdefault(name, []).append(f"'{value}' is not in the notes; dropped")
-                elif value.casefold() not in map(str.casefold, found[name]):
+                elif value.casefold() not in seen[name]:
+                    # The same words twice in one window are one value; in two windows they
+                    # may be two entries (two labor lines), so both are kept.
+                    seen[name].add(value.casefold())
                     found[name].append(value)
     return found, problems
 
@@ -538,35 +586,49 @@ CLOCK_RE = re.compile(r"\b(\d{1,2}):(\d{2})\s*(?:to|-|until)\s*(\d{1,2}):(\d{2})
 
 def parse_part(
     span: str, notes: str, catalog: dict[str, str], asset_tag: re.Pattern[str]
-) -> tuple[str, int | None, str]:
-    """(catalog part number, quantity, problem) for one parts-used span.
+) -> tuple[list[tuple[str, int]], list[str]]:
+    """The catalog parts with quantities in one parts-used span, and what's wrong with it.
 
-    A part number in the span must be in the catalog exactly: a neighbouring number is a
-    different part. With no part number, exactly one catalog description must appear in the
-    span ("drive belts" -> drive belt). The quantity comes from the span ("2 x bearing") or the
-    words just before it in the notes ("replaced 2 x" + "bearing 6205-2RS").
+    A part number must be in the catalog exactly: a neighbouring number is a different part.
+    A span that names more than one part number is flagged too, since its quantities are easy
+    to pair with the wrong part; the parts that do match are still kept. With no part number,
+    exactly one catalog description must appear in the span ("drive belts" -> drive belt). A
+    quantity comes from the words before its part number in the span ("2 x bearing 6205-2RS"),
+    or for the first part from the words just before the span in the notes.
     """
     # An asset tag in the span ("P-104 casing gasket") is not a part number, unless the
     # catalog has a part by that name: some part numbers look like tags (FG-100).
     numbers = [n for n in PART_NO_RE.findall(span) if n in catalog or not asset_tag.fullmatch(n)]
-    if numbers:
-        known = [n for n in numbers if n in catalog]
-        if not known:
-            return "", None, f"{', '.join(numbers)} is not in the parts catalog"
-        part = known[0]
-    else:
+    problems: list[str] = []
+    if not numbers:
         matches = [p for p, desc in catalog.items() if desc.casefold() in span.casefold()]
         if len(matches) != 1:
             found = "no catalog description" if not matches else f"{len(matches)} catalog parts"
-            return "", None, f"'{span}' matches {found}"
-        part = matches[0]
-    qty = QTY_RE.search(f" {span} ")
-    if qty is None:
-        at = notes.casefold().find(span.casefold())
-        qty = QTY_RE.search(f" {notes[max(0, at - 8) : at]}") if at > 0 else None
-    if qty is None or int(qty.group(1)) < 1:
-        return part, None, f"no quantity for {part}"
-    return part, int(qty.group(1)), ""
+            return [], [f"'{span}' matches {found}"]
+        numbers, segments = matches, [span]
+    else:
+        segments, start = [], 0
+        for number in numbers:
+            at = span.find(number, start)
+            segments.append(span[start:at])
+            start = at + len(number)
+        if unknown := [n for n in numbers if n not in catalog]:
+            problems.append(f"{', '.join(unknown)} is not in the parts catalog")
+        if len(numbers) > 1:
+            problems.append(f"'{span}' names {len(numbers)} part numbers; check each quantity")
+    parts: list[tuple[str, int]] = []
+    for index, (number, segment) in enumerate(zip(numbers, segments, strict=True)):
+        if number not in catalog:
+            continue
+        qty = QTY_RE.search(f" {segment} ")
+        if qty is None and index == 0:
+            at = notes.casefold().find(span.casefold())
+            qty = QTY_RE.search(f" {notes[max(0, at - 8) : at]}") if at > 0 else None
+        if qty is None or int(qty.group(1)) < 1:
+            problems.append(f"no quantity for {number}")
+        else:
+            parts.append((number, int(qty.group(1))))
+    return parts, problems
 
 
 def parse_hours(span: str) -> tuple[float | None, str]:
@@ -623,11 +685,9 @@ def parts_field(
         return Field()
     booked, problems = [], []
     for span in spans:
-        part, qty, problem = parse_part(span, notes, catalog, tag)
-        if problem:
-            problems.append(problem)
-        else:
-            booked.append(f"{part} x{qty}")
+        parts, found = parse_part(span, notes, catalog, tag)
+        booked += [f"{part} x{qty}" for part, qty in parts]
+        problems += found
     status = FLAGGED if problems else FILLED
     return Field("; ".join(booked), "; ".join(spans), status, "; ".join(problems))
 
@@ -642,6 +702,41 @@ def asset_field(order: WorkOrder, tag: re.Pattern[str], catalog: dict[str, str])
         reason = f"the notes name {', '.join(others)} but the order is booked to {order.asset_id}"
         return Field(order.asset_id, "; ".join(others), FLAGGED, reason)
     return Field(order.asset_id, "CMMS", FILLED)
+
+
+def flag(target: Field, reason: str) -> None:
+    target.status = FLAGGED
+    target.reason = "; ".join(filter(None, [target.reason, reason]))
+
+
+def cue_in(notes: str, cues: list[str]) -> str | None:
+    """The first cue phrase in the notes, matched on whole words, any case."""
+    for cue in cues:
+        if re.search(rf"\b{re.escape(cue.casefold())}\b", notes.casefold()):
+            return cue
+    return None
+
+
+def check_cues(order: WorkOrder, fields: dict[str, Field], rules: dict[str, Any]) -> None:
+    """Plain-word rules from rules.yaml that the models can't be trusted with.
+
+    - Notes that say the problem wasn't found ("no leak found") don't get a fault code: the
+      problem becomes the no-fault code (or blank, if the picklist has none) and is flagged.
+    - A remedy that means a part went in (replace) with no part booked flags parts used.
+    - Notes that mention follow-up work with no follow-up extracted flag the follow-up.
+    """
+    cues = rules["cues"]
+    problem, no_fault = fields["problem"], cues["no_fault_code"]
+    if problem.value != no_fault and (cue := cue_in(order.notes, cues["no_fault"])):
+        was = problem.value or "no code"
+        problem.value = no_fault or ""
+        flag(problem, f"the notes say '{cue}'; set to {no_fault or 'blank'} instead of {was}")
+    parts = fields["parts_used"]
+    if fields["remedy"].value in cues["remedy_needs_part"] and not parts.value:
+        flag(parts, f"remedy {fields['remedy'].value} says a part went in, but no part is booked")
+    follow_up = fields["follow_up"]
+    if not follow_up.value and (cue := cue_in(order.notes, cues["follow_up"])):
+        flag(follow_up, f"the notes say '{cue}' but no follow-up work was found")
 
 
 def draft_form(
@@ -659,6 +754,10 @@ def draft_form(
     spans, problems = field_values(replies, rules)
     limits = rules["thresholds"]
     fields["component"] = text_field(spans["component"][:1])
+    if len(spans["component"]) > 1:
+        fields["component"].evidence = "; ".join(spans["component"])
+        fields["component"].status = FLAGGED
+        fields["component"].reason = f"{len(spans['component'])} component spans; pick one"
     fields["actions"] = text_field(spans["actions"])
     fields["parts_used"] = parts_field(spans["parts_used"], order.notes, catalog, tag)
     fields["labor_h"] = hours_field(
@@ -675,6 +774,7 @@ def draft_form(
             target = fields[form_name]
             target.status = FLAGGED
             target.reason = "; ".join(filter(None, [target.reason, *found]))
+    check_cues(order, fields, rules)
     for name in rules["required"]:
         if fields[name].status == BLANK:
             fields[name].status = FLAGGED

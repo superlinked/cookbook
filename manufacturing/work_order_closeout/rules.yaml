@@ -69,3 +69,14 @@ thresholds:
   max_crew: 4                 # labor hours may be at most this many people x the order's hours
   max_words_per_window: 120   # longer notes are split into windows of this many words
   batch_size: 25              # windows per GLiNER2.5-Decide call
+
+# Plain-word rules the models can't be trusted with, matched on whole words, any case.
+cues:
+  # Notes that say the reported problem wasn't there. The problem field becomes no_fault_code
+  # (null: blank) and is flagged for a person to confirm, whatever code the model picked.
+  no_fault: [no leak, no fault found, none found, nothing found, no defect, not found]
+  no_fault_code: NOF
+  # Remedy codes that mean a part went in: with no part booked, parts used is flagged.
+  remedy_needs_part: [REPL]
+  # Notes that mention more work to do: with no follow-up extracted, the follow-up is flagged.
+  follow_up: [follow-up, follow up, recommend, raise a, needs replacing]
