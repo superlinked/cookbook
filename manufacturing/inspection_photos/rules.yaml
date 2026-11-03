@@ -41,6 +41,9 @@ thresholds:
   hole_sure: 0.70          # an empty hole at or above this is evidence of a missing bolt.
                            # A sure hole under a sure bolt (bolt_sure or more) is a conflict:
                            # the photo goes to the inspector, whichever scores higher
+  hole_unsure: 0.40        # a hole between hole_unsure and hole_sure is a possible hole. It is
+                           # never evidence of a missing bolt, and never ignored: on a complete
+                           # count, or under a sure bolt, the photo goes to the inspector
   part_margin: 0.03        # the part box is grown by this share of its size before the
                            # inside test, so a bolt on the rim still counts
   min_bolt_size: 0.04      # a bolt or hole box smaller than this share of the part box's

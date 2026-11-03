@@ -18,16 +18,16 @@ SIE pipeline:
                                    ("flange" or "metal plate"), "bolt" and "hole"; it returns
                                    a scored box for every instance it finds
            (Python)                keep the bolts that sit on the part, drop duplicates, send a
-                                   sure bolt on top of a sure hole to the inspector, split sure
-                                   from unsure, and compare the count with the expected count:
-                                   all_bolts_seen, defect, or inspector when unsure
+                                   bolt on top of a hole (sure or unsure) to the inspector,
+                                   split sure from unsure, and compare the count with the
+                                   expected count: all_bolts_seen, defect, or inspector
 Output:    inspections.csv (one row per photo: status, counts, where bolts are missing and the
            reason), defects.csv, inspector.csv, detections.json (every box and why it was kept
            or ignored) and annotated/<photo>.jpg with the boxes drawn.
 Why SIE:   One model on SIE Cloud, called once per photo, finds every bolt from a text prompt,
            with no training images and no labelling. No generative model makes the decision:
            the count and the status are plain Python you can read.
-Runs on:   SIE Cloud.
+Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -77,12 +77,12 @@ FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 # A status names what the checks found. all_bolts_seen is visual presence only: it says nothing
 # about torque, the right bolt or the joint. People decide what happens next.
 ALL_BOLTS_SEEN, DEFECT, INSPECTOR = "all_bolts_seen", "defect", "inspector"
-DECISIONS = (DEFECT, INSPECTOR, ALL_BOLTS_SEEN)
+STATUSES = (DEFECT, INSPECTOR, ALL_BOLTS_SEEN)
 REPORT_FIELDS = (
     "photo",
     "work_order",
     "assembly",
-    "decision",
+    "status",
     "sharpness",
     "brightness",
     "expected_bolts",
@@ -91,6 +91,7 @@ REPORT_FIELDS = (
     "empty_holes",
     "missing_at",
     "conflict_at",
+    "unsure_hole_at",
     "ignored_outside_part",
     "reason",
 )
@@ -175,8 +176,9 @@ def detect(
 ) -> list[dict[str, Any]]:
     """Ask SAM 3 for every part, bolt and hole box in one photo.
 
-    An empty `objects` list is a real "nothing found". A reply with no `objects` key at all is a
-    failed call, raised as an SIEError so it takes the same path as a timeout.
+    An empty `objects` list is a real "nothing found". A reply with no `objects` key at all, or
+    an object without a label, a numeric score or a four-number box, is a failed call, raised as
+    an SIEError so it takes the same path as a timeout.
     """
     detection = rules["detection"]
     response = jsonable(
@@ -190,7 +192,28 @@ def detect(
     )
     if not isinstance(response, dict) or not isinstance(response.get("objects"), list):
         raise SIEError("the SIE reply had no 'objects' list")
-    return cast(list[dict[str, Any]], response["objects"])
+    objects = cast(list[Any], response["objects"])
+    for item in objects:
+        if not well_formed(item):
+            raise SIEError(
+                f"the SIE reply had an object without a label, score or box: {item!r}"[:200]
+            )
+    return cast(list[dict[str, Any]], objects)
+
+
+def well_formed(item: Any) -> bool:
+    """A detection with a text label, a numeric score and an [x, y, width, height] box."""
+    if not isinstance(item, dict) or not isinstance(item.get("label"), str):
+        return False
+    score, bbox = item.get("score"), item.get("bbox")
+    number = (int, float)
+    return (
+        isinstance(score, number)
+        and not isinstance(score, bool)
+        and isinstance(bbox, list)
+        and len(bbox) == 4
+        and all(isinstance(v, number) and not isinstance(v, bool) for v in bbox)
+    )
 
 
 # --- Photo quality ----------------------------------------------------------------------------
@@ -282,28 +305,46 @@ def merge(boxes: list[dict[str, Any]], iou: float) -> tuple[list[dict[str, Any]]
 
 
 def decide(
-    expected: int, sure: int, unsure: int, holes: list[str], conflicts: tuple[str, ...] = ()
+    expected: int,
+    sure: int,
+    unsure: int,
+    holes: list[str],
+    conflicts: tuple[str, ...] = (),
+    unsure_holes: tuple[str, ...] = (),
+    covered_unsure: tuple[str, ...] = (),
 ) -> tuple[str, str]:
     """Decide all_bolts_seen, defect or inspector for one part, with the reason.
 
-    `holes` holds the clock position of each empty hole seen, `conflicts` each position where a
-    sure bolt and a sure empty hole were both seen. A conflict always goes to the inspector:
-    which score is higher doesn't say which reading is right. A short count is a defect only
-    when there is an empty hole for every missing bolt. A bolt we simply can't see (covered,
-    out of frame, washed out by glare) sends the photo to the inspector instead.
+    `holes` holds the clock position of each sure empty hole, `conflicts` each position where a
+    sure bolt and a sure empty hole were both seen, `unsure_holes` each position of a possible
+    hole (between hole_unsure and hole_sure) and `covered_unsure` the ones a sure bolt sits on.
+    A conflict, or a possible hole under a sure bolt, always goes to the inspector: which score
+    is higher doesn't say which reading is right. A possible hole never counts as evidence of a
+    missing bolt, and it is never ignored: on a complete count it sends the photo to the
+    inspector. A short count is a defect only when there is a sure empty hole for every missing
+    bolt. A bolt we simply can't see (covered, out of frame, washed out by glare) sends the
+    photo to the inspector instead.
     """
     low, high = sure, sure + unsure
     where = f"; empty hole at {', '.join(holes)}" if holes else ""
+    others = [spot for spot in unsure_holes if spot not in covered_unsure]
+    if others:
+        where += f"; possible empty hole at {', '.join(others)}"
     if conflicts:
         return INSPECTOR, (
             f"a bolt and an empty hole were both seen at {', '.join(conflicts)} "
             f"({low} sure bolt(s) of {expected}){where}: check that position"
         )
+    if covered_unsure:
+        return INSPECTOR, (
+            f"a bolt was seen over a possible empty hole at {', '.join(covered_unsure)} "
+            f"({low} sure bolt(s) of {expected}){where}: check that position"
+        )
     if low == high == expected:
-        if holes:
+        if holes or unsure_holes:
             return (
                 INSPECTOR,
-                f"{low} of {expected} bolts counted, but an empty hole was seen{where}",
+                f"{low} of {expected} bolts counted, but a hole was seen{where}",
             )
         return ALL_BOLTS_SEEN, f"{low} of {expected} bolts seen"
     if low > expected:
@@ -347,6 +388,7 @@ def inspect(
         "empty_holes": 0,
         "missing_at": "",
         "conflict_at": "",
+        "unsure_hole_at": "",
         "ignored_outside_part": 0,
         "detections": notes,
     }
@@ -366,7 +408,7 @@ def inspect(
             f"no {assembly['part_prompt']} found (best score {best}, "
             f"needs {limits['min_part_score']:.2f}); check the photo"
         )
-        return {**result, "decision": INSPECTOR, "reason": reason}
+        return {**result, "status": INSPECTOR, "reason": reason}
     part = parts[0]
     notes.append({**part, "use": "part", "why": ""})
     ignore(parts[1:], "lower-scoring part box")
@@ -395,15 +437,27 @@ def inspect(
         candidates(detection["bolt_prompt"], limits["bolt_unsure"]), detection["dedupe_iou"]
     )
     ignore(merged, "same bolt as a higher-scoring box")
-    holes, merged = merge(
-        candidates(detection["hole_prompt"], limits["hole_sure"]), detection["dedupe_iou"]
+    all_holes, merged = merge(
+        candidates(detection["hole_prompt"], limits["hole_unsure"]), detection["dedupe_iou"]
     )
     ignore(merged, "same hole as a higher-scoring box")
+    holes = [box for box in all_holes if box["score"] >= limits["hole_sure"]]
+    maybe_holes = [box for box in all_holes if box["score"] < limits["hole_sure"]]
     # SAM 3 can box one spot as both a bolt and a hole (a socket-head screw, a loose bolt lying
-    # over an empty hole). Every hole here already scores at least hole_sure. A sure bolt on it
-    # is a conflict for the inspector, whatever the scores. An unsure bolt on it was only a
-    # maybe, so the hole stands and the unsure bolt is dropped.
+    # over an empty hole). A sure bolt on a sure hole is a conflict for the inspector, whatever
+    # the scores. An unsure bolt on a sure hole was only a maybe, so the hole stands and the
+    # unsure bolt is dropped. A possible hole (below hole_sure) is kept and reported; under a
+    # sure bolt it goes to the inspector too.
     conflicted: list[dict[str, Any]] = []
+    covered = [
+        hole
+        for hole in maybe_holes
+        if any(
+            bolt["score"] >= limits["bolt_sure"]
+            and same_object(bolt["bbox"], hole["bbox"], detection["dedupe_iou"])
+            for bolt in bolts
+        )
+    ]
     for hole in list(holes):
         rivals = [b for b in bolts if same_object(b["bbox"], hole["bbox"], detection["dedupe_iou"])]
         if any(bolt["score"] >= limits["bolt_sure"] for bolt in rivals):
@@ -422,6 +476,14 @@ def inspect(
     notes.extend(
         {**box, "use": "conflict", "why": "a sure bolt was also seen here"} for box in conflicted
     )
+    notes.extend(
+        {
+            **box,
+            "use": "unsure hole",
+            "why": "score below hole_sure" + (", under a sure bolt" if box in covered else ""),
+        }
+        for box in maybe_holes
+    )
 
     def clock(boxes: list[dict[str, Any]]) -> list[str]:
         return sorted(
@@ -429,8 +491,16 @@ def inspect(
             key=lambda text: int(text.split()[0]),
         )
 
-    positions, conflicts = clock(holes), clock(conflicted)
-    decision, reason = decide(expected, len(sure), len(unsure), positions, tuple(conflicts))
+    positions, conflicts, maybe = clock(holes), clock(conflicted), clock(maybe_holes)
+    status, reason = decide(
+        expected,
+        len(sure),
+        len(unsure),
+        positions,
+        tuple(conflicts),
+        tuple(maybe),
+        tuple(clock(covered)),
+    )
     return {
         **result,
         "bolts_sure": len(sure),
@@ -438,7 +508,8 @@ def inspect(
         "empty_holes": len(holes),
         "missing_at": "; ".join(positions),
         "conflict_at": "; ".join(conflicts),
-        "decision": decision,
+        "unsure_hole_at": "; ".join(maybe),
+        "status": status,
         "reason": reason,
     }
 
@@ -451,6 +522,7 @@ COLORS = {
     "unsure bolt": (250, 200, 0),
     "empty hole": (240, 40, 40),
     "conflict": (230, 60, 230),
+    "unsure hole": (255, 140, 0),
     "ignored": (150, 150, 150),
 }
 
@@ -458,9 +530,9 @@ COLORS = {
 def annotate(image: Image.Image, row: dict[str, Any]) -> Image.Image:
     """Draw the boxes on the photo, coloured by how each was used.
 
-    Part blue, bolt green, unsure bolt yellow, empty hole red, a hole a sure bolt also covers
-    magenta, and grey for boxes ignored because they lie outside the part. Merged duplicates and
-    other ignored boxes are not drawn.
+    Part blue, bolt green, unsure bolt yellow, empty hole red, possible (unsure) hole orange, a
+    sure hole a sure bolt also covers magenta, and grey for boxes ignored because they lie
+    outside the part. Merged duplicates and other ignored boxes are not drawn.
     """
     out = image.convert("RGB")
     draw = ImageDraw.Draw(out)
@@ -471,7 +543,7 @@ def annotate(image: Image.Image, row: dict[str, Any]) -> Image.Image:
         draw.rectangle((x, y, x + width, y + height), outline=COLORS[note["use"]], width=3)
     draw.rectangle((0, 0, out.width, 22), fill=(0, 0, 0))
     draw.text(
-        (6, 5), f"{row['photo']}  {row['decision'].upper()}  {row['reason']}", fill=(255, 255, 255)
+        (6, 5), f"{row['photo']}  {row['status'].upper()}  {row['reason']}", fill=(255, 255, 255)
     )
     return out
 
@@ -595,9 +667,7 @@ def run(
             # Don't spend an SIE call on a photo nobody could inspect; ask for a retake.
             row = {
                 **head,
-                **inspect([], photo.assembly, rules),
-                "decision": INSPECTOR,
-                "reason": f"photo {problem}: retake it before counting",
+                **uninspected(photo, rules, f"photo {problem}: retake it before counting"),
             }
         else:
             calls += 1
@@ -607,12 +677,8 @@ def run(
                 if is_fatal(error):
                     raise SIEStopped(stop_message(error, model)) from error
                 failures.append(error)
-                row = {
-                    **head,
-                    **inspect([], photo.assembly, rules),
-                    "decision": INSPECTOR,
-                    "reason": f"not inspected: the SIE call failed: {short(error)}",
-                }
+                reason = f"not inspected: the SIE call failed: {short(error)}"
+                row = {**head, **uninspected(photo, rules, reason)}
             else:
                 row = {**head, **inspect(objects, photo.assembly, rules)}
         row.update(quality)
@@ -634,9 +700,22 @@ def run(
     return rows
 
 
+def uninspected(photo: Photo, rules: dict[str, Any], reason: str) -> dict[str, Any]:
+    """The row for a photo nothing was counted on: the count cells stay empty, not 0."""
+    counts = ("bolts_sure", "bolts_unsure", "empty_holes", "ignored_outside_part")
+    return {
+        **inspect([], photo.assembly, rules),
+        **dict.fromkeys(counts),
+        "status": INSPECTOR,
+        "reason": reason,
+        "detections": [],
+    }
+
+
 def csv_safe(value: Any) -> str:
-    """A leading ' on a cell a spreadsheet would run as a formula; anything else as written."""
-    text = str(value)
+    """A leading ' on a cell a spreadsheet would run as a formula; an empty cell for None;
+    anything else as written."""
+    text = "" if value is None else str(value)
     return "'" + text if text.startswith(FORMULA_START) else text
 
 
@@ -654,8 +733,8 @@ def write_outputs(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_csv(output_dir / "inspections.csv", rows)
-    _write_csv(output_dir / "defects.csv", [r for r in rows if r["decision"] == DEFECT])
-    _write_csv(output_dir / "inspector.csv", [r for r in rows if r["decision"] == INSPECTOR])
+    _write_csv(output_dir / "defects.csv", [r for r in rows if r["status"] == DEFECT])
+    _write_csv(output_dir / "inspector.csv", [r for r in rows if r["status"] == INSPECTOR])
     (output_dir / "detections.json").write_text(
         json.dumps(rows, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -673,9 +752,9 @@ def main() -> None:
     rules = load_rules()
     with make_client() as client:
         rows = stop_on_refusal(lambda: run(client, rules, output))
-    for decision in DECISIONS:
-        group = [row for row in rows if row["decision"] == decision]
-        print(f"\n{decision.upper()} ({len(group)})")
+    for status in STATUSES:
+        group = [row for row in rows if row["status"] == status]
+        print(f"\n{status.upper()} ({len(group)})")
         for row in group:
             where = f"{row['photo']:<8} {row['work_order']:<8} {row['assembly']:<14}"
             print(f"  {where} {row['reason']}")

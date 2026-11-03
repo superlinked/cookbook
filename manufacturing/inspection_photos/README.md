@@ -81,8 +81,8 @@ the decision.
 3. **Find the part, the bolts and the holes.** One SAM 3 call per photo with three text prompts:
    the part (`flange` or `metal plate`), `bolt` and `hole`. It returns a scored `[x, y, w, h]`
    box for every instance of each. If the call fails for a reason that may pass (a timeout, a
-   busy server, a reply with no `objects` list), that photo goes to the inspector as "not
-   inspected" and the run carries on. If SIE refuses the call outright (a bad key, an unknown
+   busy server, a reply with no `objects` list, a box with no score), that photo goes to the
+   inspector as "not inspected", with empty count cells, and the run carries on. If SIE refuses the call outright (a bad key, an unknown
    model), the run stops with SIE's message and writes nothing, because every other photo would
    fail the same way. If every call fails, the run stops too.
 4. **Keep only what's on the part.** Take the highest-scoring part box. If no part box scores at
@@ -96,7 +96,11 @@ the decision.
    things about one position. Keeping whichever scored higher would let a bolt at 0.81 quietly
    erase a hole at 0.79. Instead the photo goes to the inspector with the clock position of the
    spot. An unsure bolt on a sure hole is different: it was only ever a maybe, so the hole stands.
-7. **Compare with the expected count.** A bolt scoring at least `bolt_sure` is counted; one
+7. **Don't throw away a possible hole.** A hole scoring between `hole_unsure` (0.40) and
+   `hole_sure` (0.70) is a possible hole. It never counts as proof that a bolt is missing, but
+   it's never ignored either: under a sure bolt, or on a count that otherwise looks complete, it
+   sends the photo to the inspector with its position.
+8. **Compare with the expected count.** A bolt scoring at least `bolt_sure` is counted; one
    between `bolt_unsure` and `bolt_sure` is unsure, so the count becomes a range.
 
 | Count | Empty holes seen | Status |
@@ -106,6 +110,7 @@ the decision.
 | short, but fewer empty holes than missing bolts | | `inspector`: the bolt may be covered, out of frame or missing |
 | the unsure bolts decide it, or more bolts than expected, or complete but an empty hole seen | | `inspector` |
 | a sure bolt and a sure empty hole on the same spot | | `inspector`, with the position |
+| a possible hole (0.40 to 0.70) under a sure bolt, or on an otherwise complete count | | `inspector`, with the position |
 | no part found, the photo is blurred or dark, or the SIE call failed | | `inspector` |
 
 A bolt the recipe simply can't see (under a rag, out of frame) is never called missing on that
@@ -118,11 +123,11 @@ prompt per kind of object, and it returns a box and a score per instance (no mas
 fits this job well. You don't collect training images, label anything or host a model, and the
 prompts are plain words in `rules.yaml` (`flange`, `metal plate`, `bolt`, `hole`).
 
-On the run below it found the flange at 0.77 to 0.88 and the metal plate at 0.70 and 0.71, the
-bolts it counted at 0.66 to 0.81, and the empty holes at 0.89 to 0.94. It also boxes things you
-didn't ask for: each bolt shows up again as a low-scoring `flange`, and the pipe bore comes back
-as a `hole` at 0.93 to 0.96, which the size limit throws out. The rules after the call exist
-because the raw boxes need that cleaning.
+On the run below it found the flange at 0.77 to 0.88 and the metal plate at 0.70 and 0.71, the bolts
+it counted at 0.66 to 0.81, the empty holes at 0.89 to 0.94, and one possible hole at 0.66. It also
+boxes things you didn't ask for: each bolt shows up again as a low-scoring `flange`, and the pipe
+bore comes back as a `hole` at 0.93 to 0.96, which the size limit throws out. The rules after the
+call exist because the raw boxes need that cleaning.
 
 It is released under the SAM License, which is not an OSI license; read it at
 <https://huggingface.co/facebook/sam3> before you rely on it. Two other detectors on SIE Cloud
@@ -138,13 +143,13 @@ flowchart TD
     Q -- no --> I[inspector:<br/>retake the photo]
     Q -- yes --> S[SAM 3 on SIE<br/>part, bolt, hole boxes]
     S -- refusal --> X[Stop the run<br/>SIE's message, no outputs]
-    S -- transient error or<br/>no objects list --> I2[inspector:<br/>not inspected]
+    S -- transient error, no objects list<br/>or a box without score --> I2[inspector:<br/>not inspected]
     S -- boxes --> P{Part box at least<br/>min_part_score?}
     P -- no --> I3[inspector:<br/>no part found]
     P -- yes --> K[Keep bolt-sized boxes on the part<br/>merge same-kind duplicates]
-    K --> C{Sure bolt and sure hole<br/>on the same spot?}
+    K --> C{Sure bolt on a sure hole,<br/>or on a possible hole?}
     C -- yes --> I4[inspector:<br/>check that position]
-    C -- no --> D{Count vs expected<br/>and empty holes}
+    C -- no --> D{Count vs expected,<br/>sure and possible holes}
     D --> OK[all_bolts_seen]
     D --> DF[defect<br/>with hole positions]
     D --> I5[inspector<br/>with the reason]
@@ -156,24 +161,25 @@ flowchart TD
 
 Everything you'd want to change lives in [`rules.yaml`](./rules.yaml): the model name, the
 prompts, the assemblies (part prompt, shape and expected bolt count), the photo-quality limits
-and every threshold. [`recipe.py`](./recipe.py) is about 690 lines and reads top to bottom in the
+and every threshold. [`recipe.py`](./recipe.py) is about 770 lines and reads top to bottom in the
 same order as the flow.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Load | `load_photos`, `open_photo`, `tile` | none | Reads `photos.csv` (photo, work order, assembly, tile box), opens the sprite with its EXIF orientation applied, and cuts out each photo |
 | Photo check | `photo_quality`, `quality_problem` | none | Sharpness (variance of the grey Laplacian) and mean brightness against `photo_quality` in `rules.yaml`. A photo that fails goes to the inspector for a retake |
-| Detect | `detect` | `extract` | One call per photo that passed the check, with the part prompt, `bolt` and `hole`. A reply without an `objects` list raises, so it takes the failed-call path; an empty list is a real "nothing found" |
+| Detect | `detect` | `extract` | One call per photo that passed the check, with the part prompt, `bolt` and `hole`. A reply without an `objects` list, or an object without a label, a numeric score or a four-number box (`well_formed`), raises, so it takes the failed-call path; an empty list is a real "nothing found" |
 | SIE failures | `is_fatal`, `stop_message`, `short`, `every_call_failed_advice`, `stop_on_refusal` | none | A transient error sends that photo to the inspector with a short reason. A refusal, or every call failing, raises `SIEStopped` before anything is written; `main` turns it into a clean exit |
 | Keep and merge | `inspect` (inner `candidates`), `inside_part`, `merge`, `same_object` | none | Takes the best part box, keeps bolt-sized boxes inside it, merges same-kind duplicates |
-| Conflicts | `inspect` | none | A sure hole under a sure bolt goes to `conflict_at`; an unsure bolt on a sure hole is dropped and the hole stands |
-| Decide | `decide`, `clock_position` | none | The count table above, with clock positions for empty holes and conflicts |
-| Report | `run`, `write_outputs`, `csv_safe`, `annotate` | none | Writes the CSVs (each cell through `csv_safe`, so a cell starting with `=` can't run as a spreadsheet formula), `detections.json` and the annotated photos, only after every photo is done |
+| Conflicts | `inspect` | none | A sure hole under a sure bolt goes to `conflict_at`; an unsure bolt on a sure hole is dropped and the hole stands. Holes from `hole_unsure` up to `hole_sure` go to `unsure_hole_at`, and the ones under a sure bolt are flagged |
+| Decide | `decide`, `clock_position` | none | The count table above, with clock positions for empty holes, conflicts and possible holes |
+| Report | `run`, `write_outputs`, `csv_safe`, `annotate`, `uninspected` | none | Writes the CSVs (each cell through `csv_safe`, so a cell starting with `=` can't run as a spreadsheet formula), `detections.json` and the annotated photos, only after every photo is done. A photo nothing was counted on (a retake or a failed call) gets empty count cells, not 0 |
 
-[`selfcheck.py`](./selfcheck.py) checks the counting rules, the statuses, the conflict rule and
+[`selfcheck.py`](./selfcheck.py) checks the photo-quality check, the counting rules (the spare bolt
+outside the part, the nut-and-washer merge), the statuses, the conflict and possible-hole rules and
 the SIE failure handling offline, with hand-written boxes and stand-in replies, so you can change
-`rules.yaml` and know right away if you broke something. [`make_data.py`](./make_data.py) draws
-the photos.
+`rules.yaml` and know right away if you broke something. [`make_data.py`](./make_data.py) draws the
+photos.
 
 ## Run it
 
@@ -195,11 +201,13 @@ The run writes:
 
 - `inspections.csv`: one row per photo with the work order, status, sharpness, brightness,
   expected bolts, sure and unsure bolts, empty holes, where bolts are missing, where a bolt and a
-  hole conflict, bolts ignored outside the part and the reason
+  hole conflict, where a possible hole was seen, bolts ignored outside the part and the reason.
+  The count cells are empty for a photo nothing was counted on
 - `defects.csv`, `inspector.csv`: the rows someone has to act on
 - `detections.json`: every box SAM 3 returned, and how each was used or why it was ignored
 - `annotated/<photo>.jpg`: the photo with the part (blue), bolts (green), unsure bolts (yellow),
-  empty holes (red), conflicting holes (magenta) and bolts ignored outside the part (grey)
+  empty holes (red), possible holes (orange), conflicting holes (magenta) and bolts ignored
+  outside the part (grey)
 
 ## What came out
 
@@ -214,7 +222,7 @@ The input is in [`data/`](./data):
 > company in them. Pillow writes the sprite with no EXIF or XMP block, so it carries no camera,
 > GPS or author metadata, and `selfcheck.py` checks that.
 
-This is from the live run on 2026-11-03 (UTC), `runs/20261103T000607Z`.
+This is from the live run on 2026-11-03 (UTC), `runs/20261103T142629Z`.
 
 | Photo | Assembly | What we planted | Status | Why |
 | --- | --- | --- | --- | --- |
@@ -222,16 +230,18 @@ This is from the live run on 2026-11-03 (UTC), `runs/20261103T000607Z`.
 | FL-102 | 8-bolt flange | 1 bolt missing | `defect`, hole at 6 o'clock | one empty hole (0.90) for the one missing bolt; an unsure bolt (0.33) on it was dropped |
 | FL-103 | 8-bolt flange | 2 bolts missing | `defect`, holes at 1 and 11 o'clock | two empty holes for two missing bolts |
 | FL-104 | 8-bolt flange | near miss: complete, with a spare bolt lying on the bench inside the frame | `all_bolts_seen` | the spare bolt (0.83) is detected and ignored as outside the flange |
-| FL-105 | 8-bolt flange | out of focus and underexposed | `inspector`: retake | sharpness 1.0 and brightness 43.9, under 50 and 60, so no SIE call |
+| FL-105 | 8-bolt flange | out of focus and underexposed | `inspector`: retake | sharpness 1.0 and brightness 43.9, under 50 and 60, so no SIE call; its count cells are empty |
 | FL-106 | 8-bolt flange | a shop rag covers one bolt position | `inspector` | 7 of 8 bolts seen and no empty hole to show the eighth is missing |
 | FL-107 | 8-bolt flange | **new near miss**: 1 bolt missing, a loose bolt lying on the flange across the empty hole | `inspector`, conflict at 8 o'clock | the loose bolt (0.81) and the hole under it (0.79) are on the same spot |
-| FL-108 | 8-bolt flange | **new near miss**: complete, one position fitted with a socket-head cap screw | `all_bolts_seen` (we planned `inspector`) | SAM 3 saw the screw head as a bolt (0.76); the socket scored 0.66 as a hole, under `hole_sure` 0.70 |
+| FL-108 | 8-bolt flange | **new near miss**: complete, one position fitted with a socket-head cap screw | `inspector`, possible hole at 5 o'clock | SAM 3 saw the screw head as a bolt (0.76) and the socket as a possible hole (0.66), on the same spot |
 | CV-201 | 6-bolt cover plate | complete | `all_bolts_seen` | 6 of 6 bolts on the plate, no empty hole |
 | CV-202 | 6-bolt cover plate | 1 bolt missing | `defect`, hole at 6 o'clock | one empty hole for the one missing bolt |
 
-Nine of the ten came out as planned, with the settings as written. FL-108 didn't: we planted it
-expecting SAM 3 to see the socket as both a bolt and a hole, and it mostly saw a bolt (more
-below). Nothing was tuned to these photos. Treat this as a demo that the pipeline works, not as
+All ten came out as planned, with the settings as written. That wasn't true on the first run of
+this version: FL-108 came out `all_bolts_seen`, because the 0.66 socket hole sat under
+`hole_sure` and was thrown away. A review pointed out that throwing a hole away is the wrong way
+to be unsure, so possible holes now get their own band (more below). Nothing was tuned to these
+photos. Treat this as a demo that the pipeline works, not as
 a measure of accuracy: ten drawn photos tell you the wiring is right, not how often SAM 3 is
 wrong on your parts.
 
@@ -242,7 +252,7 @@ A few things worth noticing:
   and SAM 3 saw both:
 
   ```json
-  {"photo": "FL-107", "work_order": "WO-4107", "decision": "inspector",
+  {"photo": "FL-107", "work_order": "WO-4107", "status": "inspector",
    "bolts_sure": 8, "empty_holes": 0, "conflict_at": "8 o'clock",
    "reason": "a bolt and an empty hole were both seen at 8 o'clock (8 sure bolt(s) of 8): check that position"}
   ```
@@ -254,11 +264,20 @@ A few things worth noticing:
 - **The conflict rule only catches what SAM 3 sees.** If the loose bolt had covered the hole
   entirely, there'd be no hole box and FL-107 would count 8 and pass. Counting can't tell a
   fitted bolt from one lying on top; an expected-position check could (see below).
-- **FL-108 came out better than planned, for a fragile reason.** A socket-head screw on a
-  complete flange is fine, so `all_bolts_seen` is the right answer here. But the socket also
-  scored 0.66 as a hole, 0.04 under `hole_sure`. A slightly darker socket would have tipped it
-  into a conflict (`inspector`), and a hole-only reading would have made it a false `defect`.
-  Earlier tests read every socket as an empty hole, so test your own screws before trusting this.
+- **FL-108 is a complete flange that goes to a person anyway.** A socket-head screw on a
+  complete flange is fine, so a perfect checker would say `all_bolts_seen`. SAM 3 read the head
+  as a bolt (0.76) and the socket as a 0.66 hole on the same spot. Is that a screw, or a hole
+  with a bolt-ish shadow? The recipe can't tell, so an inspector looks:
+
+  ```json
+  {"photo": "FL-108", "work_order": "WO-4108", "status": "inspector",
+   "bolts_sure": 8, "empty_holes": 0, "unsure_hole_at": "5 o'clock",
+   "reason": "a bolt was seen over a possible empty hole at 5 o'clock (8 sure bolt(s) of 8): check that position"}
+  ```
+
+  If your line uses socket-head screws everywhere, every photo lands in this queue. That's the
+  price of not ignoring possible holes; a per-position template, or a `socket screw` prompt,
+  would be the way out.
 - **FL-102 shows why the conflict rule needs both sides sure.** SAM 3 put an unsure bolt (0.33)
   on the empty hole (0.90). Sending every overlap to the inspector would have turned a clear
   defect into a review.
@@ -276,14 +295,15 @@ A few things worth noticing:
   Each photo should show one part, face on. For parts seen at an angle, count per visible face.
   In production you'd read one image per work order from the station, not a sprite sheet.
 - **Your thresholds.** The score thresholds (`bolt_sure` 0.60, `bolt_unsure` 0.30, `hole_sure`
-  0.70, `min_part_score` 0.50) and the photo-quality limits are starting points, set after
-  looking at SAM 3's scores on these synthetic photos. Real photos have glare, rust and paint, so
-  check them on a few hundred of your own photos before you trust an `all_bolts_seen`.
+  0.70, `hole_unsure` 0.40, `min_part_score` 0.50) and the photo-quality limits are starting
+  points, set after looking at SAM 3's scores on these synthetic photos. Real photos have glare,
+  rust and paint, so check them on a few hundred of your own photos before you trust an
+  `all_bolts_seen`.
 - **Where it goes next.** `defects.csv` can open a rework ticket, and `inspector.csv` is a review
   queue. The model never closes a ticket on its own.
 - **Socket-head screws.** If your line uses socket-head cap screws, test them first. In earlier
   tests SAM 3 read every socket as an empty hole; on FL-108 in this run it read the head as a
-  bolt and the socket as a 0.66 hole. Either way it sits close to a threshold.
+  bolt and the socket as a 0.66 hole, which sends the photo to the inspector.
 - **Check positions, not only the count.** An expected-position template per part (where each
   bolt should be, from the drawing) would match each detection to one position, allow one bolt
   per position, and send any position left unmatched to the inspector. That catches a loose bolt

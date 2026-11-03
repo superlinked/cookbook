@@ -68,8 +68,8 @@ def check_data() -> None:
 
 
 def check_statuses() -> None:
-    assert recipe.DECISIONS == ("defect", "inspector", "all_bolts_seen")
-    assert "pass" not in recipe.DECISIONS
+    assert recipe.STATUSES == ("defect", "inspector", "all_bolts_seen")
+    assert "pass" not in recipe.STATUSES
     assert recipe.decide(8, 8, 0, []) == ("all_bolts_seen", "8 of 8 bolts seen")
     status, reason = recipe.decide(8, 7, 0, ["6 o'clock"])
     assert status == "defect", reason
@@ -78,7 +78,7 @@ def check_statuses() -> None:
     assert recipe.decide(8, 8, 0, ["3 o'clock"])[0] == "inspector"  # complete, but a hole
     assert recipe.decide(8, 7, 1, [])[0] == "inspector"  # the unsure bolt decides it
     assert recipe.decide(8, 9, 0, [])[0] == "inspector"  # more than expected
-    assert inspect(ring(8))["decision"] == "all_bolts_seen"
+    assert inspect(ring(8))["status"] == "all_bolts_seen"
     print("statuses: all_bolts_seen, defect and inspector follow the count table ok")
 
 
@@ -88,23 +88,74 @@ def check_conflict() -> None:
     loose = box("bolt", 0.81, 175, 180, 140, 45)
     hole = box("hole", 0.80, 175, 175, 40, 20)
     row = inspect([*ring(7), loose, hole])
-    assert row["decision"] == "inspector", row["reason"]
+    assert row["status"] == "inspector", row["reason"]
     assert row["conflict_at"] == "10 o'clock", row["conflict_at"]
     assert "both seen at 10 o'clock" in row["reason"], row["reason"]
     # The other way round: a hole at 0.95 over a sure bolt at 0.75 is not a defect either.
     socket = box("bolt", 0.75, 175, 175)
     row = inspect([*ring(7), socket, box("hole", 0.95, 175, 175, 30, 30)])
-    assert row["decision"] == "inspector", row["reason"]
+    assert row["status"] == "inspector", row["reason"]
     # FL-102's shape: an unsure bolt (0.33) on a sure hole (0.90) was only a maybe, so the
     # hole stands and the photo is still a defect.
     row = inspect([*ring(7), box("bolt", 0.33, 175, 175), box("hole", 0.90, 175, 175, 40, 40)])
-    assert row["decision"] == "defect", row["reason"]
+    assert row["status"] == "defect", row["reason"]
     assert (row["missing_at"], row["conflict_at"]) == ("10 o'clock", "")
-    # A hole below hole_sure under a sure bolt is ignored before the conflict test: FL-108's
-    # socket head scored 0.66 as a hole on our run.
-    row = inspect([*ring(7), socket, box("hole", 0.66, 175, 175, 30, 30)])
-    assert row["decision"] == "all_bolts_seen", row["reason"]
     print("conflict: sure bolt on sure hole goes to the inspector; unsure bolt leaves a defect ok")
+
+
+def check_unsure_holes() -> None:
+    # 8 sure bolts, one of them a loose bolt lying elsewhere on the face, and a 0.66 hole at
+    # the empty position: the count looks complete, but the possible hole is not ignored.
+    loose = box("bolt", 0.81, 250, 400, 140, 45)
+    row = inspect([*ring(7), loose, box("hole", 0.66, 175, 175, 40, 40)])
+    assert row["bolts_sure"] == 8, row
+    assert row["status"] == "inspector", row["reason"]
+    assert row["unsure_hole_at"] == "10 o'clock", row["unsure_hole_at"]
+    assert "possible empty hole at 10 o'clock" in row["reason"], row["reason"]
+    # FL-108's shape: a socket head seen as a sure bolt (0.76) and a 0.66 hole on one spot.
+    socket = box("bolt", 0.76, 175, 175)
+    row = inspect([*ring(7), socket, box("hole", 0.66, 175, 175, 30, 30)])
+    assert row["status"] == "inspector", row["reason"]
+    assert row["reason"].startswith("a bolt was seen over a possible empty hole at 10 o'clock")
+    # A possible hole is never evidence of a missing bolt: 7 bolts and only a 0.66 hole is not
+    # a defect.
+    row = inspect([*ring(7), box("hole", 0.66, 175, 175, 40, 40)])
+    assert row["status"] == "inspector", row["reason"]
+    # Below hole_unsure (0.40) a hole box is still ignored: FL-104 had holes at 0.21 to 0.23.
+    row = inspect([*ring(8), box("hole", 0.23, 320, 320, 40, 40)])
+    assert row["status"] == "all_bolts_seen", row["reason"]
+    unsure = [n for n in row["detections"] if n["use"] == "unsure hole"]
+    assert not unsure
+    row = inspect([*ring(7), socket, box("hole", 0.66, 175, 175, 30, 30)])
+    assert [n["use"] for n in row["detections"]].count("unsure hole") == 1  # drawn, orange
+    assert "unsure hole" in recipe.COLORS
+    print("unsure holes: a 0.66 hole on a complete count or under a bolt goes to the inspector ok")
+
+
+def check_counting() -> None:
+    # FL-104's shape: a spare bolt on the bench, outside the flange, is ignored and counted.
+    spare = box("bolt", 0.83, 540, 610, 140, 45)
+    row = inspect([*ring(8), spare])
+    assert (row["status"], row["ignored_outside_part"]) == ("all_bolts_seen", 1), row
+    # A nut and its washer boxed separately are one bolt: the washer box holds the nut's centre.
+    washers = [box("bolt", 0.65, x, y, 90, 90) for x, y in [(320, 115), (465, 175)]]
+    row = inspect([*ring(8), *washers])
+    assert (row["status"], row["bolts_sure"]) == ("all_bolts_seen", 8), row
+    merged = [n for n in row["detections"] if n["why"] == "same bolt as a higher-scoring box"]
+    assert len(merged) == 2
+    # Photo quality: a flat dark grey photo is out of focus and too dark; a noisy bright one is
+    # fine.
+    flat = Image.new("RGB", (64, 64), (40, 40, 40))
+    sharpness, brightness = recipe.photo_quality(flat)
+    problem = recipe.quality_problem(sharpness, brightness, RULES)
+    assert "out of focus" in problem, problem
+    assert "too dark" in problem, problem
+    stripes = Image.new("L", (64, 64), 200)
+    for x in range(0, 64, 2):
+        for y in range(64):
+            stripes.putpixel((x, y), 60)
+    assert recipe.quality_problem(*recipe.photo_quality(stripes.convert("RGB")), RULES) == ""
+    print("counting: spare bolt outside the part, nut-and-washer merge, photo quality ok")
 
 
 def check_csv_and_photo() -> None:
@@ -201,15 +252,31 @@ def check_sie_failure() -> None:
         assert recipe.is_fatal(error), type(error).__name__
     # A transient error on one photo: it goes to the inspector, the other is still inspected.
     rows = run(ServerError("unavailable " + "x" * 300, status_code=503), None)
-    assert [r["decision"] for r in rows] == ["inspector", "all_bolts_seen"]
+    assert [r["status"] for r in rows] == ["inspector", "all_bolts_seen"]
     assert rows[0]["reason"].startswith(
         "not inspected: the SIE call failed: ServerError (HTTP 503): unavailable"
     )
     assert len(rows[0]["reason"]) < 300
     # A reply with no objects key is a failed call, not "nothing found".
     rows = run({"something": []}, None)
-    assert rows[0]["decision"] == "inspector"
+    assert rows[0]["status"] == "inspector"
     assert "no 'objects' list" in rows[0]["reason"], rows[0]["reason"]
+    # An object without a box or a score is a failed call too, not a crash.
+    for bad in [{"label": "bolt", "score": 0.9}, {"label": "bolt", "bbox": [1, 2, 3, 4]}]:
+        rows = run({"objects": [PART, bad]}, None)
+        assert rows[0]["status"] == "inspector", rows[0]
+        assert "without a label, score or box" in rows[0]["reason"], rows[0]["reason"]
+    # A photo nothing was counted on has empty count cells, not 0.
+    assert rows[0]["bolts_sure"] is None
+    with tempfile.TemporaryDirectory() as folder:
+        recipe.write_outputs(
+            Path(folder), rows, {r["photo"]: Image.new("RGB", (9, 9)) for r in rows}
+        )
+        with (Path(folder) / "inspections.csv").open(encoding="utf-8") as handle:
+            first = next(csv.DictReader(handle))
+        assert (first["bolts_sure"], first["empty_holes"]) == ("", ""), first
+        assert "status" in first, list(first)
+        assert "decision" not in first, list(first)
     # An empty objects list is a real "nothing found": no part, so the inspector looks.
     rows = run({"objects": []}, None)
     assert rows[0]["reason"].startswith("no flange found"), rows[0]["reason"]
@@ -247,5 +314,7 @@ if __name__ == "__main__":
     check_data()
     check_statuses()
     check_conflict()
+    check_unsure_holes()
+    check_counting()
     check_csv_and_photo()
     check_sie_failure()
