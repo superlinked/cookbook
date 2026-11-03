@@ -33,21 +33,58 @@ answer:
   max_completion_tokens: 3000   # includes any reasoning the model does first
   # A quote counts as verified when, after collapsing whitespace and straightening quote marks,
   # it appears in the text printed on the cited page (data/manual.json) and is at least this long.
-  # A quote split with "..." or over lines (several labels of one diagram) passes when every
-  # piece is on the page, in order. 12 characters, because shorter quotes prove nothing: a tag
-  # ("V3", "S1", "TB1"), a terminal or step number ("2", "8") or a bare value ("20 N m", "4.6 kg")
-  # can sit on a page by coincidence and doesn't say what it belongs to. At 12 the quote has to
-  # carry its label too: "Refrigerant charge 4.6 kg" is 24, "V3" plus "reservoir drain" is 17.
+  # 12 characters, because shorter quotes prove nothing: a tag ("V3", "S1", "TB1"), a terminal or
+  # step number ("2", "8") or a bare value ("20 N m", "4.6 kg") can sit on a page by coincidence
+  # and doesn't say what it belongs to. At 12 the quote has to carry its label too: "Refrigerant
+  # charge 4.6 kg" is 25, "V3" plus "reservoir drain" is 17.
   min_quote_chars: 12
-  # Every standalone number in the answer (20, 4.6, 1/2) must also be in the quote, so a true
-  # quote can't carry a different value in the answer. Numbers inside tags and part numbers
-  # (V3, TB1, E07, R-513A, BTS-2207) are left out of this check.
-  numbers_in_quote: true
+  # A quote split with "..." or over lines (several labels of one diagram) passes when every
+  # piece is on the page, in order. A piece shorter than min_quote_chars only counts when it sits
+  # at most this many characters from the piece next to it on the page (after whitespace is
+  # collapsed). On this manual a tag and its label, or a value and its row label, are one space
+  # apart; 5 leaves room for a separator like ": ". So "V3" + "reservoir drain" passes, while
+  # "remote start/stop" + "9" (a terminal from further down the block) does not.
+  max_gap_chars: 5
+  # Every number in the answer (20, 4.6, 1/2, -15, 25Nm) and every tag or part number in it (V1,
+  # TB1, E07, R-513A, BTS-2207) must also be in the quote, so a true quote can't carry a
+  # different value or a different valve in the answer. A tag the question itself names (e.g.
+  # CR-220) may appear in the answer without being quoted.
+  values_in_quote: true
+  # A number the answer gives with a unit must be in the quote with that same unit, so a quote
+  # that has "75" only as "O-ring 75 x 3 mm" can't back "tighten the bolts to 75 N m". Each
+  # spelling on the left maps to the unit on the right; a space inside a spelling also matches no
+  # space ("N m" = "Nm"), and the number may be glued to the unit or spaced ("25Nm", "25 N m").
+  # Longer spellings are tried first. A number with no unit after it keeps the plain number rule.
+  units:
+    "N m": Nm
+    Nm: Nm
+    kg: kg
+    bar: bar
+    "°C": C
+    C: C
+    kW: kW
+    V: V
+    mA: mA
+    A: A
+    Hz: Hz
+    mm2: mm2
+    mm: mm
+    "L/min": L/min
+    L: L
+    min: min
+    h: h
+    s: s
+    months: month
+    month: month
+    "dB(A)": dB(A)
+    "%": "%"
   # The model sometimes copies the page footer onto the end of its answer ("... in a cross
   # pattern. Page 8 of 8"). A tail matching this pattern (Python regex, matched case-insensitively
   # at the very end of the answer only) is cut off before the number check and before the answer
   # is shown. Nothing else in the answer is touched, so "Page 8" inside a sentence is still
-  # checked. Change it if your manual prints a different footer.
+  # checked. Change it if your manual prints a different footer. A "page_number: 8" tail (the
+  # JSON key leaking into the answer, seen once on 31 Oct 2026) is not a footer and is not cut;
+  # its 8 is still checked.
   trailing_footer: '\s*\(?\bPage\s+\d+\s+of\s+\d+\)?\.?\s*$'
 
 # Every question ends with one of these three statuses. They say what the checks found; the

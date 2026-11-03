@@ -51,8 +51,8 @@ scores so a person can check the runners-up:
   quote is in the manual", not "the answer is right". The technician reads the cited page before
   acting on it.
 - **`review`**: a page was read but the reply didn't hold up (the model said the page doesn't
-  answer, cited another page, quoted words that aren't on the page, or put a number in its answer
-  that isn't in its quote), or an SIE call failed. The answer text is left blank, because an
+  answer, cited another page, quoted words that aren't on the page, or put a number or a tag in its
+  answer that isn't in its quote), or an SIE call failed. The answer text is left blank, because an
   answer whose check failed shouldn't be read as an answer. The reason names the pages to check.
 - **`no_reliable_match`**: no page of this unit's manual revision scored high enough, so no model
   read a page and nothing was generated. That's "no reliable match in the pages read; check the
@@ -80,11 +80,17 @@ The recipe never decides what to do with the machine. The technician does, from 
    never an instruction. If the page doesn't answer (a contents page often outranks the page it
    points to), the next page above the threshold gets read, up to two pages.
 5. **Check the reply in Python.** The cited page number must be the page shown, and the quote must
-   be printed on that page and long enough to mean something (a bare "V3" or "8" would match
-   almost anywhere). Every number in the answer must also appear in the quote, so a true quote
-   can't carry a different value in the answer. Before that check, a page footer the model copied
-   onto the very end of its answer ("Page 8 of 8") is cut off; nothing else in the answer is
-   touched. Anything that fails goes to `review` with its answer text blanked.
+   be printed on that page and long enough to mean something (a bare "V3" or "8" would match almost
+   anywhere). A quote split over lines can't stitch a short bit (a tag, a terminal number, a value)
+   onto text from elsewhere on the page: a short piece has to sit right next to the piece beside
+   it. Every number (including one glued to its unit, like "25Nm", or with a minus sign) and every
+   tag or part number (V1, TB1, R-513A) in the answer must also appear in the quote, so a true
+   quote can't carry a different value or a different valve in the answer. A number written with a
+   unit ("75 N m") must be in the quote with that same unit, so a quote that has 75 only as "O-ring
+   75 x 3 mm" can't back a 75 N m torque; a tag the question itself names (e.g. CR-220) is allowed.
+   Before that check, a page footer the model copied onto the very end of its answer ("Page 8 of
+   8") is cut off; nothing else in the answer is touched. Anything that fails goes to `review` with
+   its answer text blanked.
 
 The order matters for cost as much as for honesty: the expensive model only reads a page that the
 cheap ranking says is worth reading, and only pages from the right revision.
@@ -139,9 +145,9 @@ every call failed.
 
 `rules.yaml` holds everything you'd tune: the two model names, the render resolutions, the search
 threshold (`search.min_score`, 0.50), how many pages the LLM may read (`answer.max_pages`, 2), the
-quote rules (`answer.min_quote_chars`, 12, `answer.numbers_in_quote` and the
-`answer.trailing_footer` pattern) and the three status
-names. `recipe.py` is the pipeline.
+quote rules (`answer.min_quote_chars`, 12; `answer.max_gap_chars`, 5; `answer.values_in_quote` and
+the `answer.units` list; and the `answer.trailing_footer` pattern) and the three status names.
+`recipe.py` is the pipeline.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
@@ -150,16 +156,18 @@ names. `recipe.py` is the pipeline.
 | Encode question | `encode_question` | `encode`, multivector, `is_query=True` | One vector per question token |
 | Rank | `rank_pages`, `shortlist` | | `sie_sdk.scoring.maxsim` averaged per query vector; drops other revisions, then keeps pages at or above `min_score`, up to `max_pages` |
 | Answer | `ask_page`, `parse_reply` | `chat_completions` with the page image and a JSON schema | Reads one page at 150 dpi |
-| Check | `decide`, `strip_footer`, `quote_found`, `numbers_missing` | | Cuts a trailing page footer off the answer, checks cite, quote and numbers; sets the status and blanks the answer when a check fails |
+| Check | `decide`, `strip_footer`, `quote_found`, `missing_values` (`measures_missing`, `numbers_missing`, `tags_missing`) | | Cuts a trailing page footer off the answer, checks the cite, the quote (short pieces next to their neighbours), and the numbers with their units, plain numbers and tags; sets the status and blanks the answer when a check fails |
 | Per question | `answer_question` | | Ties the above together and writes the reason |
 | SIE failures | `guarded`, `CallLog`, `is_fatal`, `stop_message` | | Transient failure: review; refusal or every call failed: stop, no outputs |
-| Write | `write_outputs`, `render_markdown`, `csv_safe` | | `answers.json`, `answers.csv` (formula-safe cells) and `answers.md` |
+| Write | `write_outputs`, `render_markdown`, `csv_safe` | | `answers.json`, `answers.csv` (formula-safe cells; page and revision blank on rows with no answer, kept in the JSON) and `answers.md` |
 
 `selfcheck.py` runs offline: hand-written stand-in replies and vectors, the committed `data/`, no
-SIE call. It covers the quote length, the number check, the trailing footer cut, the blanked
-answer, the printed-page cite, the revision filter, the status names, the D3 wording, the SIE error
-rule (transient, refusal, every call failed, a reply missing its key) and formula-safe CSV cells.
-`make_data.py` draws the manual.
+SIE call. It covers the quote length, how close short quote pieces must sit, the number, unit and
+tag checks (with a reviewer's wrong-terminal, wrong-torque, wrong-valve and stitched 75 N m
+answers, all built on the committed manual), the trailing footer cut, the blanked answer, the
+printed-page cite, the revision filter, the status names, the "no reliable match" wording, the SIE
+error rule (transient, refusal, every call failed, a reply missing its key) and formula-safe CSV
+cells. `make_data.py` draws the manual.
 
 ## Run it
 
@@ -198,7 +206,7 @@ embedding and answer models.
 > only metadata is its file name as the title and a fixed date (29 Oct 2026); no author or
 > software tags.
 
-**The planted cases**, from the live run on 2026-11-03 13:47 UTC (`runs/20261103T134740Z`):
+**The planted cases**, from the live run on 2026-11-03 14:31 UTC (`runs/20261103T143143Z`):
 
 | Question | Unit (revision) | Planted | Planned | Came out | Why |
 | --- | --- | --- | --- | --- | --- |
@@ -226,15 +234,16 @@ synthetic manual can't tell you how this does on yours.
   revision B strainer page scored 0.664 and was never read; for Q10 (revision B) the revision C
   page scored 0.677 and was never read. Each read only its own page and answered with the right
   torque (20 N m and 25 N m). In the run before this one (`runs/20261103T000738Z`), the same two
-  answers went to `review`: the model had copied the page footer onto the end of each answer
-  ("... in a cross pattern.", a line break, then "Page 8 of 8"; we saw that reply in a one-off
-  call, since the recipe blanks a failed answer), and the number check found an 8 the quote
-  doesn't have. The 31 Oct run had the same habit on Q6 (`... in a cross pattern. page_number:
-  8`), which passed back then because nothing looked at the answer. A footer is page furniture,
-  not part of the answer, so the recipe now cuts a tail matching `answer.trailing_footer` off the
-  end of the answer before the check and before showing it. Only the very end is cut: a "Page 8
-  of 8" inside the answer is still checked, and `selfcheck.py` covers both. Every score in the two
-  runs was the same. Here's Q10 from `answers.json`:
+  answers went to `review`: the model had copied the page footer onto the end of each answer ("...
+  in a cross pattern.", a line break, then "Page 8 of 8"; we saw that reply in a one-off call,
+  since the recipe blanks a failed answer), and the number check found an 8 the quote doesn't have.
+  The 31 Oct run had a similar habit on Q6 (`... in a cross pattern. page_number: 8`), which passed
+  back then because nothing looked at the answer. That one is the JSON key leaking into the answer,
+  not a footer, so it is not cut and its 8 would still be checked. A footer is page furniture, not
+  part of the answer, so the recipe now cuts a tail matching `answer.trailing_footer` off the end
+  of the answer before the check and before showing it. Only the very end is cut: a "Page 8 of 8"
+  inside the answer is still checked, and `selfcheck.py` covers both. Every score was the same in
+  all four runs on 3 Nov. Here's Q10 from `answers.json`:
 
 ```json
 {"id": "Q10", "asset": "CH-01", "manual_revision": "B", "status": "quote_checked",
@@ -268,7 +277,8 @@ synthetic manual can't tell you how this does on yours.
 ```
 
 The run made 31 SIE calls (19 `encode`: 9 pages and 10 questions; 12 `chat_completions`) and took
-51 s with both models already warm (the run before it took 28 s).
+48 s with both models already warm. Earlier warm runs the same day took 28 s, 51 s and 46 s, so
+read that as "under a minute", not a benchmark.
 
 **Earlier runs** (29 and 31 October 2026). The default profile is not billed. Every `encode` to
 `TomoroAI/tomoro-colqwen3-embed-4b` failed at once with HTTP 503 `missing rate for
@@ -301,6 +311,13 @@ page for [visual document search](https://superlinked.com/visual-document-search
 - **Your footer.** `answer.trailing_footer` matches this manual's "Page N of M". If your manual
   prints something else at the bottom of the page (a document number, a revision line), add it
   there, and keep the pattern anchored to the end of the answer so it can't eat a real value.
+- **Two labelled pieces can still be stitched.** Long quote pieces may come from different parts of
+  a page, which a real diagram quote needs (Q3 quotes two terminal rows and the sentence under the
+  drawing). The unit check stops a value borrowed from a different kind of label (75 N m from
+  "O-ring 75 x 3 mm"), but not one with the same unit: "Refrigerant charge" plus "Weight, empty 210
+  kg" from the spec table still passes next to "the refrigerant charge is 210 kg" (we checked that
+  offline). A model that reports which label each value belongs to, checked against the page's
+  layout, would close that.
 - **Prerequisites on another page.** Pages are read one at a time and the first checked quote
   wins, so an answer like "open V3" doesn't bring along the cool-down warning on page 1. Showing
   the cited page itself, and linked safety pages, to the technician before they act would cover

@@ -33,7 +33,7 @@ Output:    answers.json, answers.csv and answers.md: per question quote_checked,
            and the top pages with their scores. The technician decides what to do.
 Why SIE:   The pages are searched as images, so a label inside a diagram is found without OCR.
            Both models are SIE Cloud calls; ranking, cite checks and statuses are plain Python.
-Runs on:   SIE Cloud.
+Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -477,9 +477,13 @@ def ask_page(
 
 
 QUOTE_MARKS = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
-# A standalone number: 20, 4.6, 1/2. Not one inside a tag or part number (V3, TB1, E07, R-513A,
-# BTS-2207, 4-20 mA), which the lookarounds keep out.
-NUMBER = re.compile(r"(?<![A-Za-z0-9.,/-])\d+(?:[.,/]\d+)*(?![A-Za-z0-9-])")
+# A number in running text: 20, 4.6, 1/2, -15, and one glued to its unit (25Nm, 4.6kg, 6months,
+# 3x). Not one that belongs to a tag or part number, i.e. right after a letter or a letter and a
+# hyphen (V3, TB1, E07, R-513A, BTS-2207); those are TAG tokens.
+NUMBER = re.compile(r"(?<![A-Za-z0-9.,/\-\u2212])(?<![A-Za-z][-\u2212])[-\u2212]?\d+(?:[.,/]\d+)*")
+# A tag or part number: a word that starts with a letter and has a digit in it (V1, TB1, E07,
+# S1, R-513A, BTS-2207, CR-220).
+TAG = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*")
 
 
 def normalize(text: str) -> str:
@@ -487,24 +491,39 @@ def normalize(text: str) -> str:
     return " ".join(text.split()).strip(" .\"'").casefold()
 
 
-def quote_found(quote: str, source: str, min_chars: int) -> bool:
-    """Check the quote is printed on the page and at least `min_chars` long.
+def quote_found(quote: str, source: str, min_chars: int, max_gap: int) -> bool:
+    """Check the quote is printed on the page, long enough to mean something, and not stitched
+    together from far-apart bits.
 
-    A quote shortened with "..." or split over lines (several labels of one diagram) passes when
-    every piece appears on the page, in order. This says the quote is in the manual; it says
-    nothing about whether the answer is right.
+    A quote shortened with "..." or split over lines (several labels of one diagram) is split
+    into pieces. Every piece must be on the page, in order, and together at least `min_chars`
+    long. A piece shorter than `min_chars` (a tag like "V3", a terminal number, a bare value) only
+    counts when it sits at most `max_gap` characters from the piece next to it on the page, so
+    "V3" next to "reservoir drain" passes but "V1" from one end of the drawing and "reservoir
+    drain" from the other does not. Two long pieces may come from different parts of the page.
+    This says the quote is in the manual; it says nothing about whether the answer is right.
     """
     pieces = [normalize(piece) for piece in re.split(r"\.\.\.|…|\n", quote)]
     pieces = [piece for piece in pieces if piece]
     if not pieces or sum(len(piece) for piece in pieces) < min_chars:
         return False
-    haystack, start = normalize(source), 0
-    for piece in pieces:
+    haystack = normalize(source)
+
+    def placed(index: int, start: int) -> bool:
+        """Can pieces[index:] be found from `start` on, keeping short pieces next to their
+        neighbours? `start` is where the previous piece ended."""
+        if index == len(pieces):
+            return True
+        piece = pieces[index]
+        glued = index > 0 and min(len(piece), len(pieces[index - 1])) < min_chars
         found = haystack.find(piece, start)
-        if found < 0:
-            return False
-        start = found + len(piece)
-    return True
+        while found >= 0 and not (glued and found - start > max_gap):
+            if placed(index + 1, found + len(piece)):
+                return True
+            found = haystack.find(piece, found + 1)
+        return False
+
+    return placed(0, 0)
 
 
 def strip_footer(answer: str, pattern: str) -> str:
@@ -516,10 +535,68 @@ def strip_footer(answer: str, pattern: str) -> str:
     return re.sub(pattern, "", answer, count=1, flags=re.IGNORECASE).strip()
 
 
+def numbers(text: str) -> list[str]:
+    """The numbers in the text, with a typographic minus written as "-"."""
+    return [n.replace("\u2212", "-") for n in NUMBER.findall(text)]
+
+
+def tags(text: str) -> list[str]:
+    """The tags and part numbers in the text, upper case."""
+    return [t.upper() for t in TAG.findall(text) if any(c.isdigit() for c in t)]
+
+
 def numbers_missing(answer: str, quote: str) -> list[str]:
-    """The standalone numbers in the answer that the quote does not contain, in order."""
-    quoted = set(NUMBER.findall(quote))
-    return list(dict.fromkeys(n for n in NUMBER.findall(answer) if n not in quoted))
+    """The numbers in the answer that the quote does not contain, in order."""
+    quoted = set(numbers(quote))
+    return list(dict.fromkeys(n for n in numbers(answer) if n not in quoted))
+
+
+def _spaced(spelling: str) -> str:
+    """A regex for a unit spelling where a space may also be no space ("N m" matches "Nm")."""
+    return re.escape(spelling).replace(r"\ ", r"\s*")
+
+
+def measures(text: str, units: dict[str, str]) -> list[tuple[str, str, str]]:
+    """Every number written with a unit from `units`, as (number, unit, as written).
+
+    The unit is the one `units` maps the spelling to, so "20 N m", "20Nm" and "20 Nm" all give
+    ("20", "Nm", ...) and "-15 °C" gives ("-15", "C", ...).
+    """
+    spellings = sorted(units, key=len, reverse=True)
+    pattern = "|".join(_spaced(spelling) for spelling in spellings)
+    found = re.finditer(rf"({NUMBER.pattern})\s*({pattern})(?![A-Za-z0-9])", text)
+    result = []
+    for match in found:
+        spelled = " ".join(match.group(2).split())
+        unit = next(units[sp] for sp in spellings if re.fullmatch(_spaced(sp), spelled))
+        result.append((match.group(1).replace("\u2212", "-"), unit, match.group(0)))
+    return result
+
+
+def measures_missing(answer: str, quote: str, units: dict[str, str]) -> list[str]:
+    """The numbers-with-units in the answer that the quote does not have with the same unit
+    ("75 N m" when the quote only has "75 x 3 mm"), as the answer writes them."""
+    quoted = {(number, unit) for number, unit, _ in measures(quote, units)}
+    missing = [w for n, u, w in measures(answer, units) if (n, u) not in quoted]
+    return list(dict.fromkeys(missing))
+
+
+def missing_values(answer: str, quote: str, asked: str, checks: dict[str, Any]) -> list[str]:
+    """Every value in the answer the quote doesn't back: numbers with units ("75 N m"), plain
+    numbers ("25") and tags ("V1"). A number already named with its unit isn't named again."""
+    units = checks["units"]
+    with_units = measures_missing(answer, quote, units)
+    named = {n for n, _, written in measures(answer, units) if written in with_units}
+    plain = [n for n in numbers_missing(answer, quote) if n not in named]
+    return with_units + plain + tags_missing(answer, quote, asked)
+
+
+def tags_missing(answer: str, quote: str, asked: str = "") -> list[str]:
+    """The tags in the answer (V1, TB1, E07, R-513A) that neither the quote nor the question
+    contains, in order. A tag the technician typed in the question (e.g. "CR-220") may be
+    repeated in the answer without being quoted."""
+    known = set(tags(quote)) | set(tags(asked))
+    return list(dict.fromkeys(t for t in tags(answer) if t not in known))
 
 
 # --- Decide -------------------------------------------------------------------------------------
@@ -529,12 +606,15 @@ def cite(page: ManualPage) -> str:
     return f"p. {page.printed} rev {page.revision} ({page.title})"
 
 
-def decide(reply: dict[str, Any] | None, page: ManualPage, rules: dict[str, Any]) -> dict[str, Any]:
+def decide(
+    reply: dict[str, Any] | None, page: ManualPage, rules: dict[str, Any], asked: str = ""
+) -> dict[str, Any]:
     """Keep the LLM's answer as a draft with a checked quote, or send the question to review.
 
     The answer stands only if the LLM says the page answers the question, cites the page number
-    printed on the page it was shown, quotes words printed on that page, and every number in its
-    answer (after a trailing page footer is cut, see `strip_footer`) is in the quote. Otherwise
+    printed on the page it was shown, quotes words printed on that page, and every number and tag
+    in its answer (after a trailing page footer is cut, see `strip_footer`) is in the quote; a tag
+    may also come from the question `asked`. Otherwise
     the answer text is left blank: an answer whose check failed is not shown as an answer.
     """
     statuses = rules["statuses"]
@@ -548,7 +628,7 @@ def decide(reply: dict[str, Any] | None, page: ManualPage, rules: dict[str, Any]
         "cited_page": None,
         "cite_verified": False,
         "quote_verified": False,
-        "numbers_verified": False,
+        "values_verified": False,
     }
     if reply is None:
         return result | {
@@ -559,14 +639,15 @@ def decide(reply: dict[str, Any] | None, page: ManualPage, rules: dict[str, Any]
     quote = str(reply.get("quote", "")).strip()
     cited = reply.get("page_number")
     cite_ok = isinstance(cited, int) and not isinstance(cited, bool) and cited == page.printed
-    quote_ok = quote_found(quote, page.text, rules["answer"]["min_quote_chars"])
-    missing = numbers_missing(answer, quote) if rules["answer"]["numbers_in_quote"] else []
+    checks = rules["answer"]
+    quote_ok = quote_found(quote, page.text, checks["min_quote_chars"], checks["max_gap_chars"])
+    missing = missing_values(answer, quote, asked, checks) if checks["values_in_quote"] else []
     result |= {
         "quote": quote,
         "cited_page": cited,
         "cite_verified": cite_ok,
         "quote_verified": quote_ok,
-        "numbers_verified": not missing,
+        "values_verified": not missing,
     }
     if reply.get("found") is not True or not answer:
         reason = f"{cite(page)} does not answer it."
@@ -574,8 +655,9 @@ def decide(reply: dict[str, Any] | None, page: ManualPage, rules: dict[str, Any]
         reason = f"{cite(page)}: the answer cites page {cited}, not the page shown."
     elif not quote_ok:
         reason = (
-            f'{cite(page)}: the quote "{quote}" is not printed on the page, or is shorter than '
-            f"{rules['answer']['min_quote_chars']} characters."
+            f'{cite(page)}: the quote "{quote}" is not printed on the page as given (too '
+            f"short, out of order, or a piece under {checks['min_quote_chars']} characters that "
+            "is not next to the rest)."
         )
     elif missing:
         reason = (
@@ -603,7 +685,7 @@ EMPTY_RESULT: dict[str, Any] = {
     "cited_page": None,
     "cite_verified": False,
     "quote_verified": False,
-    "numbers_verified": False,
+    "values_verified": False,
 }
 
 
@@ -689,7 +771,7 @@ def answer_question(
                 "reason": f"{cite(pages[number])}: {failed}."
             }
         else:
-            result = decide(reply, pages[number], rules)
+            result = decide(reply, pages[number], rules, question.text)
         if result["status"] == statuses["quote_checked"]:
             return row | result | {"reason": result["reason"] + missing_note}
         attempts.append(result)
@@ -769,6 +851,9 @@ def write_outputs(output_dir: Path, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             top = row["top_pages"][0]["score"] if row["top_pages"] else ""
             values = {**row, "top_score": top}
+            if not row["answer"]:
+                # A page and revision with no answer read like a cite; the JSON keeps them.
+                values |= {"page": "", "revision": ""}
             writer.writerow(
                 [csv_safe("" if values[key] is None else values[key]) for key in CSV_FIELDS]
             )
