@@ -1,11 +1,10 @@
 [project]
-name = "sie-inspection-reports"
+name = "sie-check-returned-item"
 version = "0.1.0"
-description = "Read mill certificates and inspection reports for incoming steel and check them against spec."
+description = "Check a returned item's photos against the sale before a store takes it back."
 requires-python = ">=3.12"
 dependencies = [
     "pillow>=12.3.0,<13",
-    "pypdfium2>=5.14.0",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
     "sie-sdk>=0.10.1",

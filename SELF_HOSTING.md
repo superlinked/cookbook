@@ -24,13 +24,13 @@ for every model it calls. Grouped:
 | Images | Recipes |
 | --- | --- |
 | `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging) |
-| `cuda12-transformers5` | [inspection_photos](manufacturing/inspection_photos) |
-| `cuda12-default` + `cuda12-sglang-vision-extract` | [inspection_reports](manufacturing/inspection_reports) |
-| `cuda12-sglang` + `cuda12-sglang-vision-extract` | [copilot_prompt_screening](security/copilot_prompt_screening) |
-| `cuda12-default` + `cuda12-transformers5` | [work_order_closeout](manufacturing/work_order_closeout), [customer_email_routing](retail/customer_email_routing), [phishing_triage](security/phishing_triage) |
-| `cuda12-default` + `cuda13-sglang-cu130` | [equipment_manual_qa](manufacturing/equipment_manual_qa) |
-| `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [return_item_check](retail/return_item_check) |
-| `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [shelf_inventory_check](retail/shelf_inventory_check) |
+| `cuda12-transformers5` | [check_bolts_in_photos](manufacturing/check_bolts_in_photos) |
+| `cuda12-default` + `cuda12-sglang-vision-extract` | [check_steel_delivery](manufacturing/check_steel_delivery) |
+| `cuda12-sglang` + `cuda12-sglang-vision-extract` | [screen_copilot_prompts](security/screen_copilot_prompts) |
+| `cuda12-default` + `cuda12-transformers5` | [close_out_work_order](manufacturing/close_out_work_order), [route_customer_emails](retail/route_customer_emails), [triage_phishing_reports](security/triage_phishing_reports) |
+| `cuda12-default` + `cuda13-sglang-cu130` | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual) |
+| `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_returned_item](retail/check_returned_item) |
+| `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_shelf_stock](retail/check_shelf_stock) |
 
 Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB), except where a
 note below says otherwise.

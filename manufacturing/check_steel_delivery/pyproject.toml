@@ -1,10 +1,9 @@
 [project]
-name = "sie-equipment-manual-qa"
+name = "sie-check-steel-delivery"
 version = "0.1.0"
-description = "Answer maintenance questions from the equipment manual, diagrams included, with a checked page quote."
+description = "Read mill certificates and inspection reports for incoming steel and check them against spec."
 requires-python = ">=3.12"
 dependencies = [
-    "numpy>=2",
     "pillow>=12.3.0,<13",
     "pypdfium2>=5.14.0",
     "python-dotenv>=1.2.4",

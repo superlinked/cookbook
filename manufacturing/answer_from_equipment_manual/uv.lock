@@ -901,7 +901,7 @@ wheels = [
 ]
 
 [[package]]
-name = "sie-equipment-manual-qa"
+name = "sie-answer-from-equipment-manual"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

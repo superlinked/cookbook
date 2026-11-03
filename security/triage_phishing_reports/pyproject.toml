@@ -1,5 +1,5 @@
 [project]
-name = "sie-phishing-triage"
+name = "sie-triage-phishing-reports"
 version = "0.1.0"
 description = "Triage emails reported as phishing, pull their IOCs and propose blocklist entries."
 requires-python = ">=3.12"

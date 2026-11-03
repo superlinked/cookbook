@@ -1,5 +1,5 @@
 [project]
-name = "sie-customer-email-routing"
+name = "sie-route-customer-emails"
 version = "0.1.0"
 description = "Route each customer email to the right care team, with safety and legal escalated first."
 requires-python = ">=3.12"
