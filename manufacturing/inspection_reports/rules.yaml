@@ -1,0 +1,135 @@
+# The receiving quality team's rules and every threshold the recipe uses.
+# Limits and thresholds are starting points, not tuned values. The strength limits follow the
+# shape of EN 10025-2 for structural plate and the thickness bands the shape of EN 10029; check
+# every number against the current standard and your own purchase specification before use.
+
+models:
+  ocr: lightonai/LightOnOCR-3-4B          # each scanned page to Markdown
+  extract: fastino/gliner2-large-v1       # the certificate's and report's fields, per text window
+
+thresholds:
+  render_dpi: 150            # render each PDF page at this resolution before OCR
+  max_image_edge_px: 2048    # LightOnOCR's recommended longest edge
+  min_page_chars: 80         # an OCR page shorter than this is "unreadable" and goes to review
+  # GLiNER2 reads at most 512 tokens per item; 180 words is about 512 tokens, not a guarantee
+  # (an over-long window fails its call and sends the lot to review). Windows overlap so a
+  # "Label | value" pair cut at a window edge is still seen whole in the next one.
+  window_words: 180
+  window_overlap_words: 30
+  # Plates delivered past the ordered quantity before a PO line is `over_delivered`. 0: any.
+  over_delivery_allowance: 0
+
+# Mechanical limits per ordered grade, in MPa. The minimum yield strength depends on the
+# nominal thickness: the first band whose `up_to_mm` covers it applies. A mill test value
+# exactly on the limit passes; one past it fails. `impact` is the Charpy V-notch minimum
+# energy and the temperature the test must be done at (or colder), as the grade's suffix
+# implies (JR at +20 C, J2 at -20 C).
+grades:
+  S355J2+N:
+    yield_min_mpa: [{up_to_mm: 16, min: 355}, {up_to_mm: 40, min: 345}]
+    tensile_mpa: {min: 470, max: 630}
+    impact: {min_j: 27, test_temp_c: -20}
+  S275JR:
+    yield_min_mpa: [{up_to_mm: 16, min: 275}, {up_to_mm: 40, min: 265}]
+    tensile_mpa: {min: 410, max: 560}
+    impact: {min_j: 27, test_temp_c: 20}
+  S235JR:
+    yield_min_mpa: [{up_to_mm: 16, min: 235}, {up_to_mm: 40, min: 225}]
+    tensile_mpa: {min: 360, max: 510}
+    impact: {min_j: 27, test_temp_c: 20}
+
+# Strength units accepted on certificates and their factor to MPa. Any other unit, or none,
+# sends the value to review.
+strength_units:
+  mpa: 1
+  n/mm2: 1
+  ksi: 6.894757
+
+# Dimensional tolerances for the measured characteristics on the inspection report, in mm,
+# against the PO's nominal size. Thickness depends on the nominal: the band with
+# over_mm < nominal <= up_to_mm applies. `guard_mm` is the measuring instrument's uncertainty:
+# a reading inside the limits but within guard_mm of one goes to review, because the gauge
+# cannot tell it from a reading just outside.
+dimensions:
+  thickness:
+    bands:
+      - {over_mm: 5, up_to_mm: 8, minus: 0.4, plus: 0.8}
+      - {over_mm: 8, up_to_mm: 15, minus: 0.5, plus: 0.9}
+      - {over_mm: 15, up_to_mm: 25, minus: 0.6, plus: 1.0}
+      - {over_mm: 25, up_to_mm: 40, minus: 0.8, plus: 1.2}
+    guard_mm: 0.02
+  width: {minus: 0, plus: 20, guard_mm: 1}
+  length: {minus: 0, plus: 25, guard_mm: 2}
+
+# The inspection plan: every reading the inspector has to record on each plate, as the quality
+# system holds it. Each must be on the report exactly once; a missing one, or one written twice
+# with different values, sends `dimensions` to review. The first word picks the tolerance under
+# `dimensions`.
+inspection_plan: [Thickness T1, Thickness T2, Thickness T3, Thickness T4, Width, Length]
+
+# The inspection report's measurement table: the header row names these columns, and every row
+# under it with the right number of cells is one reading.
+measurement_columns:
+  characteristic: [characteristic, feature, dimension]
+  nominal: [nominal (mm), nominal]
+  measured: [measured (mm), measured, actual]
+
+# The delivery note's line table: the header row names these columns, and every row under it
+# with the right number of cells is one delivered line. Size is thickness x width x length.
+delivery_columns:
+  po_number: [po number, purchase order, po]
+  po_line: [line, po line]
+  item: [item, item number]
+  grade: [grade, steel grade]
+  size: [size (mm), size]
+  heat_number: [heat number, heat no, cast number]
+  quantity: [qty, quantity, qty (plates)]
+
+# Inspectors qualified to sign receiving inspection reports. Compared without case or spaces.
+qualified_inspectors: [R. Castellanos, M. Abernethy, S. Oyelaran]
+
+# The fields GLiNER2 is asked to find in each kind of document. `description` goes into the
+# output_schema. A field that is not read sends the check that needs it to review.
+#
+# `label`: the value only counts when the model's span sits on a line carrying one of these
+# labels, and the recorded value is the whole cell after the label. The model finds the field;
+# Python takes the cell. This stops a chemistry value being taken for a strength, or the
+# certificate date for the inspection date.
+documents:
+  certificate:
+    heat_number: {description: heat number or cast number of the steel, label: [heat number, heat no, cast number, cast no]}
+    grade: {description: steel grade designation such as S355J2+N, label: [steel grade, grade]}
+    thickness: {description: nominal plate thickness in mm, label: [thickness]}
+    yield_strength: {description: measured yield strength ReH value with unit, label: [yield strength, reh]}
+    tensile_strength: {description: measured tensile strength Rm value with unit, label: [tensile strength, rm]}
+    impact_energy: {description: Charpy impact energy KV value in joules, label: [impact energy, kv]}
+    issue_date: {description: date the certificate was issued, label: [date of issue, issue date]}
+  inspection_report:
+    heat_number: {description: heat number of the inspected plate, label: [heat number, heat no]}
+    inspector: {description: name of the inspector who did the inspection, label: [inspector]}
+    inspection_date: {description: date of the inspection, label: [date of inspection, inspection date]}
+
+# Lot status: any fail makes the lot `nonconforming` (quarantine it; a quality engineer
+# confirms and raises the NCR); otherwise any review makes it `review`; otherwise
+# `checks_passed`, which is not a release: the quality engineer decides. Nothing is scrapped,
+# returned or released automatically.
+checks:
+  readable: Every page has enough OCR text to read, and every SIE call for it succeeded
+  po_line: The delivery note line names a PO line whose item, grade and size match
+  heat_number: The heat number on the certificate and on the inspection report is the one on the delivery note
+  conflicting_values: No field was read twice with two different values
+  grade: The certificate grade is the ordered grade
+  thickness: The certificate's nominal thickness is the ordered thickness
+  yield_strength: Yield strength at or above the grade minimum for the ordered thickness
+  tensile_strength: Tensile strength inside the grade range
+  impact_energy: Charpy impact energy at or above the grade minimum, tested at or below its temperature
+  dimensions: Every reading on the inspection plan there once, inside tolerance and outside the guard band
+  inspector: The report names an inspector on the qualified list
+  dates: The certificate is dated on or before receipt; the inspection on or after it
+
+# Heat numbers compare after dropping spaces, hyphens, dots and slashes, without case.
+# Grades compare after dropping spaces, without case.
+heat_number_separators: ' -./'
+
+# Date formats accepted on documents, tried in order.
+date_formats: ["%Y-%m-%d", "%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d.%m.%Y", "%m/%d/%Y"]
