@@ -1,0 +1,11 @@
+photo,work_order,assembly,x,y,width,height,planted
+FL-101,WO-4101,pipe_flange_8,0,0,640,640,complete: 8 of 8 bolts
+FL-102,WO-4102,pipe_flange_8,640,0,640,640,1 bolt missing
+FL-103,WO-4103,pipe_flange_8,1280,0,640,640,2 bolts missing
+FL-104,WO-4104,pipe_flange_8,1920,0,640,640,"near miss: complete, plus a spare bolt on the bench"
+FL-105,WO-4105,pipe_flange_8,0,640,640,640,escalate: out of focus and underexposed
+FL-106,WO-4106,pipe_flange_8,640,640,640,640,escalate: a rag covers one bolt position
+CV-201,WO-4201,cover_plate_6,1280,640,640,640,complete: 6 of 6 bolts
+CV-202,WO-4202,cover_plate_6,1920,640,640,640,1 bolt missing
+FL-107,WO-4107,pipe_flange_8,0,1280,640,640,"near miss: 1 bolt missing, a loose bolt lying on the flange across the empty hole"
+FL-108,WO-4108,pipe_flange_8,640,1280,640,640,"near miss: complete, one position fitted with a socket-head cap screw"
