@@ -1,0 +1,10 @@
+{"id": "Q1", "asked_by": "line operator", "asset": "CH-03", "manual_revision": "C", "question": "The chiller display shows E07. What does that mean and what should I do?"}
+{"id": "Q2", "asked_by": "maintenance technician", "asset": "CH-03", "manual_revision": "C", "question": "Which valve do I open to drain the coolant reservoir?"}
+{"id": "Q3", "asked_by": "controls engineer", "asset": "CH-03", "manual_revision": "C", "question": "Which terminals do I wire a remote start switch to?"}
+{"id": "Q4", "asked_by": "refrigeration technician", "asset": "CH-03", "manual_revision": "C", "question": "How much refrigerant is in the CR-220?"}
+{"id": "Q5", "asked_by": "maintenance planner", "asset": "CH-03", "manual_revision": "C", "question": "How often should the condenser coil be cleaned?"}
+{"id": "Q6", "asked_by": "maintenance technician", "asset": "CH-03", "manual_revision": "C", "question": "What torque do the strainer cover bolts need?"}
+{"id": "Q7", "asked_by": "line operator", "asset": "CH-03", "manual_revision": "C", "question": "What does the amber lamp on the front panel mean?"}
+{"id": "Q8", "asked_by": "maintenance technician", "asset": "CH-03", "manual_revision": "C", "question": "What torque should the pump impeller nut be tightened to?"}
+{"id": "Q9", "asked_by": "maintenance technician", "asset": "CH-03", "manual_revision": "C", "question": "What is the part number of the pump seal kit for the CR-220?"}
+{"id": "Q10", "asked_by": "maintenance technician", "asset": "CH-01", "manual_revision": "B", "question": "What torque do the strainer cover bolts need?"}

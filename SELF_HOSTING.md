@@ -24,8 +24,11 @@ for every model it calls. Grouped:
 | Images | Recipes |
 | --- | --- |
 | `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging) |
+| `cuda12-transformers5` | [inspection_photos](manufacturing/inspection_photos) |
+| `cuda12-default` + `cuda12-sglang-vision-extract` | [inspection_reports](manufacturing/inspection_reports) |
 | `cuda12-sglang` + `cuda12-sglang-vision-extract` | [copilot_prompt_screening](security/copilot_prompt_screening) |
-| `cuda12-default` + `cuda12-transformers5` | [customer_email_routing](retail/customer_email_routing), [phishing_triage](security/phishing_triage) |
+| `cuda12-default` + `cuda12-transformers5` | [work_order_closeout](manufacturing/work_order_closeout), [customer_email_routing](retail/customer_email_routing), [phishing_triage](security/phishing_triage) |
+| `cuda12-default` + `cuda13-sglang-cu130` | [equipment_manual_qa](manufacturing/equipment_manual_qa) |
 | `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [return_item_check](retail/return_item_check) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [shelf_inventory_check](retail/shelf_inventory_check) |
 

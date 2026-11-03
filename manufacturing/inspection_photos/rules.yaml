@@ -1,0 +1,50 @@
+# The inspection rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. The score thresholds were set after looking
+# at SAM 3's scores on the synthetic demo photos; check all of them against your own photos.
+
+models:
+  detect: facebook/sam3   # finds the part, every bolt and every empty hole from text prompts
+
+# Checked in Python before any SIE call. A photo that fails is retaken, not counted.
+photo_quality:
+  min_sharpness: 50.0     # variance of the Laplacian of the grey image; lower is out of focus
+  min_brightness: 60.0    # mean grey level, 0 to 255; lower is underexposed
+
+detection:
+  bolt_prompt: bolt                  # a fitted bolt (nut, washer and stud end)
+  hole_prompt: hole                  # an empty bolt hole: the evidence that a bolt is missing
+  score_threshold: 0.20              # sent to SAM 3: it returns nothing scoring at or below this
+  dedupe_iou: 0.50                   # two boxes of one kind overlapping this much are one object.
+                                     # A box whose centre lies inside another box of the same
+                                     # kind is also the same object (SAM 3 boxes a nut and its
+                                     # washer separately).
+
+# Each assembly the line inspects: the prompt that finds the part, its shape and how many bolts
+# a complete one shows (from the drawing or BOM). A photo's assembly comes from data/photos.csv,
+# as the work order in the MES would give it.
+assemblies:
+  pipe_flange_8:
+    description: 8-bolt pipe flange, seen face on
+    part_prompt: flange
+    shape: round        # round: a bolt counts only inside the ellipse the part box encloses
+    expected_bolts: 8
+  cover_plate_6:
+    description: 6-bolt inspection cover plate
+    part_prompt: metal plate
+    shape: rectangle    # rectangle: a bolt counts inside the part box
+    expected_bolts: 6
+
+thresholds:
+  min_part_score: 0.50     # no part box at or above this: the inspector looks at the photo
+  bolt_sure: 0.60          # a bolt at or above this is counted
+  bolt_unsure: 0.30        # a bolt between bolt_unsure and bolt_sure is unsure; below, ignored
+  hole_sure: 0.70          # an empty hole at or above this is evidence of a missing bolt.
+                           # A sure hole under a sure bolt (bolt_sure or more) is a conflict:
+                           # the photo goes to the inspector, whichever scores higher
+  hole_unsure: 0.40        # a hole between hole_unsure and hole_sure is a possible hole. It is
+                           # never evidence of a missing bolt, and never ignored: on a complete
+                           # count, or under a sure bolt, the photo goes to the inspector
+  part_margin: 0.03        # the part box is grown by this share of its size before the
+                           # inside test, so a bolt on the rim still counts
+  min_bolt_size: 0.04      # a bolt or hole box smaller than this share of the part box's
+  max_bolt_size: 0.30      # shorter side, or larger than this, is ignored (a speck, the bore)

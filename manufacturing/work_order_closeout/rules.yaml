@@ -1,0 +1,82 @@
+# Picklists, the field schema and every threshold the recipe uses.
+# The three picklists are our own, written for this recipe in the style of ISO 14224 (failure
+# mode, failure mechanism, maintenance activity); they are not copied from the standard or from
+# any CMMS. Replace them with your CMMS's own lists: one entry per code.
+# Thresholds are starting points, not tuned values. Check them against your own work orders.
+
+models:
+  codes: fastino/GLiNER2.5-Decide   # picks problem, cause and remedy codes from the picklists
+  fields: fastino/gliner2-large-v1  # pulls component, actions, parts, labor, downtime, follow-up
+
+# One GLiNER2.5-Decide choice question per picklist. Each entry's `label` and `description`
+# become one option. The model reads the question and every option with each window, in about
+# 512 tokens, and the question may take at most half of that: keep descriptions short.
+# An entry with `code: null` means "the notes don't say": it fills nothing and leaves the
+# field blank.
+picklists:
+  problem:
+    question: What problem did the technician find on the equipment?
+    options:
+      - {code: LEAK, label: leak, description: "fluid or gas escaping from a seal, gasket, joint or pipe"}
+      - {code: VIB, label: vibration, description: "abnormal vibration, knocking or noise"}
+      - {code: OHE, label: overheating, description: "running hotter than normal, high temperature"}
+      - {code: ELF, label: electrical fault, description: "trip, blown fuse, burnt contactor, failed wiring"}
+      - {code: BRK, label: breakage, description: "part cracked, snapped or broken"}
+      - {code: WEAR, label: worn part, description: "part worn, eroded, glazed or loose from use"}
+      - {code: INS, label: instrument fault, description: "sensor, gauge or meter reading wrong"}
+      - {code: NOF, label: no fault found, description: "checked the reported problem and found nothing wrong"}
+      - {code: null, label: not stated, description: "the notes don't say what was wrong"}
+  cause:
+    question: Why did the equipment fail, according to the notes?
+    options:
+      - {code: WEAR, label: wear, description: "normal wear from use, erosion, abrasion"}
+      - {code: AGE, label: aging, description: "material hardened, cracked or degraded with age"}
+      - {code: MISAL, label: misalignment, description: "shafts, coupling or belt out of alignment"}
+      - {code: LOOSE, label: looseness, description: "loose bolts, fixings or connections"}
+      - {code: OVLD, label: overload, description: "electrical overload or overcurrent"}
+      - {code: CORR, label: corrosion, description: "rust or chemical attack"}
+      - {code: CONT, label: contamination, description: "dirt, debris or water in the system"}
+      - {code: null, label: not stated, description: "the notes don't say why it failed"}
+  remedy:
+    question: What did the technician do to fix it?
+    options:
+      - {code: REPL, label: replace, description: "fitted a new part in place of the old one"}
+      - {code: REPAIR, label: repair, description: "repaired, rewelded or rebuilt the part"}
+      - {code: ADJ, label: adjust, description: "realigned, retensioned, tightened or recalibrated"}
+      - {code: CLEAN, label: clean, description: "cleaned, flushed or cleared a blockage"}
+      - {code: INSP, label: inspect only, description: "checked or inspected, no repair needed"}
+      - {code: null, label: not stated, description: "the notes don't say what was done"}
+
+# What gliner2-large-v1 is asked for, per window. Every value must be words from the notes.
+fields:
+  component: {type: string, description: "the part of the equipment that failed or was worked on, such as mechanical seal"}
+  actions: {type: list, description: "what the technician did, such as replaced seal or realigned coupling"}
+  parts_used: {type: list, description: "a spare part fitted, with its quantity and part number, such as 2 x bearing 6205-2RS"}
+  labor: {type: string, description: "labor hours spent on the job, such as 3.5 h"}
+  downtime: {type: string, description: "how long the equipment or line was down, such as 45 min or 02:10 to 04:00"}
+  follow_up: {type: string, description: "further work recommended or still needed, such as replace guard next shutdown"}
+
+# Fields the CMMS needs on every closed order. A required field left blank is flagged.
+required: [problem, remedy, actions]
+
+# Asset tags in the notes, as your site writes them. A tag that isn't the booked asset flags
+# the form. Matched with plain regex over the notes, not by a model.
+asset_tag_pattern: '\b[A-Z]{1,3}-\d{3}\b'
+
+thresholds:
+  min_code_score: 0.50        # top option probability below this: the code is flagged
+  min_code_margin: 0.15       # top-1 minus top-2 probability below this: the code is flagged
+  max_crew: 4                 # labor hours may be at most this many people x the order's hours
+  max_words_per_window: 120   # longer notes are split into windows of this many words
+  batch_size: 25              # windows per GLiNER2.5-Decide call
+
+# Plain-word rules the models can't be trusted with, matched on whole words, any case.
+cues:
+  # Notes that say the reported problem wasn't there. The problem field becomes no_fault_code
+  # (null: blank) and is flagged for a person to confirm, whatever code the model picked.
+  no_fault: [no leak, no fault found, none found, nothing found, no defect, not found]
+  no_fault_code: NOF
+  # Remedy codes that mean a part went in: with no part booked, parts used is flagged.
+  remedy_needs_part: [REPL]
+  # Notes that mention more work to do: with no follow-up extracted, the follow-up is flagged.
+  follow_up: [follow-up, follow up, recommend, raise a, needs replacing]

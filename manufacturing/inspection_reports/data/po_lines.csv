@@ -1,0 +1,13 @@
+po_number,line,item,supplier,grade,thickness_mm,width_mm,length_mm,ordered_qty,received_qty
+PO-48213,1,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,6,0
+PO-48213,2,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,10,0
+PO-48213,3,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,8,6
+PO-48213,4,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,4,0
+PO-48230,1,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,5,0
+PO-48230,2,41010,Harrowgate Steelworks Ltd,S275JR,10,2000,6000,5,0
+PO-48244,1,41215,Harrowgate Steelworks Ltd,S355J2+N,15,2000,6000,6,0
+PO-48244,2,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,6,0
+PO-48251,1,40808,Harrowgate Steelworks Ltd,S235JR,8,2000,6000,6,0
+PO-48251,2,41220,Harrowgate Steelworks Ltd,S355J2+N,20,2000,6000,6,0
+PO-48251,3,41215,Harrowgate Steelworks Ltd,S355J2+N,15,2000,6000,6,0
+PO-48251,4,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,6,0
