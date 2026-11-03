@@ -55,6 +55,15 @@ requests (one request can carry many items).
 | [Check a returned item against the sale before taking it back](retail/return_item_check) | GLM-OCR, Qwen3.8-27B-FP8 | 15 | 31 s |
 | [Route customer emails to the right team](retail/customer_email_routing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
 
+### Manufacturing
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Draft the work-order completion form from a technician's notes](manufacturing/work_order_closeout) | GLiNER2.5-Decide, gliner2-large-v1 | 14 | 4 s |
+| [Check a steel delivery against its purchase order and mill certificates](manufacturing/inspection_reports) | LightOnOCR-3-4B, gliner2-large-v1 | 52 | 3 min |
+| [Answer maintenance questions from the equipment manual](manufacturing/equipment_manual_qa) | tomoro-colqwen3-embed-4b:compact, Qwen3.8-27B-FP8 | 31 | 50 s |
+| [Check every bolt is there in inspection photos](manufacturing/inspection_photos) | sam3 | 9 | 3 s |
+
 ### Security
 
 | Recipe | Models | SIE calls | Run time |
