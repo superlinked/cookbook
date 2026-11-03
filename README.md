@@ -62,7 +62,7 @@ requests (one request can carry many items).
 | [Draft the work-order completion form from a technician's notes](manufacturing/work_order_closeout) | GLiNER2.5-Decide, gliner2-large-v1 | 14 | 4 s |
 | [Check a steel delivery against its purchase order and mill certificates](manufacturing/inspection_reports) | LightOnOCR-3-4B, gliner2-large-v1 | 52 | 3 min |
 | [Answer maintenance questions from the equipment manual](manufacturing/equipment_manual_qa) | tomoro-colqwen3-embed-4b:compact, Qwen3.8-27B-FP8 | 31 | 50 s |
-| [Check every bolt is there in inspection photos](manufacturing/inspection_photos) | sam3 | 9 | 3 s |
+| [Check every bolt is there in inspection photos](manufacturing/inspection_photos) | sam3 | 9 | 6 s |
 
 ### Security
 
