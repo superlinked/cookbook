@@ -1,0 +1,62 @@
+# The maintenance team's rules and every threshold the recipe uses.
+# The thresholds are starting points we did not tune. Check them on your own manuals and questions.
+
+models:
+  # One vector per patch of each page image, and one per query token. We use the model's
+  # `:compact` profile (same weights, at most 768 patch vectors per page instead of 1,280)
+  # because on 29 Oct 2026 SIE Cloud answered every encode on the default profile with
+  # HTTP 503 'missing rate for model=..., profile="default"'.
+  embed: TomoroAI/tomoro-colqwen3-embed-4b:compact
+  answer: Qwen/Qwen3.8-27B-FP8               # reads the best page image and answers with a page cite
+
+render:
+  # Each PDF page is rendered to a PNG at this resolution before it is encoded. Lower means fewer
+  # patch vectors per page (a smaller index); text must stay legible.
+  encode_dpi: 72
+  # The page the LLM reads is rendered sharper, so small diagram labels stay readable.
+  answer_dpi: 150
+
+search:
+  # Page score = MaxSim (each query vector's best match anywhere on the page, summed) divided by
+  # the number of query vectors, so it reads as an average similarity between -1 and 1 however
+  # long the question is. Only pages of the unit's manual revision (from the work order) count.
+  # If none of them scores this much, the status is no_reliable_match and no LLM call is made. A
+  # low score is a hint, not proof the manual doesn't cover the question.
+  min_score: 0.50
+  # How many ranked pages each answer lists, so a reader can check the runners-up.
+  show_top: 3
+
+answer:
+  # The LLM reads the best page and, if that page does not answer, the next page at or above
+  # search.min_score, up to this many pages. A contents page often outranks the page it points to.
+  max_pages: 2
+  max_completion_tokens: 3000   # includes any reasoning the model does first
+  # A quote counts as verified when, after collapsing whitespace and straightening quote marks,
+  # it appears in the text printed on the cited page (data/manual.json) and is at least this long.
+  # A quote split with "..." or over lines (several labels of one diagram) passes when every
+  # piece is on the page, in order. 12 characters, because shorter quotes prove nothing: a tag
+  # ("V3", "S1", "TB1"), a terminal or step number ("2", "8") or a bare value ("20 N m", "4.6 kg")
+  # can sit on a page by coincidence and doesn't say what it belongs to. At 12 the quote has to
+  # carry its label too: "Refrigerant charge 4.6 kg" is 24, "V3" plus "reservoir drain" is 17.
+  min_quote_chars: 12
+  # Every standalone number in the answer (20, 4.6, 1/2) must also be in the quote, so a true
+  # quote can't carry a different value in the answer. Numbers inside tags and part numbers
+  # (V3, TB1, E07, R-513A, BTS-2207) are left out of this check.
+  numbers_in_quote: true
+  # The model sometimes copies the page footer onto the end of its answer ("... in a cross
+  # pattern. Page 8 of 8"). A tail matching this pattern (Python regex, matched case-insensitively
+  # at the very end of the answer only) is cut off before the number check and before the answer
+  # is shown. Nothing else in the answer is touched, so "Page 8" inside a sentence is still
+  # checked. Change it if your manual prints a different footer.
+  trailing_footer: '\s*\(?\bPage\s+\d+\s+of\s+\d+\)?\.?\s*$'
+
+# Every question ends with one of these three statuses. They say what the checks found; the
+# technician decides what to do, from the cited page.
+statuses:
+  # A draft answer with a page cite that matches and a quote printed on that page. The quote is
+  # checked, the answer sentence is not.
+  quote_checked: quote_checked
+  # A page was read but the reply did not hold up, or an SIE call failed. No answer is shown.
+  review: review
+  # No page of the unit's revision scored search.min_score: no reliable match in the pages read.
+  no_reliable_match: no_reliable_match
