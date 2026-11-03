@@ -68,8 +68,8 @@ For each PO line on the delivery, a **fill status** for the buyer:
   extra quantity is shown. The buyer decides whether to keep it or send it back.
 - **`no_po_line`**: the delivered line names no PO line on the order, or names one whose item,
   grade or size doesn't match. Nothing on that line is booked against the order.
-- **`review`**: the delivery note, or a line's quantity, couldn't be read, so no fill status is
-  guessed.
+- **`review`**: the delivery note, or a line's quantity, couldn't be read, or its line table
+  doesn't add up (more on that below), so no fill status is trusted.
 
 For each delivered lot (one delivery line, one heat), a **check status** for the quality
 engineer:
@@ -104,7 +104,13 @@ looks at the plate. Nothing is scrapped, returned, booked or released automatica
    nearly empty goes to review as unreadable.
 3. **Read the delivery note's lines in Python** (PO number and line, item, grade, size, heat,
    quantity), the same way the measurement table is read. We do this first because every later
-   check needs to know which PO line a lot belongs to.
+   check needs to know which PO line a lot belongs to. Then the table has to add up: the rows
+   read must match the number of lines the scan batch has, every row must have all its cells,
+   and the quantities must add up to the note's own "Total plates" line. If any of that fails,
+   or the total can't be read, every PO line on that delivery goes to `review` with the reason
+   (the status the quantities as read would give stays in the detail), and so does each lot's
+   `po_line` check. One misread digit, a dropped row or a row read twice would otherwise turn
+   `partially_filled` into `filled`.
 4. **Match each delivered line to its PO line and work out how full the line is.** The PO number
    and line must exist, and the item, grade and size on the delivery note must agree with the
    order; otherwise the line is `no_po_line`. Then delivered plus previously received (plus any
@@ -120,11 +126,12 @@ looks at the plate. Nothing is scrapped, returned, booked or released automatica
    T1 to T4, Width, Length) has to be there exactly once. A missing row, or a row read twice with
    different values, goes to review. This is the step that stops a form with its one failing row
    missing from passing on the rows that are left.
-7. **Compare everything with the order and the limits.** Heat number on the certificate and the
-   form against the delivery note; grade and thickness as ordered; yield, tensile and impact
-   inside the grade's limits; every reading inside tolerance and outside the gauge's guard band;
-   inspector on the qualified list; certificate dated on or before receipt, inspection on or
-   after. The form's own "Result" column is ignored.
+7. **Compare everything with the order and the limits.** Heat number on the certificate and the form
+   against the delivery note; grade and thickness as ordered; yield, tensile and impact inside the
+   grade's limits, and yield not above tensile (an OCR digit swap like "841" for 418 would pass the
+   yield minimum on its own); every reading inside tolerance and outside the gauge's guard band;
+   inspector on the qualified list; certificate dated on or before receipt, inspection on or after.
+   The form's own "Result" column is ignored.
 8. **Give each lot its status.** Any fail makes it `nonconforming`, otherwise any review makes it
    `review`, otherwise `checks_passed`. A lot on a `no_po_line` line goes to review, since
    there's no order to check its grade, size and limits against; its heat number, inspector and
@@ -147,14 +154,17 @@ reading step has to be OCR. LightOnOCR returns tables as HTML, and writes a form
 next to its value and each reading stays in its column. Neither the OCR model nor the extraction
 model takes a prompt, so there's no instruction in the documents for either to follow.
 
-The field finder is `fastino/gliner2-large-v1`, called through `extract` with an
-`output_schema` (one optional string per field, with the `description` from `rules.yaml`), once
-per window of the flattened certificate or form. GLiNER2 reads at most 512 tokens per item, and
-a window of 180 words is about that, not a guarantee. It's good at pointing at the right box on a
-form it has never seen. It is not something to trust with the value itself, which is why Python
-checks that the span is really in the text and on its label's line, and keeps the whole cell.
-The delivery note's lines and the measurement table are plain tables, so Python reads those
-directly and the model never sees them as fields.
+The field finder is `fastino/gliner2-large-v1`, called through `extract` with an `output_schema`
+(one optional string per field, with the `description` from `rules.yaml`), once per window of the
+flattened certificate or form. GLiNER2 reads at most 512 tokens per item, and a window of 180 words
+is about that, not a guarantee. A window that runs over may come back as an input-too-long error,
+which the recipe treats as a failed call (the lot goes to review), or be cut short by the model
+without telling us, which the recipe can't see; the windows overlap by 30 words so a pair cut at one
+edge is still whole in the next. It's good at pointing at the right box on a form it has never seen.
+It is not something to trust with the value itself, which is why Python checks that the span is
+really in the text and on its label's line, and keeps the whole cell. The delivery note's lines and
+the measurement table are plain tables, so Python reads those directly and the model never sees them
+as fields.
 
 So: two models, the OCR model called once per page and the extraction model once per window,
 and no generative model makes a decision. The PO matching, quantities, limits, tolerances,
@@ -167,8 +177,10 @@ guard bands, heat number match and qualified-inspector list are plain Python rea
 flowchart TD
     PO[PO lines from the ERP<br/>item, grade, size,<br/>ordered, already received] --> MT
     S[Scanned delivery batch<br/>delivery note, certificates,<br/>inspection forms] --> O[LightOnOCR-3-4B on SIE<br/>each page to Markdown]
-    O --> DN[Read the delivery note's<br/>line table]
-    DN --> MT{Line matches a PO line?<br/>PO, line, item, grade, size}
+    O --> DN[Read the delivery note's<br/>line table and total]
+    DN --> TA{Rows match the batch,<br/>all cells, quantities<br/>add up to the total?}
+    TA -- no --> HR[every PO line on the note<br/>and each lot to review]
+    TA -- yes --> MT{Line matches a PO line?<br/>PO, line, item, grade, size}
     MT -- no --> NP[no_po_line<br/>lot to review]
     MT -- yes --> Q[Delivered + already received<br/>vs ordered]
     Q --> FS[filled / partially_filled /<br/>over_delivered]
@@ -204,26 +216,31 @@ the strength and impact limits per grade (the yield minimum depends on thickness
 thickness bands and the width and length tolerances, each gauge's guard band, the inspection
 plan, the delivery note and measurement table columns, the over-delivery allowance, the
 qualified inspectors, the fields GLiNER2 is asked to find with their labels, and every
-threshold. [`recipe.py`](./recipe.py) is about 1,200 lines and reads top to bottom in the same
+threshold. [`recipe.py`](./recipe.py) is about 1,270 lines and reads top to bottom in the same
 order as the flow.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Load the order | `load_po_lines`, `load_receipts` | none | The PO lines as the ERP exports them, and which scanned page is which |
 | Read each page | `read_page`, `flatten_markdown` | `extract` (image) | One call per page. Each form box becomes "Label \| value" and each table row one line |
-| Delivery lines | `table_rows` | none | Every row under the header naming PO number, line, item, grade, size, heat and quantity |
+| Delivery lines | `table_rows`, `note_total`, `delivery_problems` | none | Every row under the header naming PO number, line, item, grade, size, heat and quantity. A row with a different number of cells is a problem, not the end of the table. The rows must match the scan batch's line count and the quantities must add up to the note's "Total plates" line, or the delivery's PO lines go to review |
 | Match and fill | `match_po_line`, `fill_status`, `settle_fills` | none | PO number and line must exist; item, grade and size must agree; delivered plus already received against ordered, summed over every line of the run for the same PO line |
 | Find the fields | `extract_fields`, `labelled_cell`, `impact_temperature` | `extract` + `output_schema` | One call per window, one item per call. A span must be in the text and on a line carrying the field's label; the value is that whole cell. A span is cut at its first line break, since a flattened cell never spans two. Two different values for one field go to review. The Charpy test temperature is read from the impact label ("KV at -20 °C") in Python |
 | Readings | `table_rows`, `check_dimensions`, `judge_measurement` | none | Every reading on the inspection plan exactly once, inside its tolerance and outside the guard band |
-| Checks | `check_lot`, `check_heat`, `check_strengths`, `check_impact` | none | Heat against the delivery note; grade, thickness, yield, tensile and impact against the PO line and the grade; inspector; dates |
+| Checks | `check_lot`, `check_heat`, `check_strengths`, `check_impact` | none | Heat against the delivery note; grade, thickness, yield, tensile and impact against the PO line and the grade; yield not above tensile; inspector; dates |
 | SIE failures | `Calls.call`, `is_fatal`, `stop_message`, `stop_on_refusal` | none | A transient failure or a reply missing its key sends the lot to review; a refusal, or every call failing, stops the run without outputs |
-| Outputs | `write_outputs`, `csv_safe` | none | `po-lines.csv`, `lots.csv`, `review-queue.csv` and `lots/<lot>.json`; any cell a spreadsheet would run as a formula gets a leading `'` |
+| Outputs | `write_outputs`, `csv_safe` | none | `po-lines.csv`, `lots.csv`, `review-queue.csv` and `lots/<lot>.json`. In `lots.csv` and the JSON, `po_line` is the PO line the delivery note claims and `po_line_matched` says whether it matched the order. Any cell a spreadsheet would run as a formula gets a leading `'` |
 
 [`selfcheck.py`](./selfcheck.py) checks all of this offline with hand-written OCR pages and
-stand-in model replies: the PO matching and fill statuses, the inspection plan (the missing T3
-row, a reading written twice with different values), the impact check, conflicting field
-values, `csv_safe`, the committed data (including that the PDFs carry no metadata), and the SIE
-failure rule with a transient error, a refusal, every call failing and a reply missing its key.
+stand-in model replies: the PO matching and fill statuses; the delivery note's table (a quantity
+misread as 8 against a total of 6, a row read twice, a dropped row, a row missing a cell, no
+total); the inspection plan (the missing T3 row, a reading written twice with different values,
+a row missing a cell); the strength limits on and just below the minimum, the yield band by
+thickness, yield above tensile, the guard band, a heat mismatch and dates out of order; the
+impact check; conflicting field values; `csv_safe`; the committed data (including that the PDFs
+carry no metadata); and the SIE failure rule with a transient error, a refusal, every call
+failing, a reply missing its key, an OCR reply with no markdown, and the empty-result 500
+counted as "nothing found" only from the extraction model.
 [`make_data.py`](./make_data.py) draws the scanned pages and writes the PO lines and receipts.
 
 ## Run it
@@ -242,7 +259,7 @@ uv run make_data.py    # optional: rewrite data/
 writes `runs/<timestamp>/` in this folder. A run makes 52 SIE calls on this data: 28 to the OCR
 model (one per page) and 24 to the extraction model (one per window). The first calls can wait
 a few minutes while SIE Cloud starts the OCR and extraction models; our first run on
-2026-11-03 (UTC) took 341 s, and a warm run took 190 s.
+2026-11-03 (UTC) took 341 s, and warm runs took 188 to 190 s.
 
 ## What came out
 
@@ -262,9 +279,10 @@ The input is four deliveries and twelve delivered lots in [`data/`](./data):
 > **All of it is synthetic.** [`make_data.py`](./make_data.py) draws the pages with Pillow as
 > image-only PDFs (what a scanner would give you) and rebuilds them byte for byte. The PDFs
 > carry no document metadata (no title, author or dates). The mill ("Harrowgate Steelworks"),
-> the fabricator ("Calder Fabrication"), the inspectors, the heat numbers and every value are
-> invented, and every page says so in its footer. The strength limits follow the shape of
-> EN 10025-2 and the thickness bands that of EN 10029; they are starting points, so check them
+> the fabricator ("Quillmere Fabrication Ltd (fictional)"), the inspectors, the heat numbers and
+> every value are invented, and every page says so in its footer. The strength limits follow
+> the shape of EN 10025-2; the thickness tolerances are illustrative, in the shape of a plate
+> tolerance table but not the EN 10029 Class A values. Both are starting points, so check them
 > against the current standards and your purchase spec.
 
 | Lot | What we planted | Fill status | Check status | Why |
@@ -283,7 +301,9 @@ The input is four deliveries and twelve delivered lots in [`data/`](./data):
 | `lot-12` | New near miss: S355J2+N with yield and tensile inside the limits, but no impact energy box on the certificate | `filled` | `review`: `impact_energy` | A J2 grade needs a Charpy result; strength alone isn't enough. Before this change, the lot passed |
 
 On our live runs on 2026-11-03 (UTC), all 12 lots came out as planned, both fill status and
-check status, with the settings as first written, and the warm rerun gave the same 12 results.
+check status, with the settings as first written. Two warm reruns gave the same 12 results, the
+last one after the delivery note table check went in; all four delivery notes added up (four,
+two, two and four lines read, matching the scan batches and each note's total).
 Treat that as a demo that the pipeline works, not as a measure of accuracy: twelve lots tell
 you each path through the checks runs, not how often a real scan gets misread.
 
@@ -351,7 +371,7 @@ A few things worth noticing:
   ignored when comparing heat numbers. `qualified_inspectors` stands in for your training
   records. The models are in `models` in `rules.yaml`, one line each.
 - **Born-digital PDFs.** If your certificates arrive as born-digital PDFs, `docling` is an
-  option for the reading step (see [`legal/discovery_parsing`](../../legal/discovery_parsing)).
+  option for the reading step.
 - **What this does not do.** It does not decide what happens to a nonconforming lot, book a
   receipt, accept a concession or judge the mill's test method. It reads the documents, checks
   them against the order and the limits, and puts the exceptions in front of quality and the

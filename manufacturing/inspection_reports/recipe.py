@@ -70,6 +70,7 @@ from sie_sdk.client.errors import (
     ModelLoadFailedError,
     RateLimitError,
     RequestError,
+    ServerError,
     SIEConnectionError,
     SIEError,
 )
@@ -100,7 +101,7 @@ FILLED, PARTIALLY_FILLED, OVER_DELIVERED, NO_PO_LINE = (
 # message. We record it as "no fields found"; a missing field can only send a check to review,
 # never pass it.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"
-LOT_FIELDS = ("lot", "delivery", "po_number", "po_line", "fill_status", "status")
+LOT_FIELDS = ("lot", "delivery", "po_line", "po_line_matched", "fill_status", "status")
 PO_FIELDS = (
     *("po_number", "line", "item", "ordered_qty", "previously_received"),
     *("delivered", "open_qty", "over_qty", "fill_status", "deliveries", "lots", "detail"),
@@ -137,8 +138,15 @@ class LotResult:
     fill_status: str = ""
     fields: dict[str, dict[str, str]] = field(default_factory=dict)  # kind -> field -> value
     measurements: list[dict[str, str]] = field(default_factory=list)
+    table_problems: list[str] = field(default_factory=list)  # irregular measurement rows
     checks: list[Check] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+
+    @property
+    def claimed_po_line(self) -> str:
+        """The PO line the delivery note names for this lot, matched or not; "" if not read."""
+        line = self.delivery_line
+        return f"{line['po_number']} line {line['po_line']}" if line else ""
 
     def with_status(self, status: str) -> list[Check]:
         return [check for check in self.checks if check.status == status]
@@ -157,13 +165,13 @@ class LotResult:
         self.checks.append(Check(check, status, detail))
 
     def as_json(self) -> dict[str, Any]:
-        po = self.po
         return {
             "lot": self.lot,
             "delivery": self.delivery,
             "received": self.received.isoformat(),
             "delivery_line": self.delivery_line,
-            "po_line": f"{po.po_number} line {po.line}" if po else None,
+            "po_line": self.claimed_po_line,
+            "po_line_matched": self.po is not None,
             "fill_status": self.fill_status,
             "status": self.status,
             "fail_checks": [check.check for check in self.with_status(FAIL)],
@@ -191,6 +199,7 @@ class PoLineFill:
     deliveries: list[str] = field(default_factory=list)
     lots: list[str] = field(default_factory=list)
     detail: list[str] = field(default_factory=list)
+    held: list[str] = field(default_factory=list)  # delivery note problems: fill goes to review
 
     def as_row(self) -> dict[str, Any]:
         return {
@@ -298,20 +307,26 @@ class Calls:
     def total(self) -> int:
         return sum(self.count.values())
 
-    def call(self, model: str, work: Callable[[], Any], key: str) -> dict[str, Any]:
+    def call(
+        self, model: str, work: Callable[[], Any], key: str, empty_result_ok: bool = False
+    ) -> dict[str, Any]:
         """Run one SIE call and return its reply, which must carry `key`.
 
         A refusal (see `is_fatal`) stops the run with SIEStopped. Any other SIE error, and a
         reply without `key`, is recorded and raised as CallFailed, so the caller sends its lot
-        to review and the run goes on. SIE Cloud's empty-result HTTP 500 is a reply with
-        nothing in it, not a failure. An error that isn't an SIE error is a bug in this code
-        and is raised as is.
+        to review and the run goes on. With `empty_result_ok` (the GLiNER2 calls), SIE Cloud's
+        empty-result HTTP 500 is a reply with nothing in it, not a failure. An error that isn't
+        an SIE error is a bug in this code and is raised as is.
         """
         self.count[model] = self.count.get(model, 0) + 1
         try:
             reply = jsonable(work())
         except SIEError as error:
-            if EMPTY_RESULT_ERROR in str(error):
+            if (
+                empty_result_ok
+                and isinstance(error, ServerError)
+                and EMPTY_RESULT_ERROR in str(error)
+            ):
                 return {key: {} if key == "data" else [], "empty_result_error": str(error)}
             if is_fatal(error):
                 raise SIEStopped(stop_message(error, model)) from error
@@ -427,16 +442,19 @@ def _page_png(page: pdfium.PdfPage, dpi: int, max_edge: int) -> bytes:
     return buffer.getvalue()
 
 
-def _markdown_entity(response: dict[str, Any]) -> str:
+def _markdown_entity(response: dict[str, Any]) -> str | None:
+    """The page's Markdown; None when the reply's entities hold no markdown entity."""
     for entity in response.get("entities") or []:
         if entity.get("label") == "markdown":
             return str(entity.get("text", ""))
-    return ""
+    return None
 
 
-def read_page(client: SIEClient, calls: Calls, pdf: Path, page: int, rules: dict[str, Any]) -> str:
-    """OCR one page of a scanned PDF (1-based page number). Raises CallFailed on a transient
-    SIE error."""
+def read_page(
+    client: SIEClient, calls: Calls, pdf: Path, page: int, rules: dict[str, Any]
+) -> str | None:
+    """OCR one page of a scanned PDF (1-based page number): its Markdown, or None when the
+    reply carried no markdown entity. Raises CallFailed on a transient SIE error."""
     limits, model = rules["thresholds"], rules["models"]["ocr"]
     document = pdfium.PdfDocument(pdf)
     image = _page_png(document[page - 1], limits["render_dpi"], limits["max_image_edge_px"])
@@ -530,13 +548,17 @@ def labelled_cell(value: str, window: str, labels: list[str]) -> str | None:
     return None
 
 
-def table_rows(flat: str, columns: dict[str, list[str]]) -> list[dict[str, str]]:
-    """Rows of the table whose header row names every column in `columns`.
+def table_rows(flat: str, columns: dict[str, list[str]]) -> tuple[list[dict[str, str]], list[str]]:
+    """Rows of the table whose header row names every column in `columns`, and the rows that
+    could not be read.
 
-    Every line under the header with the header's number of cells is one row; the first line
-    with another number of cells ends the table.
+    Every line under the header with the header's number of cells is one row. A line with a
+    different number of cells (two or more) is a row the OCR split or merged: it is returned
+    as a problem, not read and not skipped silently. The first line with a single cell (the
+    text after the table) ends it.
     """
     rows: list[dict[str, str]] = []
+    irregular: list[str] = []
     header: dict[str, int] | None = None
     width = 0
     for line in flat.splitlines():
@@ -551,11 +573,14 @@ def table_rows(flat: str, columns: dict[str, list[str]]) -> list[dict[str, str]]
             continue
         if header is None:
             continue
-        if len(cells) != width:
+        if len(cells) == 1:
             header = None  # the table ended
             continue
+        if len(cells) != width:
+            irregular.append(f"row '{line}' has {len(cells)} cells, the table has {width}")
+            continue
         rows.append({name: cells[i] for name, i in header.items()})
-    return rows
+    return rows, irregular
 
 
 # --- Extract fields (GLiNER2) -----------------------------------------------------------------
@@ -591,7 +616,7 @@ def extract_fields(
             work = functools.partial(
                 client.extract, model, item, output_schema=schema, provision_timeout_s=WAIT_S
             )
-            response = calls.call(model, work, "data")
+            response = calls.call(model, work, "data", empty_result_ok=True)
         except CallFailed as failure:
             result.add("readable", REVIEW, f"{kind} window {index} was not read: {failure}")
             continue
@@ -688,6 +713,34 @@ def match_po_line(
     if wrong:
         return None, f"{named} on the delivery note says " + ", ".join(wrong)
     return po, ""
+
+
+def note_total(flat: str, label: str) -> int | None:
+    """The delivery note's own total ("Total plates: 20" -> 20); None if it isn't there."""
+    match = re.search(rf"(?<![a-z]){re.escape(label)}\W*(\d+)", flat.casefold())
+    return int(match.group(1)) if match else None
+
+
+def delivery_problems(
+    lines: list[dict[str, str]], irregular: list[str], total: int | None, expected: int
+) -> list[str]:
+    """Why the delivery note's line table can't be trusted as read; [] when it adds up.
+
+    The rows read must match the number of delivery lines the scan batch has, every row must
+    have the table's cells, and the line quantities must add up to the note's own total. A
+    misread digit, a dropped row or a row read twice fails at least one of these.
+    """
+    problems = list(irregular)
+    if len(lines) != expected:
+        problems.append(f"{len(lines)} lines read, the scan batch has {expected}")
+    quantities = [parse_quantity(line["quantity"]) for line in lines]
+    if total is None:
+        problems.append("no total read on the note")
+    elif None not in quantities:
+        added = sum(cast(list[int], quantities))
+        if added != total:
+            problems.append(f"line quantities add up to {added}, the note's total says {total}")
+    return problems
 
 
 def fill_status(ordered: int, received: int, allowance: int) -> tuple[str, int]:
@@ -803,8 +856,9 @@ def check_strengths(
             result.add(name, REVIEW, f"No limits in rules.yaml for ordered grade {po.grade}")
         return
     written = cert.get("yield_strength")
+    yield_value: Decimal | None = None
     if not _unread(result, "yield_strength", {"yield strength": written}):
-        value = parse_strength(str(written), rules)
+        value = yield_value = parse_strength(str(written), rules)
         band = _band(spec["yield_min_mpa"], po.thickness, "up_to_mm")
         if value is None:
             result.add("yield_strength", REVIEW, f"'{written}': number or unit not recognised")
@@ -816,8 +870,9 @@ def check_strengths(
             limit = f"min {minimum} MPa for {po.grade} at {po.thickness} mm"
             result.add("yield_strength", status, f"ReH {value} MPa ('{written}'); {limit}")
     written = cert.get("tensile_strength")
+    tensile_value: Decimal | None = None
     if not _unread(result, "tensile_strength", {"tensile strength": written}):
-        value = parse_strength(str(written), rules)
+        value = tensile_value = parse_strength(str(written), rules)
         low, high = (Decimal(str(spec["tensile_mpa"][k])) for k in ("min", "max"))
         if value is None:
             result.add("tensile_strength", REVIEW, f"'{written}': number or unit not recognised")
@@ -825,6 +880,9 @@ def check_strengths(
             status = PASS if low <= value <= high else FAIL
             limit = f"{low} to {high} MPa for {po.grade}"
             result.add("tensile_strength", status, f"Rm {value} MPa ('{written}'); {limit}")
+    if yield_value is not None and tensile_value is not None and yield_value > tensile_value:
+        detail = f"ReH {yield_value} MPa is above Rm {tensile_value} MPa: a misread or a swap"
+        result.add("strength_order", REVIEW, detail)
     check_impact(cert, po, spec["impact"], result)
 
 
@@ -876,7 +934,7 @@ def check_dimensions(
     nominals = {"thickness": po.thickness, "width": po.width, "length": po.length}
     plan: list[str] = rules["inspection_plan"]
     planned = {_squash(name) for name in plan}
-    problems: dict[str, list[str]] = {FAIL: [], REVIEW: []}
+    problems: dict[str, list[str]] = {FAIL: [], REVIEW: list(result.table_problems)}
     by_name: dict[str, list[dict[str, str]]] = {}
     for row in rows:
         name = _squash(row["characteristic"])
@@ -997,6 +1055,10 @@ def read_documents(
             result.add("readable", REVIEW, f"{where} was not read: {failure}")
             result.fields[kind] = {}
             continue
+        if text is None:
+            result.add("readable", REVIEW, f"{where}: the OCR reply had no markdown text")
+            result.fields[kind] = {}
+            continue
         if len(text.strip()) < rules["thresholds"]["min_page_chars"]:
             result.add("readable", REVIEW, f"{where} could not be read")
         flat = flatten_markdown(text)
@@ -1006,7 +1068,9 @@ def read_documents(
             if temperature is not None and "impact_energy" in fields:
                 fields["impact_test_temp_c"] = str(temperature)
         else:
-            result.measurements = table_rows(flat, rules["measurement_columns"])
+            result.measurements, result.table_problems = table_rows(
+                flat, rules["measurement_columns"]
+            )
         result.fields[kind] = fields
 
 
@@ -1028,12 +1092,20 @@ def process_delivery(
     results = [LotResult(lot["lot"], delivery, received) for lot in receipt["lots"]]
     where = f"delivery note {delivery} ({note['file']} p{note['page']})"
     lines: list[dict[str, str]] = []
+    problems: list[str] = []
     try:
         text = read_page(client, calls, data_dir / note["file"], note["page"], rules)
-        lines = table_rows(flatten_markdown(text), rules["delivery_columns"])
-        unread = f"{where}: no delivery line read" if not lines else ""
     except CallFailed as failure:
         unread = f"{where} was not read: {failure}"
+    else:
+        if text is None:
+            unread = f"{where}: the OCR reply had no markdown text"
+        else:
+            flat = flatten_markdown(text)
+            lines, irregular = table_rows(flat, rules["delivery_columns"])
+            total = note_total(flat, rules["delivery_total_label"])
+            problems = delivery_problems(lines, irregular, total, len(receipt["lots"]))
+            unread = "; ".join([f"{where}: no delivery line read", *problems]) if not lines else ""
     if unread:
         row = fills.setdefault(("", delivery), PoLineFill("", "", fill_status=REVIEW))
         row.deliveries.append(delivery)
@@ -1064,14 +1136,16 @@ def process_delivery(
             else:
                 row.delivered += quantity
         row.deliveries.append(delivery)
+        row.held += [f"{delivery}: {problem}" for problem in problems]
         if name is None:
             row.detail.append(f"{delivery} line {number}: no certificate or report scanned")
             continue
         row.lots.append(name)
         assert result is not None
         result.delivery_line, result.po = line, po
-        if po is None:
-            result.add("po_line", REVIEW, reason)
+        if po is None or problems:
+            reasons = ([reason] if po is None else []) + problems
+            result.add("po_line", REVIEW, f"{delivery}: " + "; ".join(reasons))
         else:
             detail = f"{delivery} line {number}: item, grade and size match {key[0]} line {key[1]}"
             result.add("po_line", PASS, detail)
@@ -1085,17 +1159,23 @@ def process_delivery(
 
 
 def settle_fills(fills: dict[tuple[str, str], PoLineFill], allowance: int) -> None:
-    """Set each matched PO line's fill status from everything delivered on this run."""
+    """Set each matched PO line's fill status from everything delivered on this run.
+
+    A PO line on a delivery note whose line table didn't add up goes to review with the
+    reasons; the status the quantities as read would give is kept in its detail.
+    """
     for row in fills.values():
-        if row.fill_status or row.ordered is None or row.previously_received is None:
-            continue
-        row.fill_status, row.open_qty = fill_status(
-            row.ordered, row.previously_received + row.delivered, allowance
-        )
-        if row.fill_status == OVER_DELIVERED:
-            row.detail.append(f"{plates(-row.open_qty)} over the order")
-        elif row.fill_status == PARTIALLY_FILLED:
-            row.detail.append(f"{plates(row.open_qty)} still open")
+        ordered, before = row.ordered, row.previously_received
+        if not row.fill_status and ordered is not None and before is not None:
+            row.fill_status, row.open_qty = fill_status(ordered, before + row.delivered, allowance)
+            if row.fill_status == OVER_DELIVERED:
+                row.detail.append(f"{plates(-row.open_qty)} over the order")
+            elif row.fill_status == PARTIALLY_FILLED:
+                row.detail.append(f"{plates(row.open_qty)} still open")
+        if row.held:
+            as_read = f"as read: {row.fill_status}"
+            row.detail = [*dict.fromkeys(row.held), as_read, *row.detail]
+            row.fill_status = REVIEW
 
 
 def plates(count: int) -> str:
@@ -1146,8 +1226,8 @@ def write_outputs(output_dir: Path, results: list[LotResult], fills: list[PoLine
         {
             "lot": result.lot,
             "delivery": result.delivery,
-            "po_number": result.po.po_number if result.po else "",
-            "po_line": result.po.line if result.po else "",
+            "po_line": result.claimed_po_line,
+            "po_line_matched": "yes" if result.po else "no",
             "fill_status": result.fill_status,
             "status": result.status,
             "fail_checks": ";".join(check.check for check in result.with_status(FAIL)),

@@ -48,14 +48,18 @@ def cells(*rows: list[str]) -> str:
     return f"<table>{body}</table>"
 
 
-def delivery_note(*lines: list[str]) -> str:
+def delivery_note(*lines: list[str], total: int | None = -1) -> str:
+    """A delivery note page; `total` -1 prints the sum of the numeric quantities, None no total
+    line at all."""
     header = ["PO number", "Line", "Item", "Grade", "Size (mm)", "Heat number", "Qty"]
+    if total == -1:
+        total = sum(int(line[-1]) for line in lines if line[-1].isdigit())
     return (
         "# DELIVERY NOTE\n\n"
         + cells(["Delivery note<br>DN-1", "Dispatch date<br>2026-10-04"])
         + "\n\n"
         + cells(header, *lines)
-        + "\n\nTotal plates: 6\n"
+        + ("" if total is None else f"\n\nTotal plates: {total}\n")
     )
 
 
@@ -206,12 +210,14 @@ def run(
     lots: list[tuple[str, str]] | None = None,
     po_rows: list[str] | None = None,
     rules: dict[str, Any] | None = None,
+    note: str | None = None,
     **stand_in: Any,
 ) -> tuple[list[recipe.LotResult], list[recipe.PoLineFill], StandIn]:
     with tempfile.TemporaryDirectory() as name:
         folder = Path(name)
         lots = lots or [(certificate(), report())]
-        pages = one_delivery(folder, delivery_note(*(lines or [LINE_1])), lots, po_rows)
+        note = note or delivery_note(*(lines or [LINE_1]))
+        pages = one_delivery(folder, note, lots, po_rows)
         client = StandIn(pages, **stand_in)
         with contextlib.redirect_stdout(io.StringIO()):
             results, fills, _ = recipe.run(cast(SIEClient, client), rules or RULES, folder)
@@ -243,9 +249,10 @@ def check_parsing() -> None:
     assert recipe.parse_quantity("six") is None
     assert recipe.parse_energy("64 J") == Decimal(64)
     assert recipe.parse_energy("64") is None
-    lines = recipe.table_rows(
-        recipe.flatten_markdown(delivery_note(LINE_1)), RULES["delivery_columns"]
-    )
+    flat = recipe.flatten_markdown(delivery_note(LINE_1))
+    assert recipe.note_total(flat, RULES["delivery_total_label"]) == 6
+    lines, irregular = recipe.table_rows(flat, RULES["delivery_columns"])
+    assert irregular == []
     assert lines == [
         {
             "po_number": "PO-48213",
@@ -312,11 +319,61 @@ def check_fill_status() -> None:
     assert [(r.fill_status, r.status) for r in results] == [("no_po_line", "review")]
     assert [c.check for c in results[0].flagged] == ["po_line"]
     assert [(f.fill_status, f.delivered) for f in fills] == [("no_po_line", 6)]
+    # The JSON and lots.csv both show the PO line the note claimed, and that it didn't match.
+    assert (results[0].as_json()["po_line"], results[0].as_json()["po_line_matched"]) == (
+        "PO-48213 line 1",
+        False,
+    )
+    with tempfile.TemporaryDirectory() as name:
+        recipe.write_outputs(Path(name), results, fills)
+        text = (Path(name) / "lots.csv").read_text(encoding="utf-8").splitlines()[1]
+        assert text.startswith("lot-01,DN-1,PO-48213 line 1,no,no_po_line,review,"), text
     # A quantity that isn't a number: no fill status is guessed.
     results, fills, _ = run([[*LINE_1[:6], "six"]])
     assert fills[0].fill_status == "review"
     assert results[0].fill_status == "review"
     print("fill status: filled, partial, over, allowance, no PO line, unread quantity ok")
+
+
+def check_delivery_note_table() -> None:
+    """The line table must add up before any fill status is trusted."""
+    po = ["PO-48213,1,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,10,0"]
+
+    def held(note: str, lots: int = 1) -> tuple[list[str], list[str], str]:
+        results, fills, _ = run(lots=[(certificate(), report())] * lots, po_rows=po, note=note)
+        details = [c.detail for r in results for c in r.flagged if c.check == "po_line"]
+        return [f.fill_status for f in fills], details, fills[0].as_row()["detail"]
+
+    # A misread quantity: the note says 6 plates in total, the line was read as 8. Without
+    # the check this PO line (10 ordered) would read partially_filled with 2 open.
+    misread = delivery_note([*LINE_1[:6], "8"], total=6)
+    status, details, detail = held(misread)
+    assert status == ["review"], status
+    assert details == ["DN-1: line quantities add up to 8, the note's total says 6"], details
+    assert detail.endswith("as read: partially_filled; 2 plates still open"), detail
+    # A row read twice: one more line than the scan batch has, and the quantities add to 12.
+    status, details, _ = held(delivery_note(LINE_1, LINE_1, total=6))
+    assert status == ["review"], status
+    assert details[0] == (
+        "DN-1: 2 lines read, the scan batch has 1; "
+        "line quantities add up to 12, the note's total says 6"
+    ), details
+    # A dropped row: the batch has two lines, one was read, and the total says 8.
+    status, details, _ = held(delivery_note(LINE_1, total=8), lots=2)
+    assert status == ["review"], status
+    assert "1 lines read, the scan batch has 2" in details[0], details
+    # A row with a cell missing does not end the table quietly.
+    broken = delivery_note(LINE_1[:6])
+    status, details, _ = held(broken)
+    assert status == ["review"], status
+    assert "has 6 cells, the table has 7" in details[0], details
+    # No total line on the note.
+    status, details, _ = held(delivery_note(LINE_1, total=None))
+    assert details == ["DN-1: no total read on the note"], details
+    # A note that adds up passes.
+    status, details, _ = held(delivery_note(LINE_1))
+    assert (status, details) == (["partially_filled"], []), (status, details)
+    print("delivery note: misread quantity, duplicated row, dropped row, bad row, no total ok")
 
 
 def check_statuses() -> None:
@@ -333,7 +390,7 @@ def check_statuses() -> None:
     with tempfile.TemporaryDirectory() as name:
         recipe.write_outputs(Path(name), results, fills)
         lots = (Path(name) / "lots.csv").read_text(encoding="utf-8").splitlines()
-        assert lots[1] == "lot-01,DN-1,PO-48213,1,filled,checks_passed,,", lots
+        assert lots[1] == "lot-01,DN-1,PO-48213 line 1,yes,filled,checks_passed,,", lots
         assert (Path(name) / "po-lines.csv").read_text(encoding="utf-8").splitlines()[1] == (
             "PO-48213,1,41212,6,0,6,0,0,filled,DN-1,lot-01,"
         )
@@ -355,6 +412,13 @@ def check_inspection_plan() -> None:
     # Written twice with the same value is one reading.
     results, _, _ = run(lots=[(certificate(), report([*PLAN_ROWS, PLAN_ROWS[0]]))])
     assert results[0].status == "checks_passed", statuses(results)
+    # A row with a cell missing is a review reason, not the end of the table.
+    rows = [PLAN_ROWS[0], ["Thickness T2", "12.11"], *PLAN_ROWS[2:]]
+    results, _, _ = run(lots=[(certificate(), report(rows))])
+    (check,) = [c for c in results[0].checks if c.check == "dimensions"]
+    assert check.status == "review", check
+    assert "has 4 cells, the table has 5" in check.detail, check.detail
+    assert "Thickness T2 not read" in check.detail, check.detail
     # A row that is not on the plan.
     rows = [*PLAN_ROWS, ["Flatness", "0", "3"]]
     results, _, _ = run(lots=[(certificate(), report(rows))])
@@ -365,6 +429,59 @@ def check_inspection_plan() -> None:
     results, _, _ = run(lots=[(certificate(), report(rows))])
     assert statuses(results)[0][1:] == ("nonconforming", ["dimensions"])
     print("inspection plan: missing T3, conflicting repeat, same repeat, extra row, fail ok")
+
+
+def check_spec_boundaries() -> None:
+    """Strength limits, the yield band, the guard band, heat numbers and dates."""
+
+    def checks(cert: str = "", form: str = "", po: list[str] | None = None) -> dict[str, Any]:
+        lines = [LINE_1]
+        if po:
+            lines = [[*LINE_1[:4], po[1], LINE_1[5], LINE_1[6]]]
+            po = [po[0]]
+        results, _, _ = run(lines, [(cert or certificate(), form or report())], po)
+        return {c.check: (c.status, c.detail) for c in results[0].checks}
+
+    # Yield on the 355 minimum passes, 354 fails; 341 is lot-05's.
+    assert checks(certificate(yield_strength="355 MPa"))["yield_strength"][0] == "pass"
+    assert checks(certificate(yield_strength="354 MPa"))["yield_strength"][0] == "fail"
+    # The band follows the ordered thickness: 348 passes at 20 mm (min 345), fails at 12.
+    po20 = ["PO-48213,1,41212,Harrowgate Steelworks Ltd,S355J2+N,20,2000,6000,6,0"]
+    rows20 = [
+        [name, "20.00" if "Thick" in name else nom, "20.10" if "Thick" in name else got]
+        for name, nom, got in PLAN_ROWS
+    ]
+    cert20 = certificate(yield_strength="348 MPa").replace("12.00 mm", "20.00 mm")
+    got = checks(cert20, report(rows20), [po20[0], "20x2000x6000"])
+    assert got["yield_strength"] == (
+        "pass",
+        "ReH 348 MPa ('348 MPa'); min 345 MPa for S355J2+N at 20 mm",
+    ), got["yield_strength"]
+    assert checks(certificate(yield_strength="348 MPa"))["yield_strength"][0] == "fail"
+    # An OCR digit swap that puts yield above tensile ("841" for 418) goes to review.
+    got = checks(certificate(yield_strength="841 MPa"))
+    assert got["strength_order"][0] == "review", got
+    assert got["yield_strength"][0] == "pass"  # above the minimum, so only the order catches it
+    # The guard band: 11.53 passes (0.03 inside), 11.52 is review (0.02), 11.49 fails.
+    for reading, status in [("11.53", "pass"), ("11.52", "review"), ("11.49", "fail")]:
+        rows = [PLAN_ROWS[0], ["Thickness T2", "12.00", reading], *PLAN_ROWS[2:]]
+        assert checks(form=report(rows))["dimensions"][0] == status, reading
+    # A heat number that differs from the delivery note's goes to review; "A-41873" doesn't.
+    got = checks(certificate(heat="A41837"))
+    assert got["heat_number"] == (
+        "review",
+        "Delivery note says A41873; certificate says 'A41837'",
+    ), got["heat_number"]
+    assert checks(certificate(heat="A-41873"))["heat_number"][0] == "pass"
+    # Dates out of order: a certificate issued after the delivery arrived.
+    late = certificate().replace("2026-09-28", "2026-10-07")
+    assert checks(late)["dates"] == (
+        "review",
+        "Certificate 2026-10-07, received 2026-10-05, inspected 2026-10-06",
+    ), checks(late)["dates"]
+    early = report().replace("October 6, 2026", "October 4, 2026")
+    assert checks(form=early)["dates"][0] == "review"
+    print("spec boundaries: yield on/below minimum, band, order, guard band, heat, dates ok")
 
 
 def check_impact() -> None:
@@ -481,6 +598,15 @@ def check_sie_failure() -> None:
     results, _, _ = run(errors={"extract/lot-01/inspection_report": [empty]})
     assert "readable" not in [c.check for c in results[0].flagged]
     assert any("no fields found" in note for note in results[0].notes)
+    # The empty-result 500 is only "nothing found" from the extraction model: from the OCR
+    # model it's a failed call.
+    results, _, _ = run(errors={"ocr/mill-certificates": [empty]})
+    assert results[0].flagged[0].check == "readable", results[0].flagged
+    assert "the SIE call failed: ServerError" in results[0].flagged[0].detail
+    # An OCR reply with entities but no markdown entity says so.
+    results, _, _ = run(replies={"ocr/mill-certificates": {"entities": []}})
+    detail = results[0].flagged[0].detail
+    assert detail == "certificate (mill-certificates.pdf p1): the OCR reply had no markdown text"
     # Every call failed (a dead SIE_BASE_URL): the run stops, with the full message.
     long = "connection refused " + "x" * 300
     dead = {"": [SIEConnectionError(long) for _ in range(20)]}
@@ -567,6 +693,7 @@ def check_committed_data() -> None:
     for name, spec in RULES["grades"].items():
         assert {"min_j", "test_temp_c"} <= set(spec["impact"]), name
     assert len(RULES["inspection_plan"]) == 6
+    assert make_data.CUSTOMER.endswith("(fictional)"), make_data.CUSTOMER
     print("committed data: 4 deliveries, 12 lots, no PDF metadata, planted quantities ok")
 
 
@@ -574,7 +701,9 @@ if __name__ == "__main__":
     check_parsing()
     check_po_matching()
     check_fill_status()
+    check_delivery_note_table()
     check_statuses()
+    check_spec_boundaries()
     check_inspection_plan()
     check_impact()
     check_conflicting_fields()

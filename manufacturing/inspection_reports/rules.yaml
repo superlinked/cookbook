@@ -1,7 +1,8 @@
 # The receiving quality team's rules and every threshold the recipe uses.
 # Limits and thresholds are starting points, not tuned values. The strength limits follow the
-# shape of EN 10025-2 for structural plate and the thickness bands the shape of EN 10029; check
-# every number against the current standard and your own purchase specification before use.
+# shape of EN 10025-2 for structural plate; the thickness tolerances are illustrative, not the
+# EN 10029 Class A values. Check every number against the current standard and your own
+# purchase specification before use.
 
 models:
   ocr: lightonai/LightOnOCR-3-4B          # each scanned page to Markdown
@@ -11,9 +12,11 @@ thresholds:
   render_dpi: 150            # render each PDF page at this resolution before OCR
   max_image_edge_px: 2048    # LightOnOCR's recommended longest edge
   min_page_chars: 80         # an OCR page shorter than this is "unreadable" and goes to review
-  # GLiNER2 reads at most 512 tokens per item; 180 words is about 512 tokens, not a guarantee
-  # (an over-long window fails its call and sends the lot to review). Windows overlap so a
-  # "Label | value" pair cut at a window edge is still seen whole in the next one.
+  # GLiNER2 reads at most 512 tokens per item; 180 words is about 512 tokens, not a guarantee.
+  # A window that runs over may come back as an input-too-long error (a failed call: the lot
+  # goes to review) or be cut short by the model without telling us; the recipe can't see a
+  # silent cut. Windows overlap so a "Label | value" pair cut at a window edge is still seen
+  # whole in the next one.
   window_words: 180
   window_overlap_words: 30
   # Plates delivered past the ordered quantity before a PO line is `over_delivered`. 0: any.
@@ -46,10 +49,11 @@ strength_units:
   ksi: 6.894757
 
 # Dimensional tolerances for the measured characteristics on the inspection report, in mm,
-# against the PO's nominal size. Thickness depends on the nominal: the band with
-# over_mm < nominal <= up_to_mm applies. `guard_mm` is the measuring instrument's uncertainty:
-# a reading inside the limits but within guard_mm of one goes to review, because the gauge
-# cannot tell it from a reading just outside.
+# against the PO's nominal size. They are illustrative, in the shape of a plate tolerance
+# table; they are not the EN 10029 Class A values, so take yours from the standard and the PO.
+# Thickness depends on the nominal: the band with over_mm < nominal <= up_to_mm applies.
+# `guard_mm` is the measuring instrument's uncertainty: a reading inside the limits but within
+# guard_mm of one goes to review, because the gauge cannot tell it from a reading just outside.
 dimensions:
   thickness:
     bands:
@@ -76,6 +80,10 @@ measurement_columns:
 
 # The delivery note's line table: the header row names these columns, and every row under it
 # with the right number of cells is one delivered line. Size is thickness x width x length.
+# A row with another number of cells, a row count that differs from the scan batch's, or
+# line quantities that don't add up to the note's own total (the number after
+# `delivery_total_label`) send every PO line on that delivery to review.
+delivery_total_label: total plates
 delivery_columns:
   po_number: [po number, purchase order, po]
   po_line: [line, po line]
@@ -115,13 +123,14 @@ documents:
 # returned or released automatically.
 checks:
   readable: Every page has enough OCR text to read, and every SIE call for it succeeded
-  po_line: The delivery note line names a PO line whose item, grade and size match
+  po_line: The delivery note line names a PO line whose item, grade and size match, on a note whose line table adds up
   heat_number: The heat number on the certificate and on the inspection report is the one on the delivery note
   conflicting_values: No field was read twice with two different values
   grade: The certificate grade is the ordered grade
   thickness: The certificate's nominal thickness is the ordered thickness
   yield_strength: Yield strength at or above the grade minimum for the ordered thickness
   tensile_strength: Tensile strength inside the grade range
+  strength_order: Yield strength not above tensile strength (a misread digit or a swap)
   impact_energy: Charpy impact energy at or above the grade minimum, tested at or below its temperature
   dimensions: Every reading on the inspection plan there once, inside tolerance and outside the guard band
   inspector: The report names an inspector on the qualified list

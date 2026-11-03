@@ -1,9 +1,10 @@
 """Write the synthetic receiving files in data/: delivery notes, certificates, reports, PO lines.
 
-Everything is invented. The steel mill ("Harrowgate Steelworks"), the fabricator ("Calder
-Fabrication"), the inspectors, the heat numbers and every test value are made up, and every page
-says so in its footer. The certificate follows the usual layout of an EN 10204 type 3.1
-inspection certificate for structural plate; it is not a real mill's certificate.
+Everything is invented. The steel mill ("Harrowgate Steelworks"), the fabricator ("Quillmere
+Fabrication", marked fictional in its name), the inspectors, the heat numbers and every test
+value are made up, and every page says so in its footer. The certificate follows the usual
+layout of an EN 10204 type 3.1 inspection certificate for structural plate; it is not a real
+mill's certificate.
 
     uv run make_data.py
 
@@ -31,7 +32,7 @@ DATA_DIR = ROOT / "data"
 
 DPI = 150
 MILL = "Harrowgate Steelworks Ltd"
-CUSTOMER = "Calder Fabrication Ltd"
+CUSTOMER = "Quillmere Fabrication Ltd (fictional)"
 INK = (25, 25, 30)
 GREY = (95, 95, 110)
 MONTHS = [
@@ -489,7 +490,7 @@ def draw_delivery_note(delivery: Delivery) -> Image.Image:
         230,
         [
             [("Delivery note", delivery.note), ("Dispatch date", dispatched.isoformat())],
-            [("Customer", CUSTOMER), ("Delivery address", "Goods-in, Unit 4, Calder Works")],
+            [("Customer", CUSTOMER), ("Delivery address", "Goods-in, Unit 4, Quillmere Works")],
         ],
     )
     rows = [["PO number", "Line", "Item", "Grade", "Size (mm)", "Heat number", "Qty"]]
