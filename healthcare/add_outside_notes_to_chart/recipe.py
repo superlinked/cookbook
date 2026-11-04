@@ -1002,6 +1002,9 @@ def add_problems(
     for value in dropped:
         draft.notes.append(f"Dropped problem '{value}': not in the note")
     shown = int(rules["thresholds"]["code_candidates_shown"])
+    assessment = [
+        squash(line) for line in note_lines(text) if re.match(rules["assessment_item"], line)
+    ]
     for problem in dedupe(values):
         said = mentions(problem, note_sentences) or [problem]
         state, sentence = problem_state(problem, said, rules)
@@ -1010,6 +1013,14 @@ def add_problems(
             draft.left_out.append(
                 {"kind": "problem", "item": problem, "reason": why, "sentence": sentence}
             )
+            # A negation cue outside a numbered assessment line ("No complications from type 2
+            # diabetes") may not negate the problem itself; the line check below covers those.
+            if state == "negated" and not any(squash(sentence) in line for line in assessment):
+                draft.flag(
+                    CLINICIAN,
+                    f"problem:{problem}",
+                    f"read as negated and left out: '{sentence}': check it",
+                )
             continue
         if state == "uncertain":
             draft.flag(CLINICIAN, f"problem:{problem}", f"given as uncertain: '{sentence}'")

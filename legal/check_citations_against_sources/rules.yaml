@@ -21,6 +21,9 @@ draft:
   # A sentence left with at most this many words once its citations are taken out is a citation
   # sentence: it cites for the sentence before it.
   max_citation_sentence_words: 2
+  # A parenthetical starting with one of these says what a case did ("(construing § 12)"); a
+  # section sign inside it is not one the draft cites, so the section count skips it.
+  explanatory_verbs: [construing, citing, quoting, holding, applying, interpreting, discussing]
 
 jurisdiction:
   # Which jurisdictions bind a court in each jurisdiction (the court comes from the docket). An

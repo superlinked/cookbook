@@ -379,9 +379,9 @@ def rank_clauses(
 ) -> tuple[list[tuple[Clause, float]] | None, str]:
     """Every clause with its reranker score, best first; or None and why the call failed.
 
-    A reply without `scores`, one that doesn't score every clause exactly once, or a score that
-    isn't a number, is a failed call on the transient path: a clause the reranker never scored
-    can't be ranked out."""
+    A reply without `scores`, one with an entry that isn't an object, one that doesn't score
+    every clause exactly once, or a score that isn't a number, is a failed call on the
+    transient path: a clause the reranker never scored can't be ranked out."""
     model = rules["models"]["rerank"]
     by_id = {clause.clause_id: clause for clause in clauses}
 
@@ -396,7 +396,9 @@ def rank_clauses(
         scores = reply.get("scores") if isinstance(reply, dict) else None
         if not isinstance(scores, list):
             raise SIEError("the reply has no `scores`")
-        ids = [str(entry.get("item_id")) for entry in scores if isinstance(entry, dict)]
+        if not all(isinstance(entry, dict) for entry in scores):
+            raise SIEError("the reply has a score entry that is not an object")
+        ids = [str(entry.get("item_id")) for entry in scores]
         if sorted(ids) != sorted(by_id):
             raise SIEError(f"the reply scores {len(set(ids) & set(by_id))} of {len(by_id)} clauses")
         ranked: list[tuple[Clause, float]] = []

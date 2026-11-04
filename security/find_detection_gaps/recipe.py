@@ -463,16 +463,24 @@ def window_labels(
 ) -> tuple[dict[str, str], list[str]]:
     """Model label per entity text, plus a note for each span that fails the checks.
 
-    A span must carry one of our labels and its text must be exactly the window text at its
-    offsets.
+    A span must be an object with one of our labels and whole-number offsets, and its text must
+    be exactly the window text at those offsets.
     """
     labels: dict[str, str] = {}
     notes: list[str] = []
     allowed = set(rules["entity_labels"])
     for raw in result.get("entities") or []:
+        if not isinstance(raw, dict):
+            notes.append(f"invalid span from the model dropped: {raw!r}")
+            continue
         start, end, text = raw.get("start"), raw.get("end"), str(raw.get("text", ""))
         label = str(raw.get("label", ""))
-        if label in allowed and start is not None and end is not None and window[start:end] == text:
+        if (
+            label in allowed
+            and isinstance(start, int)
+            and isinstance(end, int)
+            and window[start:end] == text
+        ):
             labels.setdefault(name_key(text), label)
         else:
             notes.append(f"invalid span from the model dropped: {raw!r}")
@@ -546,6 +554,10 @@ def window_claims(
     claims: list[Claim] = []
     dropped: list[Dropped] = []
     for raw in result.get("relations") or []:
+        # A relation must be an object, and its score (0.0 when missing) a number.
+        if not isinstance(raw, dict) or not isinstance(raw.get("score", 0.0), (int, float)):
+            notes.append(f"invalid relation from the model dropped: {raw!r}")
+            continue
         checked = check_relation(report, window, raw, labels, table, rules)
         if isinstance(checked, Claim):
             claims.append(checked)

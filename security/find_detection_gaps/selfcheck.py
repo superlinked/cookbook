@@ -471,6 +471,21 @@ assert {(e.head, e.relation, e.tail) for e in graph.edges} == {
 # An entity span whose text is not the window text at its offsets is dropped with a note.
 bad = {"entities": [{"text": "Velvet Gorse", "label": ACTOR, "start": 1, "end": 13}]}
 assert recipe.window_labels("Velvet Gorse used it.", bad, RULES)[0] == {}
+# Malformed items are dropped with a note, not a crash: a non-object or a float offset in
+# entities, a non-object or a null or non-numeric score in relations.
+gorse = {"text": "Velvet Gorse", "label": ACTOR, "start": 0, "end": 12}
+malformed = {
+    "entities": ["Velvet Gorse", gorse | {"start": 0.0}],
+    "relations": [
+        "Velvet Gorse uses Thornpipe",
+        {"head": "Velvet Gorse", "relation": "uses", "tail": "Thornpipe", "score": None},
+        {"head": "Velvet Gorse", "relation": "uses", "tail": "Thornpipe", "score": "high"},
+    ],
+}
+report = recipe.Report("R-X", "p", "2026-01-01", "t", "Velvet Gorse used Thornpipe.")
+checked = recipe.window_claims(report, report.text, malformed, TABLE, RULES)
+assert (checked[0], checked[1], len(checked[2])) == ([], [], 5), checked
+assert all(note.startswith("invalid ") for note in checked[2]), checked
 print("pipeline: dropped relations ok")
 
 # Mermaid: quotes escaped, one ID per node, dashed unless multi_publisher, red for review.

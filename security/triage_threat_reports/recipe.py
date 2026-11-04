@@ -523,9 +523,18 @@ def model_entities(
     entities: list[Entity] = []
     notes: list[str] = []
     for raw in result["entities"]:
+        if not isinstance(raw, dict):
+            notes.append(f"invalid span from the model dropped: {raw!r}")
+            continue
         start, end, text = raw.get("start"), raw.get("end"), str(raw.get("text", ""))
         kind, score = kinds.get(str(raw.get("label", ""))), raw.get("score")
-        if kind is None or None in (start, end, score) or window[start:end] != text:
+        if (
+            kind is None
+            or not isinstance(start, int)
+            or not isinstance(end, int)
+            or not isinstance(score, (int, float))
+            or window[start:end] != text
+        ):
             notes.append(f"invalid span from the model dropped: {raw!r}")
             continue
         start, end = offset + start, offset + end

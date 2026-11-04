@@ -330,6 +330,12 @@ def check_unknown_reporter_warning() -> None:
     assert any(
         "2 section citations by the look of them but 1 were read" in w for w in chart.warnings
     ), chart.warnings
+    # A section sign in a case's explanatory parenthetical is not a statute citation.
+    assert (
+        recipe.count_sections(["Ardley, 214 Westm. 2d 377 (2019) (construing § 12)."], RULES) == 0
+    )
+    assert recipe.count_sections(["Westm. Rev. Code § 23.40.020(a) (2021)."], RULES) == 1
+    assert recipe.count_sections(["Ardley, 214 Westm. 2d 377 (see Other Code § 5)."], RULES) == 1
     print("totals: a citation in a reporter or code rules.yaml doesn't list is warned about ok")
 
 

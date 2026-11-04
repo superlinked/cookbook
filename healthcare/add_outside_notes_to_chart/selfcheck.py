@@ -572,6 +572,17 @@ def check_completeness() -> None:
     d = run(data_dir=folder, lists={"note-99": LISTS["note-01"]})["note-99"]
     assert d.left_out[0]["item"] == "Essential hypertension", d.left_out
     assert f"the only problem read from '{line}' was read as negated: check it" in reasons(d)
+    # A problem negated outside a numbered assessment line goes to the clinician, not away.
+    sentence = "No complications from type 2 diabetes."
+    folder = one_note(
+        NOTE_01.replace("Return in 3 months with repeat A1c.", "Return in 3 months. " + sentence)
+    )
+    problems = ["Essential hypertension", "type 2 diabetes"]
+    d = run(data_dir=folder, lists={"note-99": LISTS["note-01"] | {"problems": problems}})[
+        "note-99"
+    ]
+    assert d.left_out[0]["item"] == "type 2 diabetes", d.left_out
+    assert f"read as negated and left out: '{sentence}': check it" in reasons(d), reasons(d)
     # "No change in hypertension" asserts the problem: drafted, nothing to check.
     line = "2. No change in essential hypertension. Continue lisinopril."
     folder = one_note(
