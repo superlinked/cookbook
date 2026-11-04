@@ -603,8 +603,7 @@ def duration_years(value: str, rules: dict[str, Any]) -> float | None:
     "perpetual"; None when the value holds no duration. Days and weeks count only after a year
     or month ("3 years and 1 day"): a bare "thirty (30) days" is a notice period, not a term,
     so it gives None. A value holding two durations ("two years, or five years for trade
-    secrets", "two years, six months for trade secrets") gives the longer one: it binds us
-    longest."""
+    secrets") gives the longer one: it binds us longest."""
     text = _squash(value)
     if mentions(text, rules["positions"]["term"]["perpetual_terms"]):
         return float("inf")
@@ -621,13 +620,12 @@ def duration_years(value: str, rules: dict[str, Any]) -> float | None:
         count = _number(number, rules) + (0.5 if half else 0.0)
         years = count / per_year[unit]
         # "three years and six months", "3 years 1 month": a smaller unit right after a larger
-        # one, bare or joined by and / plus, is part of the same duration. A bare comma lists
-        # separate durations ("two years, six months for trade secrets"), so the longer wins.
+        # one, bare or joined by and / plus, is part of the same duration.
         gap = text[spans[-1][1] : match.start()] if spans else ""
         if (
             spans
             and per_year[unit] > spans[-1][3]
-            and re.fullmatch(r"\s*(?:(?:,\s*)?(?:and|plus|\+)\s*)?", gap)
+            and re.fullmatch(r"\s*(?:,\s*)?(?:(?:and|plus|\+)\s*)?", gap)
         ):
             start, _, before, _ = spans.pop()
             spans.append((start, match.end(), before + years, per_year[unit]))

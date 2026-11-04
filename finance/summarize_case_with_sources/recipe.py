@@ -1014,7 +1014,7 @@ def verify(
 
 
 def summary_text(answer: dict[str, Any]) -> str:
-    """Every string the model wrote, one per line. Each line ends in " |", which holds no digit,
+    """Every string the model wrote, one per line, joined with " |", which holds no digit,
     so a value ending in a dispute reference and the next value's digits don't read as one
     longer run that the card rule would catch."""
     return " |\n".join(

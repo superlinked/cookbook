@@ -124,8 +124,7 @@ anything outside the five positions.
 7. **Compare with the playbook.** The two clocks are kept apart: a confidentiality period that
    survives the agreement is added to the agreement term, so two years plus five years after is
    seven. Durations are read with their decimals, fractions and joined units ("2.5 years",
-   "3 1/2 years", "three (3) years and six (6) months"); a bare comma lists separate durations
-   ("two years, six months for trade secrets") and the longer one counts. Days and weeks count only as the tail
+   "3 1/2 years", "three (3) years and six (6) months"). Days and weeks count only as the tail
    of a year or month ("3 years and 1 day"); a bare "thirty (30) days" is a notice period, not a
    term, so it reads as no duration and the position is `unclear`. A perpetual period always
    deviates; an unparseable one is `unclear`, never hidden behind one that parses; a section

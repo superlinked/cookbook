@@ -492,14 +492,17 @@ def resolve(
             row.findings.append("Id. has no citation before it to refer to.")
 
 
-def count_sections(paragraphs: list[str]) -> int:
+def count_sections(paragraphs: list[str], rules: dict[str, Any]) -> int:
     """How many places in the draft cite a section ("§ 23.40.020", "§§ 4-5") in any code. Used
     to spot statutes in codes rules.yaml doesn't list. A section sign inside an explanatory
-    parenthetical, one that starts with a lowercase word ("(construing § 12)"), says what a
-    case did, not what the draft cites, so it is not counted."""
+    parenthetical, one that starts with a verb from `explanatory_verbs` ("(construing § 12)"),
+    says what a case did, not what the draft cites, so it is not counted. A signal such as
+    "(see § 5)" is the draft's own cite and still counts."""
     sign = re.escape(SECTION_SIGN)
+    verbs = "|".join(re.escape(v) for v in rules["draft"]["explanatory_verbs"])
+    explanatory = re.compile(rf"\((?:{verbs})\b[^()]*\)")
     return sum(
-        len(re.findall(rf"{sign}{sign}?\s*\d", re.sub(r"\((?=[a-z])[^()]*\)", " ", normalize(p))))
+        len(re.findall(rf"{sign}{sign}?\s*\d", explanatory.sub(" ", normalize(p))))
         for p in paragraphs
     )
 
@@ -1080,7 +1083,7 @@ def run(
         if (row.form == "full" and SECTION_SIGN in row.key)
         or (row.form == "id" and SECTION_SIGN in row.cited_as)
     )
-    sections = count_sections(paragraphs)
+    sections = count_sections(paragraphs, rules)
     if sections > statutes:
         warnings.append(
             f"The draft has {sections} section citations by the look of them but {statutes} were "
