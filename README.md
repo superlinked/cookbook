@@ -92,6 +92,13 @@ recipe's SIE requests (one request can carry many items).
 | [Tag actors, malware and tools in threat reports](security/threat_report_tagging) | NuNER_Zero | 1 | 1 s |
 | [Map how threats relate across reports](security/threat_relations) | gliner-relex-large-v1.0 | 1 | 1 s |
 
+### Personal agents
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Turn messages into calendar holds, payments, replies and to-dos](personal/turn_messages_into_actions) | parakeet-tdt-0.6b-v3, LightOnOCR-3-4B, GLiNER2.5-Decide, gliner2-large-v1 | 30 | 11 s |
+| [Keep a fact sheet current from your notes, voice memos and scans](personal/keep_facts_current_from_notes) | parakeet-tdt-0.6b-v3, LightOnOCR-3-4B, Qwen3-Embedding-4B, Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 38 | 26 s |
+
 ## Contributing a recipe
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). In short: a new folder under its industry with

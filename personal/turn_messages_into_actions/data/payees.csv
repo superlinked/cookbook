@@ -1,0 +1,5 @@
+payee_id,name,aliases,account_number,autopay,balance,due_date
+p-01,Bayview Water & Power,Bayview Water and Power,4417-2290-31,no,,
+p-02,Bayview Waste Collection,,BWC-55120,no,,
+p-03,Fogline Mobile,,8812-4470,yes,64.00,2026-11-15
+p-04,Harbor Mutual Insurance,Harbor Mutual,HM-220-1185,no,112.50,2026-11-20
