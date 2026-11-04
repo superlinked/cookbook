@@ -1,0 +1,65 @@
+# The contents-claims team's rules for reading receipt photos and handwritten inventories, and
+# every threshold the recipe uses. What to ask the policyholder for lives in
+# proof_guidelines.yaml. The thresholds are starting points nobody tuned, so check them against
+# your own claims.
+
+models:
+  # One OCR model for both printed receipts and handwritten inventories. LightOnOCR-3-4B keeps
+  # a receipt's item name and price on one Markdown line or table row, which is what the price
+  # checks read.
+  ocr: lightonai/LightOnOCR-3-4B
+  extract: fastino/gliner2-large-v1       # merchant, date, items and total, per text window
+
+thresholds:
+  render_dpi: 150            # render each PDF page at this resolution before OCR
+  max_image_edge_px: 2048    # LightOnOCR's recommended longest edge
+  min_page_chars: 60         # an OCR page shorter than this is unreadable
+  # GLiNER2 reads at most 512 tokens per item. A window of 180 words is about that, not a
+  # guarantee; windows overlap so a line cut at a window edge is still seen whole in the next.
+  window_words: 180
+  window_overlap_words: 30
+  money_tolerance: "0.00"    # a receipt must add up to its printed total to the cent
+  # A handwritten inventory's items plus sales tax of at most this rate must make its written
+  # total; outside that range an item was missed or misread. A small missed item can hide
+  # inside the tax margin, so every priced line must also be read as an item.
+  max_sales_tax_rate: "0.10"
+
+# The fields GLiNER2 is asked for, per document kind. `description` goes into the
+# output_schema, and `list: true` asks for every mention. A value only counts if it is in the
+# OCR text, and an item only counts with a price on its line (Python reads the price).
+documents:
+  receipt:
+    merchant: {description: store or business name printed at the top of the receipt}
+    purchase_date: {description: date of purchase printed on the receipt}
+    total: {description: grand total amount paid on the TOTAL line}
+    items: {description: name of a product bought, as printed on its line, list: true}
+  inventory:
+    total_claimed: {description: total amount of money claimed}
+    items: {description: name of an item lost or damaged, written before its price, list: true}
+
+# Line labels read by Python. Lowercase, matched as whole words with a plural "s" allowed, so
+# "cash" is a payment line but "CASHMERE SWEATER" is an item.
+labels:
+  total: [total]               # the receipt's TOTAL line and the inventory's total line
+  tax: [tax]
+  discount: [coupon, discount, savings, promo, markdown]
+  # A product line never carries one of these; payment and summary lines are not items.
+  not_item: [subtotal, sub total, total, tax, visa, mastercard, amex, debit, cash, change,
+             balance, tender, "store #", trans, transaction, coupon, discount, savings, promo, markdown]
+
+# Matching an inventory item to a receipt line. Words compare in lower case and singular
+# ("bowls" = "bowl"), digits split from letters ("55in" = "55 in"), with `same_words` made the
+# same and `ignore_words` dropped.
+item_match:
+  # The same item: every number in the inventory's description is on the receipt line (so a
+  # 14in laptop is not a 15in one), at least `min_shared_words` words are shared (all of the
+  # line's words when the line is shorter, so "Laptop" is not "LAPTOP SLEEVE 14IN"), and at
+  # least `min_word_share` of the inventory's words are on the line. Same price but fewer
+  # shared words is `ambiguous`, never a match.
+  min_shared_words: 2
+  min_word_share: 0.6
+  ignore_words: [a, an, the, of, with, and, for, set, new, pc, pcs]
+  same_words: {qt: quart, in: inch, inches: inch, pt: pint}
+
+# Date formats accepted on receipts, tried in order.
+date_formats: ["%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d", "%d %b %Y", "%b %d, %Y", "%B %d, %Y"]

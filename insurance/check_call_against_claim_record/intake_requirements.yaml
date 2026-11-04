@@ -1,0 +1,38 @@
+# Intake requirements, owned by claims operations (not by this recipe).
+# The same list the intake script follows: the fields every new claim must have, the question
+# to ask the customer when one is missing, and the triage triggers that need someone today.
+# Edit it here when claims operations changes the script; the recipe reads it at the start.
+
+# Every new claim must have these fields. `callback_question` is what the callback agent asks
+# when neither the saved claim nor the call has the field.
+required_fields:
+  date_of_loss:
+    label: date of loss
+    callback_question: "On what date, and at about what time, did the damage happen?"
+  loss_location:
+    label: location
+    callback_question: "What is the street address of the damaged property, including any unit number?"
+  cause_of_loss:
+    label: cause
+    callback_question: "What caused the damage (for example hail, wind, flooding or a fallen tree)?"
+  injuries:
+    label: injuries
+    callback_question: "Was anyone hurt? If so, who, and did they get medical care?"
+  policy_number:
+    label: policy
+    callback_question: "What is your policy number? It is on the declarations page and in the app."
+
+# Triage triggers the intake script tells agents to escalate to an adjuster the same day.
+# A sentence on the call that is not a question and holds one of the `phrases` raises the flag.
+urgent_triggers:
+  injury_reported:
+    description: someone was hurt
+    phrases: [hurt, injured, injury, injuries, cut, burned, burn, bleeding, broke his,
+              broke her, broken arm, broken leg, fracture, stitches, concussion, hospital,
+              ambulance, urgent care, emergency room]
+  urgent_assistance:
+    description: damage still happening, or a home nobody can stay in
+    phrases: [still coming in, still coming through, still leaking, still pouring,
+              still flooding, can't stay, cannot stay, can't live, cannot live,
+              staying with family, staying with friends, staying in a hotel, no power, no heat,
+              unsafe, not safe]

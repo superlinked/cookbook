@@ -1,0 +1,13 @@
+policy_number,term,named_insured,risk_address,effective_from,effective_to,form,endorsements,dwelling_limit,personal_property_limit,deductible
+HO3-4471802,2026-2027,Marisol Duarte,"14 Ferncliff Road, Kestrel Bay",2026-04-01,2027-04-01,KBM-HO-3,,420000,210000,1000
+HO3-4471815,2026-2027,Tobias Wren,"3 Harrow Lane, Kestrel Bay",2026-02-10,2027-02-10,KBM-HO-3,,385000,190000,1000
+HO3-4471827,2025-2026,Priya Halvorsen,"88 Lindqvist Avenue, Kestrel Bay",2025-11-01,2026-11-01,KBM-HO-3,,510000,255000,2500
+HO3-4471836,2026-2027,Gideon Marsh,"6 Alder Creek Road, Kestrel Bay",2026-07-01,2027-07-01,KBM-HO-3,,298000,150000,1000
+HO3-4471840,2026-2027,Annika Lowell,"41 Quarry Hill, Kestrel Bay",2026-05-15,2027-05-15,KBM-HO-3,,455000,225000,1500
+HO3-4471853,2025-2026,Ruben Okonjo,"12 Sorrel Court, Kestrel Bay",2025-09-01,2026-09-01,KBM-HO-3,,360000,180000,1000
+HO3-4471853,2026-2027,Ruben Okonjo,"12 Sorrel Court, Kestrel Bay",2026-09-01,2027-09-01,KBM-HO-3,,372000,186000,1000
+HO3-4471861,2026-2027,Leah Fontaine,"27 Pelham Street, Kestrel Bay",2026-03-20,2027-03-20,KBM-HO-3,,330000,165000,500
+HO3-4471874,2026-2027,Desmond Achterberg,"9 Beacon Row, Kestrel Bay",2026-08-01,2027-08-01,KBM-HO-3,,410000,205000,1000
+HO3-4471888,2025-2026,Noor Castellanos,"55 Wexley Drive, Kestrel Bay",2025-06-15,2026-06-15,KBM-HO-3,,395000,200000,1000
+HO3-4471888,2026-2027,Noor Castellanos,"55 Wexley Drive, Kestrel Bay",2026-06-15,2027-06-15,KBM-HO-3,KBM-WB-1,405000,205000,1000
+HO3-4471897,2026-2027,Elias Brandvold,"19 Tamsin Way, Kestrel Bay",2026-01-05,2027-01-05,KBM-HO-3,,345000,170000,1000

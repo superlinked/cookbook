@@ -1,0 +1,11 @@
+claim_number,status,policy_number,line,named_insured,loss_date,loss_address,vehicle,vin
+CLM-26-104817,open,HO-2026-004817,Homeowners,Dana Whitcombe,2026-10-04,"41 Fernhollow Lane, Ashby Vale, CO 80911",,
+CLM-26-211532,open,PA-2026-011532,Personal auto,Marcus Ellery-Thorne,2026-09-01,"Quarry Road and Hale Street, Brookmere, CO 80422",2021 Mazda CX-5,JM3QKFBC1M0412387
+CLM-26-307201,open,HO-2026-007201,Homeowners,Priya Vantongeren,2026-08-14,"7 Larch Court, Pell Harbor, CO 80634",,
+CLM-26-104392,open,HO-2026-004392,Homeowners,Tomasz Brightman,2026-09-27,"88 Orchard Rise, Ashby Vale, CO 80911",,
+CLM-25-419844,open,HO-2025-019844,Homeowners,Ingrid Solvang,2026-09-14,"3 Willowmere Drive, Pell Harbor, CO 80633",,
+CLM-26-502265,open,PA-2026-002265,Personal auto,Rafael Oduya,2026-10-02,"Interstate 25 northbound near exit 140, CO",2019 Honda Accord,1HGQV1F34KA052265
+CLM-26-612077,open,HO-2026-012077,Homeowners,Celia Marchbank,2026-10-09,"112 Gorse Hill Road, Brookmere, CO 80422",,
+CLM-26-709315,open,HO-2026-009315,Homeowners,Hana Lindqvist,2026-10-05,"56 Saltmarsh Lane, Pell Harbor, CO 80634",,
+CLM-26-118206,open,HO-2026-018206,Homeowners,Tobias Fenwick,2026-10-01,"19 Copperbeech Way, Ashby Vale, CO 80911",,
+CLM-26-224417,open,PA-2026-024417,Personal auto,Lena Okafor-Reyes,2026-09-22,"Elm Street at Prospect Avenue, Pell Harbor, CO 80633",2020 Toyota RAV4,2T3QWRFV5LW024417

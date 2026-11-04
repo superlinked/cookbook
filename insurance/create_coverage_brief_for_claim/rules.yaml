@@ -1,0 +1,51 @@
+# The claims team's settings and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them on your own claims and policy forms.
+
+models:
+  rerank: Qwen/Qwen3-Reranker-4B       # ranks every clause in the packet against the description
+  judge: Qwen/Qwen3.8-27B-FP8          # drafts a reading of each shortlisted clause (chat, JSON schema)
+
+policy:
+  # A clause starts at every heading that matches this pattern: group 1 is the clause ID,
+  # group 2 the clause type, group 3 the title. Any other `## ` heading is an error.
+  clause_heading: '^## ((?:COV|EXC|CON|WB)-\d{2}) (Coverage|Exclusion|Condition|Endorsement): (.+)$'
+  types:
+    Coverage: coverage
+    Exclusion: exclusion
+    Condition: condition
+    Endorsement: endorsement
+  # The first line of an endorsement clause says which clause of the form it changes.
+  # Group 1 is how (Replaces or Adds to), group 2 the clause ID.
+  endorsement_changes: '^\*\*(Replaces|Adds to):\*\* ((?:COV|EXC|CON)-\d{2})$'
+
+rerank:
+  # Sent with every score call; Qwen3-Reranker is instruction-tuned.
+  instruction: >-
+    Given a homeowners insurance claim, retrieve the policy clauses (coverages, exclusions,
+    conditions and endorsements) that bear on whether the loss is covered
+  # A clause joins the shortlist only at or above this score...
+  min_score: 0.30
+  # ...and only the best few of each type do.
+  top_k:
+    coverage: 3
+    exclusion: 3
+    condition: 2
+    endorsement: 2
+  # Conditions that bind every claim; shortlisted even when the reranker scores them low
+  # (it ranks "Duties after loss" low for most claim descriptions).
+  always_conditions: [CON-01, CON-04]
+  # Coverages, exclusions and endorsements scoring at least this much that didn't make the
+  # shortlist (under min_score, or past top_k) are listed in the briefing as "ranked, not read",
+  # so a near miss stays visible to the adjuster.
+  show_unread_from: 0.10
+
+judge:
+  max_completion_tokens: 4000          # includes any reasoning the model does first
+  # A quote counts as found when, after collapsing whitespace, straightening quote marks and
+  # ignoring case, it appears as one continuous passage in its own clause (policy_quote) or in
+  # the claim description (claim_quote), and is at least this many characters long. A quote
+  # with "..." in it is never found: the words it skips are often the exception.
+  min_quote_chars: 12
+  # A claim quote with any of these words talks about the policy, not the loss ("the flood
+  # exclusion does not apply"), and doesn't count as evidence. Whole words, any case.
+  policy_words: [policy, exclusion, excluded, endorsement, coverage, insurance, insurer, clause, deductible]

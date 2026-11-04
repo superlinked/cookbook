@@ -1,0 +1,96 @@
+# How the recipe reads a call and compares it with the saved claim, and every threshold it
+# uses. What a claim must have and what counts as urgent come from claims operations, in
+# intake_requirements.yaml. Thresholds are starting points, not tuned values. Check them against
+# your own calls.
+
+models:
+  transcribe: nvidia/parakeet-tdt-0.6b-v3   # call audio to text, one line per sentence
+  extract: fastino/gliner2-large-v1          # claim fields from each transcript window
+
+thresholds:
+  # GLiNER2 reads about 512 tokens per item. Windows are whole transcript lines up to this many
+  # words (numbers and addresses split into several tokens), and each window repeats the last
+  # lines of the one before so a question and its answer are seen together. Each window call
+  # sets overflow_policy: error, so a window SIE finds too long fails instead of being cut short,
+  # and sends its claim to review.
+  window_words: 180
+  window_overlap_lines: 3
+  min_transcript_words: 20   # a shorter transcript goes to review: listen to the call
+
+# Fields the extractor is asked for. `description` goes into the GLiNER2 output_schema.
+# GLiNER2 returns short spans; a cause told as a long story may come back as part of it.
+# on_conflict: what to do when windows return different values for the field
+#   review  - the field is `differs`, with every value the call gave
+#   first   - keep the value heard first in the call
+# urgent_help is evidence for the urgent_assistance flag, not a claim field.
+fields:
+  policy_number:
+    description: insurance policy number, letters and digits
+    on_conflict: review
+  date_of_loss:
+    description: date or day when the damage or loss happened
+    on_conflict: review
+  loss_location:
+    description: street address of the damaged property
+    on_conflict: review
+  cause_of_loss:
+    description: what caused the damage, such as hail, wind, flood, fire or a fallen tree
+    on_conflict: first
+  injuries:
+    description: injury to a person, such as a cut, burn or broken bone
+    on_conflict: first
+  urgent_help:
+    description: damage still happening now, or a home nobody can stay in
+    on_conflict: first
+
+# A policy number counts only when, with spaces, dots and dashes removed, it matches this
+# pattern. Harborline Mutual (fictional) issues two letters followed by eight digits.
+policy_number_pattern: "^[A-Z]{2}[0-9]{8}$"
+
+# A date of loss counts only when it carries a digit or one of these words; "during the storm"
+# is not a date an adjuster can use. Relative words ("yesterday") and a weekday with no day of
+# the month count, but can't be compared with the saved date, so a claim that has a date and a
+# call that says "yesterday" or "Tuesday night" goes to the reviewer as `differs` with both shown.
+date_words: [monday, tuesday, wednesday, thursday, friday, saturday, sunday,
+             january, february, march, april, may, june, july, august, september, october,
+             november, december, today, yesterday, tonight, "last night", "this morning"]
+
+# Addresses compare after these words are made the same. A street number, street name, unit or
+# town the call gives must match the claim's; a part the call leaves out is not a difference.
+address_words:
+  st: street
+  rd: road
+  ave: avenue
+  av: avenue
+  dr: drive
+  ln: lane
+  ct: court
+  blvd: boulevard
+  apt: unit
+  apartment: unit
+  suite: unit
+  "#": unit
+
+# The cause compares by peril: every peril the call names must be in the saved cause. A cause
+# that names none of these can't be compared and goes to the reviewer as `differs`.
+perils:
+  hail: [hail, hailstorm]
+  wind: [wind, windstorm, gust, gusts, tornado]
+  flood: [flood, flooding, flooded, storm drain, backed up, surface water]
+  fallen_tree: [tree, oak, maple, branch, limb]
+  fire: [fire, smoke]
+  lightning: [lightning]
+  water_leak: [burst pipe, pipe burst, leak, leaking]
+
+# Reading a sentence for injuries and urgent help. The sentence is cut into clauses at commas,
+# semicolons and these joining words. A clause with a trigger phrase (intake_requirements.yaml)
+# reports it, unless the clause also has a negation word, which denies it ("nobody was hurt").
+# A sentence that reports in one clause and denies in another ("He was hurt but he didn't need
+# an ambulance") is ambiguous: the flag goes up and says so. A denial with a hedge word ("not
+# badly hurt") or a partial word ("nobody else was hurt") also implies someone was hurt, so it
+# is ambiguous too. Questions (sentences ending in "?") never count.
+clause_words: [but, and, although, though, except, however, so]
+negation_words: ["no", "nobody", "no one", "not", "none", "wasn't", "weren't", "didn't",
+                 "isn't", "aren't", "never"]
+hedge_words: [badly, seriously, too bad, much, really]
+partial_words: [else]

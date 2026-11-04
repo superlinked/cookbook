@@ -1,0 +1,11 @@
+document,claim_number,kind,received,file,page
+clm-01,CLM-26-104817,repair_invoice,2026-10-20,repair-invoices.pdf,1
+clm-02,CLM-26-211532,repair_invoice,2026-10-20,repair-invoices.pdf,2
+clm-03,CLM-26-307201,repair_invoice,2026-10-20,repair-invoices.pdf,3
+clm-04,CLM-26-104392,repair_invoice,2026-10-20,repair-invoices.pdf,4
+clm-05,CLM-25-419844,repair_invoice,2026-10-20,repair-invoices.pdf,5
+clm-06,CLM-26-502265,repair_invoice,2026-10-20,repair-invoices.pdf,6
+clm-07,CLM-26-612077,repair_invoice,2026-10-20,repair-invoices.pdf,7
+clm-08,CLM-26-709315,repair_invoice,2026-10-20,repair-invoices.pdf,8
+clm-09,CLM-26-118206,repair_invoice,2026-10-20,repair-invoices.pdf,9
+clm-10,CLM-26-224417,repair_invoice,2026-10-20,repair-invoices.pdf,10
