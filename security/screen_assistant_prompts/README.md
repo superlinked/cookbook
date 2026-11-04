@@ -1,4 +1,13 @@
-# Screen prompts to your security copilot
+# Screen prompts before they reach an AI assistant
+
+> **This example:** a security team's copilot, where analysts paste logs, emails and screenshots.
+>
+> **How it works:** an OCR model reads screenshots, plain rules catch credentials and injection
+> phrases, and a guard model judges intent. Each prompt comes out allow, block or review, with the
+> reason.
+>
+> **Use the same pattern for:** screening uploads to an internal chat assistant, checking support
+> tickets for pasted secrets, screening prompts to a coding assistant.
 
 ## Background
 
@@ -36,6 +45,19 @@ The screen in this recipe belongs to whoever runs the copilot, usually a securit
 platform engineer. They wire it in front of the model and own `rules.yaml`. The prompts it sends
 to review need a named owner too: in most teams that's the SOC lead or the on-call senior analyst,
 not one more queue nobody watches.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A["SOC analyst pastes logs, emails, configs<br/>or a screenshot"] --> B["Screen the prompt for credentials,<br/>hidden notes to the AI and misuse"]
+    F[Platform engineer owns the rules] --> B
+    B --> C[Copilot answers the analyst]
+    B --> D["Prompt stopped, with a reason"]
+    B --> E[SOC lead or on-call senior analyst reviews it]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class B recipe;
+```
 
 ## The problem
 
@@ -94,7 +116,7 @@ template wraps the prompt in its own moderation policy, so we send the prompt as
 message and parse the answer. At 4B parameters it runs on a single L4, and on SIE Cloud it's one
 chat call per prompt with nothing for you to host.
 
-SIE's [guardrails page](https://superlinked.com/guardrails) is where this model comes from: on
+SIE's [guardrails page](https://superlinked.com/guardrails?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts) is where this model comes from: on
 4,768 human-labelled prompts from ToxicChat and NVIDIA's Aegis 2.0 it scored 82.7% F1 at catching
 harmful prompts. That's a harm benchmark. The page doesn't test prompt injection, so it tells you
 nothing either way about that.
@@ -188,7 +210,7 @@ key, and ones with escaped or bold Markdown), so you can change `rules.yaml` and
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -379,5 +401,4 @@ with one worker pool per image routes each model to its pool. See
 - `data/screenshots/`: the 3 planted screenshots
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
-See the SIE task page for [guardrails](https://superlinked.com/guardrails) and the
-[security](https://superlinked.com/security) solutions page.
+See the SIE task page for [guardrails](https://superlinked.com/guardrails?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts).

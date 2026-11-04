@@ -1,5 +1,14 @@
 # Check a returned item against the sale before taking it back
 
+> **This example:** a returns desk with the POS sale line and photos of the item.
+>
+> **How it works:** an OCR model reads the packaging, a vision-language model answers fixed
+> questions about condition, and plain rules compare the text with the sale and apply the returns
+> policy. The associate decides every return.
+>
+> **Use the same pattern for:** checking a delivery against the purchase order at the back door,
+> inspecting a damaged-in-transit claim, checking a trade-in device.
+
 ## Background
 
 A store's returns desk is where an associate spends the day taking things back: a mouse that
@@ -26,6 +35,21 @@ the thing that was sold. That gap is where most of the cost of returns sits for 
 The recipe is for whoever runs returns in the store system, usually a store operations or
 loss-prevention team. They own `rules.yaml` (the policy and the thresholds). The associate gets
 the guidance at the desk, and the store manager decides every case the recipe refers.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A[Customer brings the item and receipt to the returns desk] --> B[Associate scans the receipt]
+    B --> C[Point of sale pulls up the sale]
+    C --> D["Compare the item with the sale<br/>and the return policy"]
+    H[Store operations sets the return policy] --> D
+    D --> E[Associate looks at the item and decides]
+    E --> F[Refund issued]
+    D --> G[Manager decides the cases sent up]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class D recipe;
+```
 
 ## The problem
 
@@ -173,7 +197,7 @@ away if you broke something.
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -359,5 +383,4 @@ doesn't care, but your associates' photos will look different.
 - `data/photos/`: the 8 photos, metadata removed
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
-See the SIE task page for [OCR](https://superlinked.com/ocr) and the
-[retail](https://superlinked.com/retail) industry page.
+See the SIE task page for [OCR](https://superlinked.com/ocr?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale).

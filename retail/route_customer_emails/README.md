@@ -1,4 +1,13 @@
-# Route customer emails to the right team
+# Route customer emails to the right team, escalating safety and legal
+
+> **This example:** a retailer's shared customer care inbox.
+>
+> **How it works:** phrase rules catch safety and legal emails first, a classification model
+> suggests a team for the rest, and an extraction model pulls the order number and store. Python
+> checks the order number's format before it goes in the ticket.
+>
+> **Use the same pattern for:** routing supplier emails to buyers, sorting store incident reports,
+> triaging marketplace seller messages.
 
 ## Background
 
@@ -18,6 +27,19 @@ isn't routine at all: a heater that sparked and burned a child, or a customer re
 third time to say they've talked to a lawyer. Those belong with product safety or legal, today,
 not behind fifty "where is my order" emails. A missed safety report is the kind of mistake a
 retailer hears about again, from a regulator or a court.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A[Customer writes to the support inbox] --> B["Suggest a care team, flag safety and legal emails,<br/>and copy out the order number and store"]
+    B --> C[Care lead confirms the route]
+    C --> D["Specialist queue<br/>(delivery, returns, billing, loyalty)"]
+    C --> E["Product safety or legal, the same day"]
+    D --> F[Agent replies to the customer]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class B recipe;
+```
 
 ## The problem
 
@@ -138,7 +160,7 @@ runs `main` against a stand-in SIE that refuses the first call, and checks that
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-route-customer-emails)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -306,5 +328,4 @@ with one worker pool per image routes each model to its pool. See
 - `selfcheck.py`: offline checks, no SIE call
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
-See the SIE [classify](https://superlinked.com/classify) task page and the
-[Retail](https://superlinked.com/retail) industry page.
+See the SIE [classify](https://superlinked.com/classify?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-route-customer-emails) task page.

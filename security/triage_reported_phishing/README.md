@@ -1,4 +1,13 @@
-# Triage reported phishing and pull IOCs
+# Triage reported phishing and pull out the indicators
+
+> **This example:** a SOC analyst's queue of emails that employees reported.
+>
+> **How it works:** a classification model suggests phishing, spam or benign from the words, an
+> extraction model finds the indicators, and a long list of Python checks can overrule the model or
+> send the email to an analyst.
+>
+> **Use the same pattern for:** triaging abuse reports from customers, sorting security tickets
+> from the service desk, screening vendor emails for invoice fraud.
 
 ## Background
 
@@ -25,6 +34,20 @@ them to find everyone else who got the same email. Some teams still copy them by
 get them parsed by their reporting platform already. Copied by hand, they tend to end up as live
 links in a ticket, which is why analysts defang them first (`hxxp://`, `[.]`) so nobody opens
 one by accident.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A[Employee presses report phishing] --> B[Shared SOC mailbox]
+    B --> C["Suggest a verdict and pull out the links,<br/>domains and IPs, defanged"]
+    C --> D[SOC analyst looks at the ones that need a person]
+    C --> G[Your own workflow acts on the rest]
+    D --> E[Block the indicators that hold up]
+    D --> F[Search for everyone else who got the same email]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class C recipe;
+```
 
 ## The problem
 
@@ -329,7 +352,7 @@ many windows that happened to.
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-reported-phishing)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -525,5 +548,5 @@ with one worker pool per image, routes each model to its pool.
 - `data/*.eml`: the reported emails
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
-See the SIE [classify](https://superlinked.com/classify) and
-[guardrails](https://superlinked.com/guardrails) task pages.
+See the SIE [classify](https://superlinked.com/classify?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-reported-phishing) and
+[guardrails](https://superlinked.com/guardrails?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-reported-phishing) task pages.

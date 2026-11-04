@@ -1,4 +1,4 @@
-"""Draw the synthetic inspection photos for the check_bolts_in_photos recipe.
+"""Draw the synthetic inspection photos for the check_parts_in_assembly_photos recipe.
 
 Writes data/inspection-photos.jpg (one sprite sheet, one tile per photo) and data/photos.csv
 (photo id, work order, assembly, tile box, what was planted). Every photo is drawn with Pillow

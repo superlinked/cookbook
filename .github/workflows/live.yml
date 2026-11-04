@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       recipes:
-        description: Recipe folders, space separated (e.g. "security/screen_copilot_prompts"), or "all"
+        description: Recipe folders, space separated (e.g. "security/screen_assistant_prompts"), or "all"
         required: true
-        default: security/screen_copilot_prompts
+        default: security/screen_assistant_prompts
 
 permissions:
   contents: read

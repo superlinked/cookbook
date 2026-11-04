@@ -1,5 +1,14 @@
 # Check a shelf from one photo: in stock, right product, right price
 
+> **This example:** a store associate's photo of one shelf section.
+>
+> **How it works:** a detector finds the tags and packages, an OCR model reads each tag, and a
+> vision-language model says which product sits in each slot. Python ties packages to tags and
+> compares prices with the catalog.
+>
+> **Use the same pattern for:** checking a promotional display against its planogram, auditing a
+> cooler door, checking price changes went up on the shelf.
+
 ## Background
 
 Every grocery shelf has a contract printed on its edge. Each shelf tag says which product
@@ -19,6 +28,20 @@ same problem the other way round, and in many places it's also a pricing complia
 Today that walk usually happens with a handheld scanner, or by eye. Both are slow, and both
 depend on someone noticing that the bag above the Peanut Butter Banana tag says "Ancient Grain"
 on it.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A[Associate or brand rep walks the aisle] --> B[One photo of a shelf section]
+    B --> C["Check each tag: is the product there,<br/>is it the right one, does the price match"]
+    G[Store catalog with the regular prices] --> C
+    C --> D[Restock the empty slot]
+    C --> E[Move the product back above its tag]
+    C --> F[Ask for a new tag]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class C recipe;
+```
 
 ## The problem
 
@@ -222,7 +245,7 @@ SIE.
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-shelf-from-photo)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -472,5 +495,4 @@ Prices.
 - `data/`: the four photos and `catalog.csv`
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
-See the SIE task page for [object detection](https://superlinked.com/detect) and the
-[retail](https://superlinked.com/retail) industry page.
+See the SIE task page for [object detection](https://superlinked.com/detect?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-shelf-from-photo).

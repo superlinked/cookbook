@@ -8,16 +8,16 @@ model card before you rely on it.
 
 | Model | What the recipes use it for | SIE call | License | Image | Recipes |
 | --- | --- | --- | --- | --- | --- |
-| [`fastino/gliner2-large-v1`](https://huggingface.co/fastino/gliner2-large-v1) | Pull named fields and entities out of text, to a schema | `extract` | Apache 2.0 | `cuda12-default` | [check_steel_delivery](manufacturing/check_steel_delivery), [close_out_work_order](manufacturing/close_out_work_order), [route_customer_emails](retail/route_customer_emails), [triage_phishing_reports](security/triage_phishing_reports) |
-| [`Qwen/Qwen3.8-27B-FP8`](https://huggingface.co/Qwen/Qwen3.8-27B-FP8) | Read text or a page image and answer in JSON, with citations | `chat_completions` | Apache 2.0 | `cuda13-sglang-cu130` (H100 80GB or larger) | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual), [check_returned_item](retail/check_returned_item), [check_shelf_stock](retail/check_shelf_stock) |
-| [`lightonai/LightOnOCR-3-4B`](https://huggingface.co/lightonai/LightOnOCR-3-4B) | Turn a scanned page, photo or screenshot into text | `extract` | Apache 2.0 | `cuda12-sglang-vision-extract` | [check_steel_delivery](manufacturing/check_steel_delivery), [screen_copilot_prompts](security/screen_copilot_prompts) |
-| [`fastino/GLiNER2.5-Decide`](https://huggingface.co/fastino/GLiNER2.5-Decide) | Answer a typed question about a text (pick one, yes or no) with a score | `extract` | Apache 2.0 | `cuda12-transformers5` | [close_out_work_order](manufacturing/close_out_work_order), [route_customer_emails](retail/route_customer_emails), [triage_phishing_reports](security/triage_phishing_reports) |
+| [`fastino/gliner2-large-v1`](https://huggingface.co/fastino/gliner2-large-v1) | Pull named fields and entities out of text, to a schema | `extract` | Apache 2.0 | `cuda12-default` | [check_delivery_against_po](manufacturing/check_delivery_against_po), [fill_work_order_from_notes](manufacturing/fill_work_order_from_notes), [route_customer_emails](retail/route_customer_emails), [triage_reported_phishing](security/triage_reported_phishing) |
+| [`Qwen/Qwen3.8-27B-FP8`](https://huggingface.co/Qwen/Qwen3.8-27B-FP8) | Read text or a page image and answer in JSON, with citations | `chat_completions` | Apache 2.0 | `cuda13-sglang-cu130` (H100 80GB or larger) | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual), [check_returned_item_against_sale](retail/check_returned_item_against_sale), [check_shelf_from_photo](retail/check_shelf_from_photo) |
+| [`lightonai/LightOnOCR-3-4B`](https://huggingface.co/lightonai/LightOnOCR-3-4B) | Turn a scanned page, photo or screenshot into text | `extract` | Apache 2.0 | `cuda12-sglang-vision-extract` | [check_delivery_against_po](manufacturing/check_delivery_against_po), [screen_assistant_prompts](security/screen_assistant_prompts) |
+| [`fastino/GLiNER2.5-Decide`](https://huggingface.co/fastino/GLiNER2.5-Decide) | Answer a typed question about a text (pick one, yes or no) with a score | `extract` | Apache 2.0 | `cuda12-transformers5` | [fill_work_order_from_notes](manufacturing/fill_work_order_from_notes), [route_customer_emails](retail/route_customer_emails), [triage_reported_phishing](security/triage_reported_phishing) |
 | [`numind/NuNER_Zero`](https://huggingface.co/numind/NuNER_Zero) | Tag entities of any type you name | `extract` | MIT | `cuda12-default` | [threat_report_tagging](security/threat_report_tagging) |
-| [`zai-org/GLM-OCR`](https://huggingface.co/zai-org/GLM-OCR) | Read product packaging and shelf tags from photos | `extract` | MIT | `cuda12-sglang-vision-extract` | [check_returned_item](retail/check_returned_item), [check_shelf_stock](retail/check_shelf_stock) |
-| [`facebook/sam3`](https://huggingface.co/facebook/sam3) | Find every instance of an object named in text | `extract` | SAM License (not OSI) | `cuda12-transformers5` | [check_bolts_in_photos](manufacturing/check_bolts_in_photos) |
+| [`zai-org/GLM-OCR`](https://huggingface.co/zai-org/GLM-OCR) | Read product packaging and shelf tags from photos | `extract` | MIT | `cuda12-sglang-vision-extract` | [check_returned_item_against_sale](retail/check_returned_item_against_sale), [check_shelf_from_photo](retail/check_shelf_from_photo) |
+| [`facebook/sam3`](https://huggingface.co/facebook/sam3) | Find every instance of an object named in text | `extract` | SAM License (not OSI) | `cuda12-transformers5` | [check_parts_in_assembly_photos](manufacturing/check_parts_in_assembly_photos) |
 | [`TomoroAI/tomoro-colqwen3-embed-4b`](https://huggingface.co/TomoroAI/tomoro-colqwen3-embed-4b) | Embed page images (diagrams included) as many vectors per page | `encode` | Apache 2.0 | `cuda12-default` | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual) |
-| [`IDEA-Research/grounding-dino-base`](https://huggingface.co/IDEA-Research/grounding-dino-base) | Draw boxes around objects named in text | `extract` | Apache 2.0 | `cuda12-default` | [check_shelf_stock](retail/check_shelf_stock) |
-| [`Qwen/Qwen3Guard-Gen-4B`](https://huggingface.co/Qwen/Qwen3Guard-Gen-4B) | Give a safety verdict and categories for a prompt | `chat_completions` | Apache 2.0 | `cuda12-sglang` | [screen_copilot_prompts](security/screen_copilot_prompts) |
+| [`IDEA-Research/grounding-dino-base`](https://huggingface.co/IDEA-Research/grounding-dino-base) | Draw boxes around objects named in text | `extract` | Apache 2.0 | `cuda12-default` | [check_shelf_from_photo](retail/check_shelf_from_photo) |
+| [`Qwen/Qwen3Guard-Gen-4B`](https://huggingface.co/Qwen/Qwen3Guard-Gen-4B) | Give a safety verdict and categories for a prompt | `chat_completions` | Apache 2.0 | `cuda12-sglang` | [screen_assistant_prompts](security/screen_assistant_prompts) |
 | [`knowledgator/gliner-relex-large-v1.0`](https://huggingface.co/knowledgator/gliner-relex-large-v1.0) | Find entities and the relations between them | `extract` | Apache 2.0 | `cuda12-default` | [threat_relations](security/threat_relations) |
 
 ## Swaps we ran
@@ -28,12 +28,12 @@ Each recipe README's "Try another model" section has the details. The short vers
 
 | Default | Swap | How it went |
 | --- | --- | --- |
-| `fastino/gliner2-large-v1` | `fastino/gliner2-base-v1` | Same verdicts, routes, IOCs and observables in triage_phishing_reports (rerun 2 Nov 2026); only the span columns changed. Clearly worse in close_out_work_order (3 Nov 2026): 0 of 10 forms passed, actions missed on 5 notes and the planted catalog near miss went unflagged. |
-| `Qwen/Qwen3.8-27B-FP8` | `Qwen/Qwen3.5-4B` | Same guidance on all 7 returns in check_returned_item; it called the shrink-wrapped pack sealed and the crushed parcel opened with major damage. Matched on the 10 earlier answer_from_equipment_manual questions (31 Oct 2026, before the revision and quote checks). Not tried in check_shelf_stock. |
+| `fastino/gliner2-large-v1` | `fastino/gliner2-base-v1` | Same verdicts, routes, IOCs and observables in triage_reported_phishing (rerun 2 Nov 2026); only the span columns changed. Clearly worse in fill_work_order_from_notes (3 Nov 2026): 0 of 10 forms passed, actions missed on 5 notes and the planted catalog near miss went unflagged. |
+| `Qwen/Qwen3.8-27B-FP8` | `Qwen/Qwen3.5-4B` | Same guidance on all 7 returns in check_returned_item_against_sale; it called the shrink-wrapped pack sealed and the crushed parcel opened with major damage. Matched on the 10 earlier answer_from_equipment_manual questions (31 Oct 2026, before the revision and quote checks). Not tried in check_shelf_from_photo. |
 | `Qwen/Qwen3.8-27B-FP8` | `google/gemma-4-31B-it` | Did not run in the document recipes: SIE Cloud answered "Generation route is unavailable for this deployment" every time. |
 | `numind/NuNER_Zero` | `urchade/gliner_multi-v2.1`, `numind/NuNER_Zero-span` | Worse on threat reports: 2 and 3 reports tagged instead of 4, with the 0.50 threshold chosen with NuNER_Zero in mind. |
-| `facebook/sam3` | `IDEA-Research/grounding-dino-base`, `google/owlv2-base-patch16-ensemble` | Missed every planted missing bolt in check_bolts_in_photos. The thresholds are set on SAM 3's scores. |
-| `zai-org/GLM-OCR` | `lightonai/LightOnOCR-3-4B` | Same guidance on all 7 returns in check_returned_item. In check_shelf_stock (before the vision step) it read two tag UPCs GLM-OCR missed, but its table output sent other tags to review. |
+| `facebook/sam3` | `IDEA-Research/grounding-dino-base`, `google/owlv2-base-patch16-ensemble` | Missed every planted missing bolt in check_parts_in_assembly_photos. The thresholds are set on SAM 3's scores. |
+| `zai-org/GLM-OCR` | `lightonai/LightOnOCR-3-4B` | Same guidance on all 7 returns in check_returned_item_against_sale. In check_shelf_from_photo (before the vision step) it read two tag UPCs GLM-OCR missed, but its table output sent other tags to review. |
 | `Qwen/Qwen3Guard-Gen-4B` | `ibm-granite/granite-guardian-3.0-2b` | Did not run: it is not a drop-in, because it answers Yes/No, not "Safety: ...". |
 | `fastino/GLiNER2.5-Decide`, `knowledgator/gliner-relex-large-v1.0`, `TomoroAI/tomoro-colqwen3-embed-4b` | none | SIE Cloud has no same-API alternative yet; the other tomoro profiles returned HTTP 503. |
 
@@ -41,6 +41,6 @@ Each recipe README's "Try another model" section has the details. The short vers
 
 SIE serves over 200 models: embedders, rerankers, extractors, OCR, detectors, guards and LLMs.
 [`packages/sie_server/models`](https://github.com/superlinked/sie/tree/main/packages/sie_server/models)
-has one config per model, and [superlinked.com/models](https://superlinked.com/models) lists them by
+has one config per model, and [superlinked.com/models](https://superlinked.com/models?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=models) lists them by
 task. SIE Cloud serves a subset; the full list is at `GET https://api.superlinked.com/v1/models`
 with your API key.

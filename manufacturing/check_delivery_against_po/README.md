@@ -1,4 +1,14 @@
-# Check a steel delivery against its purchase order and mill certificates
+# Check a delivery against its purchase order and certificates
+
+> **This example:** a steel plate delivery with its mill certificates and inspection forms.
+>
+> **How it works:** an OCR model reads the scanned delivery note, certificates and inspection
+> forms, and an extraction model points at the fields. Python matches lines to the order, checks
+> the totals and compares every value with the grade's limits.
+>
+> **Use the same pattern for:** a chemical delivery against its certificate of analysis, a
+> supplier's first-article inspection report, a calibration certificate against the instrument
+> record.
 
 ## Background
 
@@ -45,6 +55,22 @@ chases the rest until the shop runs out. An over-delivery quietly booked in mean
 plates nobody ordered. Today someone retypes the delivery note, the heat number, the grade, the
 strengths and the readings, looks up the PO and the grade's limits, and decides by eye. Most
 deliveries are fine, which is exactly what makes the bad one easy to miss.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A[Truck arrives with plates and the delivery note] --> E
+    B["Mill certificate<br/>(scanned or faxed)"] --> E
+    C[Receiving inspector measures the plates and fills in the form] --> E
+    D[Purchase order in the ERP] --> E
+    H[Inspection plan and tolerances in the quality system] --> E
+    E["Read the papers, tick each line off the order,<br/>check the lot against the grade's limits"]
+    E --> F[Buyer chases short deliveries and decides on extras]
+    E --> G["Quality engineer decides on the lot<br/>(quarantine and NCR, or release)"]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class E recipe;
+```
 
 ## The problem
 
@@ -246,7 +272,7 @@ counted as "nothing found" only from the extraction model.
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -431,5 +457,4 @@ with one worker pool per image routes each model to its pool. See
 - `data/`: the scanned PDFs, `receipts.jsonl` and `po_lines.csv`
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
-See the SIE task page for [document field extraction](https://superlinked.com/doc-field-extraction)
-and the [manufacturing](https://superlinked.com/manufacturing) industry page.
+See the SIE task page for [document field extraction](https://superlinked.com/doc-field-extraction?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po).

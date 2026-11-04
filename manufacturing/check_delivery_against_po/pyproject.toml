@@ -1,5 +1,5 @@
 [project]
-name = "sie-check-steel-delivery"
+name = "sie-check-delivery-against-po"
 version = "0.1.0"
 description = "Read mill certificates and inspection reports for incoming steel and check them against spec."
 requires-python = ">=3.12"

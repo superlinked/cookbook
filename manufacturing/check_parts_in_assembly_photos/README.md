@@ -1,4 +1,13 @@
-# Check every bolt is there in inspection photos
+# Check every part is in place in assembly photos
+
+> **This example:** bolts on a flange, where the empty hole is the proof one is missing.
+>
+> **How it works:** a segmentation model finds bolts and empty holes, and Python compares them with
+> the expected count and position. A bolt is only called missing when the empty hole is seen;
+> anything unclear goes to an inspector.
+>
+> **Use the same pattern for:** checking clips on a wiring harness, connectors seated on a board,
+> labels present on a finished pallet.
 
 ## Background
 
@@ -32,6 +41,21 @@ Why it matters: a pipe flange or cover plate that leaves the line with a bolt mi
 or work loose in service. Counting bolts photo after photo is slow, and late in a shift it is easy
 to get wrong. The mistake that hurts is the quiet one, where a short count gets signed off as
 complete.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A["Work order<br/>(traveler or MES)"] --> D
+    B["Drawing or bill of materials<br/>(how many bolts)"] --> D
+    C[Photo of the finished assembly] --> D[Check there is a bolt in every position]
+    D --> E[Operator or inspector signs off]
+    H[Tightening record from the torque tool] --> E
+    D --> F[Line lead holds the part for rework]
+    D --> G[Inspector looks at the photo or the part]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class D recipe;
+```
 
 ## The problem
 
@@ -184,7 +208,7 @@ photos.
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -353,5 +377,4 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 - `data/inspection-photos.jpg`, `data/photos.csv`: the 10 planted photos and their work orders
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
-See the SIE task page for [object detection](https://superlinked.com/detect) and the
-[manufacturing](https://superlinked.com/manufacturing) industry page.
+See the SIE task page for [object detection](https://superlinked.com/detect?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos).

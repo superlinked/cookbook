@@ -1,4 +1,13 @@
-# Draft the work-order completion form from a technician's notes
+# Fill in a work-order completion form from the technician's notes
+
+> **This example:** a maintenance team's CMMS, where failure codes are usually left blank.
+>
+> **How it works:** a classification model picks the failure, cause and action codes from your
+> picklists, and an extraction model points at the parts and hours. Python checks every value
+> against the picklist and the parts catalog, and leaves a field blank rather than guess.
+>
+> **Use the same pattern for:** coding a safety near-miss report, filling a quality nonconformance
+> form, closing out an inspection round.
 
 ## Background
 
@@ -31,6 +40,22 @@ structured fields on the order before the technician ever writes a word, and the
 and the parts catalog are lists the CMMS already keeps. The recipe takes all of that as it is.
 The part the CMMS can't do is read the technician's notes. That's the only part this recipe
 hands to a model.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A["Pump, conveyor or gearbox breaks"] --> B[Work order raised in the CMMS]
+    B --> C[Planner assigns it]
+    C --> D[Technician fixes it and types a few lines of notes]
+    D --> E[Draft the completion form from the notes]
+    E --> F[Technician or supervisor checks the draft and saves it]
+    F --> G[Reliability engineer counts failures per asset]
+    F --> H[Storeroom books the parts used]
+    F --> I[Planner raises the follow-up order]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class E recipe;
+```
 
 ## The problem
 
@@ -174,7 +199,7 @@ offline, with hand-written stand-in replies.
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -306,5 +331,4 @@ with one worker pool per image routes each model to its pool. See
 - `data/parts_catalog.csv`: the synthetic storeroom list
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
-See the SIE [classify](https://superlinked.com/classify) task page and the
-[manufacturing](https://superlinked.com/manufacturing) industry page.
+See the SIE [classify](https://superlinked.com/classify?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes) task page.

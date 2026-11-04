@@ -1,5 +1,5 @@
 [project]
-name = "sie-check-returned-item"
+name = "sie-check-returned-item-against-sale"
 version = "0.1.0"
 description = "Check a returned item's photos against the sale before a store takes it back."
 requires-python = ">=3.12"
