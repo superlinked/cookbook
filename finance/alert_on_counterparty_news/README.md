@@ -111,8 +111,8 @@ Here are three of the articles in `data/news.jsonl`, and what should happen to e
   about Ferncastle, so Elmstead's administration doesn't count against it.
 - **Expected outcome:** Ferncastle `filed`, no alert.
 
-On the live run, 10 of 10 articles came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 10 of 10 articles came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -277,14 +277,16 @@ articles' windows, six GLiNER2.5-Decide calls, one per linked borrower) and take
 - **Verdict:** Pass. Given the whole article instead of Ferncastle's sentences, the event model
   said insolvency 0.84 (more on that below).
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 10 of 10 articles came out as expected.
 
-**Where it works:** a borrower named in full (N-01), by a name people write (N-03) or with its
-parent's ticker (N-05), and an article that shouldn't ping anyone, because no company is named
-(N-08) or the trouble is someone else's (N-09). When two borrowers share a name (N-04), or
-a name and a ticker disagree (N-07), it won't guess and a person decides.
+**Where it works:** when the news names a borrower on the list: in full (N-01, the missed
+payment), by the name people write (N-03, "Halden" and the lawsuit) or with its parent's ticker
+(N-05, the rating cut). Stories with no warning for the borrower get filed, and nobody is pinged:
+the new warehouse (N-02), the acquisition (N-06) and the competitor's administration (N-09). When
+two borrowers share a name (N-04), or a name and a ticker disagree (N-07), it won't guess and a
+person decides. The rate story with no company (N-08) and "Halden" the town (N-10) go nowhere.
 
 **Where it fails:** this run didn't test a denial. "Pellridge denies it missed a payment" is left
 to the event model, and nothing in Python checks for it. The ones to watch are N-10, where a model
@@ -299,19 +301,6 @@ alias "Northwind", one with a parent listed as `NYSE:NWEG` and one as `LSE:TLPK`
 
 The news, the people, the companies, the counterparty list and the URLs (all on `.example`
 domains) are synthetic, written for this recipe. No real company or person is named.
-
-| Article | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| N-01 | Pellridge Foods misses an interest payment, named in full | `alert` to Saoirse Mallin: missed payment 0.85 | The case this exists for |
-| N-02 | Sallowmere opens a new distribution warehouse | `filed`: none 0.80, top warning 0.04 | Good news about a borrower is still worth keeping, not worth a ping |
-| N-03 | A private borrower by its alias only, "Halden", in a story about a lawsuit | `alert` to Saoirse Mallin: lawsuit 0.85, linked by alias | Private borrowers are why vendor tags don't help |
-| N-04 | Bare "Northwind"; two borrowers share the alias | `review`: CP-1004 and CP-1005 both listed | A guess would alert the wrong credit officer |
-| N-05 | Bare "Northwind" with `(NYSE: NWEG)` after it, the parent's ticker | `alert` to Teodor Brask for Northwind Energy Supply Ltd: rating action 0.78, linked by ticker | The ticker settles it, for the other two mentions too |
-| N-06 | Quillfield Engineering buys Fenmoor Analytics, a company the bank doesn't lend to | Quillfield `filed`: none 0.55, management change 0.19; Fenmoor ignored | Only the bank's own names matter here |
-| N-07 | Tolland Packaging followed by `(NYSE: NWEG)`, another borrower's parent ticker | `review`: name and ticker disagree; the headline mention isn't linked either | The ticker belongs to someone else |
-| N-08 | Central-bank rate story, no company | `not_a_borrower` | Nothing found is a real answer here |
-| N-09 | A competitor's administration in the same story as Ferncastle Dairy, which is "unaffected" | Ferncastle `filed`: none 0.93; no alert | The warning is about the competitor, not the borrower |
-| N-10 | "Halden" the town, in a story about a flood warning, with no company named | `not_a_borrower`: both mentions read as a place | A borrower's alias that's also a place name |
 
 In all the run gave 3 `alert`, 3 `filed`, 2 `review` and 2 `not_a_borrower`, two alert messages
 (Saoirse Mallin with two stories, Teodor Brask with one) and three review rows. Treat this as a

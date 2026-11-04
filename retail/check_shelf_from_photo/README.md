@@ -110,7 +110,7 @@ Here are three of the tags in the photos in `data/`, and what should happen to e
 - **Expected outcome:** `out_of_stock`.
 
 On the live run, 3 of 4 tags with a problem came out as expected, and 14 of the 20 tags overall.
-[What came out](#what-came-out) has every one.
+[What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -177,7 +177,7 @@ on a granola bag, which is why boxes mostly inside a bigger package are dropped.
 The OCR model is `zai-org/GLM-OCR`, through SIE's `extract` call, once per tag. It returns the
 tag's text as Markdown, and on these tags it read every regular price and most UPCs well enough
 for the parser. It missed the UPC on two tags at the photo's right edge and got one digit wrong
-on a third (all three below), which is why an unknown UPC goes to review instead of falling back
+on a third, which is why an unknown UPC goes to review instead of falling back
 to the name.
 
 The slot reader is `Qwen/Qwen3.8-27B-FP8`, a vision-language model, through SIE's
@@ -333,43 +333,23 @@ the shelf that day.
   slot.
 - **Verdict:** Miss. A safe one: it's on the associate's list instead of a false `in_place`.
 
-### Every example
+### Results
 
-On the live run on 2 Nov 2026, 3 of the 4 tags with a problem (marked in the table) came out as
-expected, and 14 of the 20 tags came out as we expected in the table below.
+On the live run on 2 Nov 2026, 3 of the 4 tags with a problem came out as expected, and 14 of the 20
+tags came out as we expected.
 
 **Where it works:** a real wrong product (granola T02, freezer T04), a price that disagrees with the
 catalog (muesli T03), and the right product even when only part of it shows (granola T04, freezer
-T08).
+T08). The rest of the tags that came out `in_place` are plain cases: the Grandy and Hazelnut Butter
+bags (granola T01, T03), the Original and Strawberry Daiya bites (freezer T01, T02), Truwhip Extra
+Creamy (freezer T07), Bob's Red Mill granola (muesli T01, T02), and R.W. Knudsen and Lakewood Beet
+Ginger Turmeric (beet T02, T04).
 
 **Where it fails:** the empty slot (freezer T06) came out `review`, not `out_of_stock`. Three tags
-got a false `wrong_product` (freezer T03 and T05, muesli T04), which costs the associate a wasted
-trip. Two more went to `review`: OCR got a UPC digit wrong (beet T01), and the model said none of
-the listed names match (beet T03). T06 is the one to worry about: the model said the product was
+got a false `wrong_product` (freezer T03 Daiya Chocolat and T05 CocoWhip, and muesli T04 Gluten
+Free), which costs the associate a wasted trip. Two more went to `review`: OCR got a UPC digit
+wrong (beet T01), and the model said none of the listed names match (beet T03). T06 is the one to worry about: the model said the product was
 there when the slot was empty, and only the detector kept it from a false `in_place`.
-
-| Photo | Tag | What's on the shelf | Expected | Got | Why |
-| --- | --- | --- | --- | --- | --- |
-| granola-shelf-141418 | T01 Grandy Organics Ancient Grain Granola | Grandy bag | `in_place` | `in_place` | Model read "GRANDY ORGANICS" and "ANCIENT GRAIN GRANOLA" |
-| granola-shelf-141418 | T02 Blue Stripes Peanut Butter Banana. **Problem** | A Grandy Ancient Grain bag | `wrong_product` | `wrong_product` | Model picked Grandy Organics Ancient Grain Granola |
-| granola-shelf-141418 | T03 Blue Stripes Hazelnut Butter | Hazelnut Butter bag | `in_place` | `in_place` | Model read the green "HAZELNUT BUTTER" banner |
-| granola-shelf-141418 | T04 Blue Stripes Dark Chocolate | Dark Chocolate bag, half out of frame | `in_place` | `in_place` | From "WHOLE C", "Gran" and "70% DARK CHOCOLA" on half a bag |
-| frozen-desserts-141402 | T01 Daiya Original Cheesecake Bites | Original bag | `in_place` | `in_place` | Model read "ORIGINAL" on the Daiya bag |
-| frozen-desserts-141402 | T02 Daiya Strawberry Cheesecake Bites | Strawberry bag | `in_place` | `in_place` | The catalog name is just "Cheesecake Bites" (see below) |
-| frozen-desserts-141402 | T03 Daiya Chocolat Cheesecake Bites | Chocolate bag, mostly hidden | `in_place` | `wrong_product` | The slot picture shows a sliver of the purple bag and part of the Katz Glazed Donuts box next door, and the model picked Katz Glazed Donut Holes |
-| frozen-desserts-141402 | T04 Katz Chocolate Frosted Sprinkle Donuts. **Problem** | A Katz Glazed Donuts box | `wrong_product` | `wrong_product` | OCR missed the tag's UPC, so the name on the tag found the product (0.80); the model read "Glazed DONUTS" and picked Katz Glazed Donut Holes |
-| frozen-desserts-141402 | T05 So Delicious CocoWhip | One CocoWhip tub, set back and to the right | `in_place` | `wrong_product` | The model picked Truwhip Extra Creamy and says the tub's label reads "We're introducing the new Truwhip"; the label in the slot picture is the CocoWhip one (see below) |
-| frozen-desserts-141402 | T06 Truwhip Natural Whipped Topping. **Problem** | Nothing | `out_of_stock` | `review` | **Missed, safely.** The model still picks this tag's Truwhip, from "tru" on the edge of the stack next door, but the detector found no box in the slot, so it's "check the slot" instead of a false `in_place` |
-| frozen-desserts-141402 | T07 Truwhip Extra Creamy | Truwhip Extra Creamy tubs | `in_place` | `in_place` | Model read "EXTRA CREAMY WHIPPED TOPPING" |
-| frozen-desserts-141402 | T08 Katz Glazed Donut Holes | Donut Holes box, mostly left of the tag | `in_place` | `in_place` | Model read "Glazed DONUT HOLES" on the box |
-| granola-muesli-141419 | T01 Bob's Red Mill Maple Sea Salt Granola | Maple Sea Salt bag | `in_place` | `in_place` | Model read "HOMESTYLE GRANOLA MAPLE SEA SALT" |
-| granola-muesli-141419 | T02 Bob's Red Mill Cranberry Almond Granola | Cranberry Almond bag, set back | `in_place` | `in_place` | Model read "GRANOLA CRANBERRY ALMOND" on the purple bag |
-| granola-muesli-141419 | T03 Bob's Red Mill Old Country Style Muesli. **Problem** | Muesli bag; tag $10.99 | `price_mismatch` | `price_mismatch` | We raised its catalog price to $11.49; the model confirmed the bag |
-| granola-muesli-141419 | T04 Bob's Red Mill Gluten Free Muesli | GF Muesli bag, half out of frame | `in_place` | `wrong_product` | The catalog calls this product just "Muesli"; the model saw "MUESLI" and "HOT OR COLD" and picked Old Country Style Muesli |
-| beet-juice-141410 | T01 Sprouts 100% Beet Juice | Sprouts bottle | `in_place` | `review` | OCR read the UPC as `006-46570-51577` (one digit wrong), so no slot question was asked |
-| beet-juice-141410 | T02 R.W. Knudsen Organic Beet Juice | Knudsen bottles | `in_place` | `in_place` | Model read "R.W. KNUDSEN ORGANIC" |
-| beet-juice-141410 | T03 Lakewood Organic Super Beet Juice | Lakewood Organic Pure Beet bottles | `in_place` | `review` | `cant_tell`: the model read "Lakewood Organic Pure Beet" and said none of the listed names match (see below) |
-| beet-juice-141410 | T04 Lakewood Organic Beet Ginger Turmeric | Beet Ginger Turmeric bottle | `in_place` | `in_place` | Model read "Lakewood ORGANIC GINGER TURMERIC" |
 
 The empty slot didn't come out `out_of_stock`: the model still says Truwhip Original is
 there, from the edge of the neighbor's stack. Before the box rule that was a false `in_place`; now

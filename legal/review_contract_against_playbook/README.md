@@ -127,7 +127,7 @@ Here are three of the NDAs in `data/`, and what should happen to each.
   doesn't, the row must not pass: it says not found and points the lawyer at the section.
 - **Expected outcome:** period `deviates`; law `matches_position` if found, `not_found` if not.
 
-On the live run, 6 of 6 NDAs came out as expected. [What came out](#what-came-out) has every one.
+On the live run, 6 of 6 NDAs came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -314,17 +314,18 @@ took 34 s on ours.
   York clause that's plainly in Section 5, so the lawyer reads that section to confirm it. That's
   why "not found" never passes.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 6 of 6 NDAs came out as expected on the positions we wrote them
 to test. The extractor also missed three clauses we didn't expect it to miss (Lowfield Ridge's New
 York law, and the permitted disclosures of Orlaith and Velloway), each `not_found` with its sections
 cited.
 
-**Where it works:** the departures with a clause to point at. Lowfield Ridge's five years,
-Quillfeather's non-solicit and residuals, Orlaith's Singapore law and missing term, and Corrin's
-seven years all came out as they should, and Quillfeather's three years sits on the limit and
-passes.
+**Where it works:** the departures with a clause to point at. Our own paper (Brackenridge) matches
+on term, law and disclosures. Lowfield Ridge's five years, Quillfeather's non-solicit and residuals,
+Orlaith's Singapore law and missing term, and Corrin's seven years all came out as they should, and
+Quillfeather's three years sits on the limit and passes. Velloway's non-solicit, reworded as
+"neither party shall engage any of the other party's personnel", never reads as a match.
 
 **Where it fails:** the extractor. It missed the three clauses above, and Velloway's reworded
 non-solicit came out `unclear`, not `deviates`. All of those still reach the lawyer, at the cost of
@@ -342,15 +343,6 @@ on ours.
 > The .docx files carry no document properties (no author, company or dates).
 
 Our live run was on 4 Nov 2026 (UTC), with the settings as committed.
-
-| Case | What's in it | Should come out | What came out | Why |
-| --- | --- | --- | --- | --- |
-| `nda-brackenridge-analytics.docx` (ours, mutual) | Compliant | Term, law and disclosures `matches_position`; non-solicit and residuals `not_found` | As planned | No forbidden clause is there, but "not found" still goes to the lawyer |
-| `nda-lowfield-ridge-capital.docx` (theirs, one-way) | Five-year period; definitions long enough to need two windows; New York law; legal-process carve-out in Section 3 | Period `deviates`; law `matches_position` if found, `not_found` if not; carve-out `unclear` if the extractor marks only the definitions | Period `deviates`; law `not_found`; disclosures `matches_position` | The extractor misses New York, so it reaches the lawyer with Section 5 cited. It marks Section 3 as well as the definitions, and Section 3's sentences grant both carve-outs |
-| `nda-quillfeather-logistics.docx` (theirs, mutual) | Non-solicit and residuals clauses; a term of exactly 3 years | Non-solicit and residuals `deviates`; term `matches_position` | As planned | A boundary: three years is the limit, not over it |
-| `nda-orlaith-marine.docx` (theirs, one-way) | Singapore law; no term clause at all | Law `deviates`; term `not_found` | As planned, plus disclosures `not_found` | A missing term is a gap, never a pass. The extractor misses Section C |
-| `nda-corrin-fabrication.docx` (term vs survival) | A two-year agreement term in Section 4; confidentiality survives five years after it ends, in Section 7 | Confidentiality period `deviates`; agreement term reported as two years | Term `deviates`, "Confidentiality lasts 7 years (five (5) years after an agreement term of 2 years)" | The two clocks are added, not compared: taking the longest period alone would say five years |
-| `nda-velloway-robotics.docx` (reworded non-solicit) | "neither party shall engage any of the other party's personnel", with no "solicit" or "hire" | Non-solicit `not_found` or `unclear`, never `matches_position` | Non-solicit `unclear`, plus disclosures `not_found` | The extractor did mark something in "3. Personnel" ("one (1) year"), but the section lacks the non-solicit wording, so the position is `unclear` with the section cited, not `not_found`. Either way it reaches the lawyer |
 
 These six NDAs show the wiring works; they are not an accuracy measure. Six drafts tell you each
 path through the checks runs, not how often the extractor finds a clause.

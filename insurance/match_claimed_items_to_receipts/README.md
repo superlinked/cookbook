@@ -128,7 +128,8 @@ Here are three of the claims in `data/`, and what should happen to each.
   handler asks, and the claim waits.
 - **Expected outcome:** `review`; TV stand `ambiguous`, nothing asked; the stools `matched`.
 
-On the live run, 8 of 8 claims came out as expected. [What came out](#what-came-out) has every one.
+On the live run, 8 of 8 claims came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -342,20 +343,20 @@ already warm.
 - **Verdict:** Pass. It costs the handler a question: `ambiguous` sends nothing to the policyholder,
   so someone still has to ask whether it was a stand or a mount.
 
-### Every example
+### Results
 
 On the live run on 2026-11-04 (UTC), 8 of 8 claims came out as expected.
 
-**Where it works:** on messy but honest paperwork: different wording for the same item, a coupon and a quantity
-line (`CLM-26-1001`, `CLM-26-1002`) pass, and a receipt that doesn't add up, a wrong price, missing
-receipts and an unreadable photo (`CLM-26-1003` to `CLM-26-1006`) land in review with a request
-where one helps.
+**Where it works:** on messy but honest paperwork. Different wording for the same item
+(`CLM-26-1001`) and a coupon with a quantity line (`CLM-26-1002`) pass. A receipt that doesn't add
+up (`CLM-26-1003`), a wrong price (`CLM-26-1004`), missing receipts (`CLM-26-1005`) and an
+unreadable photo (`CLM-26-1006`) land in review. The receipt dated after the loss (`CLM-26-1007`)
+and the stand against the mount (`CLM-26-1008`) land there too with nothing asked, so the handler
+does that judging.
 
-**Where it fails:** what this run didn't test. It doesn't check that a receipt is
-genuine (a duplicate across claims, an edited photo), a list that says "x2" or "two of" comes out as
+**Where it fails:** what this run didn't test. It doesn't check that a receipt is genuine (a
+duplicate across claims, an edited photo), a list that says "x2" or "two of" comes out as
 `price_differs` or `ambiguous` instead of a match, and the photos are drawn, not real phone photos.
-And `CLM-26-1007` and `CLM-26-1008` still need a person: the recipe sends them to review and asks
-nothing, so the handler does that judging.
 
 The input is eight contents claims:
 
@@ -377,17 +378,6 @@ The input is eight contents claims:
 > [google/fonts](https://github.com/google/fonts/tree/5571d84c0d8c70ec1af4f64072d8c5cf1e4e9643/ofl/caveat)
 > at a pinned commit, checks its SHA-256 and caches it outside the repo. Only the rendered pages
 > are committed, not the font file.
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| `CLM-26-1001` | Two receipts; the inventory writes "Nimbus 55in TV" for "NIMBUS 55IN 4K TV". The HDMI cable on the same receipt is no longer on the inventory | `checks_passed`; 4 `matched`, the cable listed as `not_claimed` | A mixed receipt: one item survived, and that's fine |
-| `CLM-26-1002` | Near miss: a "2 @ 14.99" quantity line, a -30.00 coupon, 7.25% tax, dated two days before the fire, photographed at a 2.5 degree tilt; the inventory writes "Mixing bowls (2)" and its total without "$" | `checks_passed`; 3 `matched` | Everything a real receipt does to make the arithmetic awkward, and none of it is wrong |
-| `CLM-26-1003` | The printed total is 30.00 more than the items plus tax | `review`: receipt math; both items still `matched` | The receipt itself doesn't add up, which is worth a look before anything is paid on it |
-| `CLM-26-1004` | The inventory lists the guitar at 479.00; the receipt line says 279.00 | `review`: guitar `price_differs`, one request to confirm the price | The item is real, the price isn't the one on the receipt |
-| `CLM-26-1005` | The inventory adds headphones (279.00) that are on no receipt, and a doormat (24.00) that isn't either; the written total and the claims system's amount include both | `review`: headphones `no_receipt`, on the request list; the doormat `no_receipt`, below the threshold, not asked for | Not an accusation, and not every missing receipt is worth a letter. The guideline decides which |
-| `CLM-26-1006` | The second receipt photo is out of focus and underexposed | `review`: the dehumidifier `not_read`, one request for a new photo | An unreadable photo must not turn into "no receipt" or a pass |
-| `CLM-26-1007` | The receipt for the stolen boots and jacket is dated six days after the loss | `review`: both items `after_loss`, nothing asked | Probably the replacement purchase. That's the handler's call, not the recipe's |
-| `CLM-26-1008` | Near miss, from the portal: "TV stand 39.99" against the receipt's "TV WALL MOUNT 39.99"; the two walnut bar stools (2 @ 64.00) on the same receipt | `review`: TV stand `ambiguous`, nothing asked; the stools `matched` | Same price, one shared word, different thing. Matching on price and one word would call it proof |
 
 Treat this as a demo that the wiring works, not as a measure of accuracy: eight claims tell you
 each path through the matching runs, not how often a real phone photo gets misread.

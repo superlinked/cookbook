@@ -103,8 +103,8 @@ Here are three of the returns in `data/returns.jsonl`, and what should happen to
   confirm it, and the condition model should call the carton damaged.
 - **Expected outcome:** `inspect`, with the carton called damaged.
 
-On the live run, 5 of 7 returns came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 5 of 7 returns came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -282,31 +282,23 @@ All 7 returns came back on 30 Oct 2026; the days since the sale are counted from
   `rules.yaml`, so the crumpled carton itself raised nothing. The `inspect` comes from the product
   check alone.
 
-### Every example
+### Results
 
 On the live run on 2 Nov 2026, 5 of 7 returns came out as expected. All 7 got the guidance level
 we expected, but two details came out differently: R-07's crumpled carton was
 called `minor` packaging damage, and R-01's shrink-wrapped pack was called `closed`, not `sealed`.
 
-**Where it works:** comparing the box with the sale. A matching UPC gives `accept` (R-01, R-02), and
-the wrong item (R-03) and the near-miss model number (R-04) both go to a manager. The condition
-model also catches the obvious things: the shattered screen (R-06) and the part in its bag next to
-an open box (R-05).
+**Where it works:** comparing the box with the sale. A matching UPC gives `accept` on the HP mouse
+box (R-02), and both the wrong item, a Microsoft mouse box against the HP sale (R-03), and the
+near-miss model number on the toaster (R-04) go to a manager. The condition model also catches the
+obvious things: the Samsung phone's shattered screen (R-06) and an IBM part in its bag next to its
+open box (R-05).
 
-**Where it fails:** the condition model is too forgiving on packaging. R-01's `closed` changes
-nothing at a desk where sealed and closed lead to the same place. R-07 is the one to worry about:
+**Where it fails:** the condition model is too forgiving on packaging. R-01, the shrink-wrapped pack
+of diskettes, still gets `accept`, and its `closed` changes nothing at a desk where sealed and
+closed lead to the same place. R-07 is the one to worry about:
 the carton's damage raised nothing, and it only got to `inspect` because nothing on the carton
 identifies the product.
-
-| Return | What's on the counter | Guidance | Why |
-| --- | --- | --- | --- |
-| R-01 | A pack of Universal 3.5" diskettes in its shrink wrap, against the sale for that pack | accept | UPC 087547003503 read and matches; condition answers raised nothing; 28 of 90 days |
-| R-02 | The HP S500 Wireless Mouse box, front and barcode side, against the sale for it | accept | UPC 1944412406274 read and matches; packaging damage `minor` changes nothing; 10 of 30 days |
-| R-03 | **Wrong item.** A Microsoft Modern Mobile Mouse box against the HP S500 sale | refer | The box says "mouse" but none of the sale's brand (HP), model or UPC |
-| R-04 | **Near miss.** A Black+Decker TR1250WD toaster box against the sale for a Black+Decker 2-slice toaster, model TR1300WD | refer | Brand and name words match, but the box shows another model number (read as TR12501WD) |
-| R-05 | An IBM part 32G3606 box, opened, the part in its bag lying next to it | inspect | Brand and "part" read; opened, contents `incomplete`, and the product itself not seen |
-| R-06 | A Samsung Galaxy S2 with a shattered screen, no box | refer | Product damage `major`; also no packaging and nothing to read |
-| R-07 | A crumpled shipping carton with a FRAGILE sticker, against an online order for a stoneware dinner set | inspect | Nothing on the carton identifies the product |
 
 On our live run on 2 Nov 2026 (UTC) all 7 got their planned guidance level, with the settings as
 first written: the same 7 guidance levels as our runs before the two-barcode, other-model-number and

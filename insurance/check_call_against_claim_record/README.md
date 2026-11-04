@@ -123,7 +123,7 @@ Here are three of the inputs in `data/`, and what should happen to each.
   to it. That costs a second look, which is cheaper than a missed injury.
 - **Expected outcome:** `differs` on injuries, `injury_reported (ambiguous)`.
 
-On the live run, 7 of 7 cases came out as expected. [What came out](#what-came-out) has every one.
+On the live run, 7 of 7 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -303,20 +303,21 @@ The first calls can wait a few minutes while SIE Cloud starts the speech and ext
 - **Verdict:** Pass. The recipe doesn't settle what the sentence means. It marks it ambiguous and an
   adjuster hears it, so a sentence like this one always costs a second look.
 
-### Every example
+### Results
 
 On the live run on 2026-11-04 (UTC), 7 of 7 cases came out as expected.
 
-**Where it works:** when the call and the saved claim can be read side by side: Quintero passes clean,
-Achterberg's policy number stays out of the callbacks and the transposed house number shows both
-values, Vellanki's lost injury and missing date both come up, and Okafor's "didn't" and Delacroix's
-rain still raise their flags.
+**Where it works:** when the call and the saved claim can be read side by side. The complete call
+(Quintero) passes clean. The policy number the agent found by name stays out of the callbacks, and
+the transposed house number shows both values (both Achterberg). The lost injury and the date nobody
+asked for both come up (both Vellanki). "He didn't need an ambulance" (Okafor) and the rain still
+coming in on a complete call (Delacroix) still raise their flags.
 
-**Where it fails:** what this run didn't test. These are five clean
-text-to-speech recordings in voices Parakeet hears well; with other voices, the same values came out
-as `differs`. "Yesterday" or "Tuesday night" comes out as `differs` too, because it can't be
-compared with a saved date, a cause told with a negation ("hail, no wind") reads as both perils, and
-we haven't tried a noisy, interrupted call. Try those on your own calls first.
+**Where it fails:** what this run didn't test. These are five clean text-to-speech recordings in
+voices Parakeet hears well; with other voices, the same values came out as `differs`. "Yesterday" or
+"Tuesday night" comes out as `differs` too, because it can't be compared with a saved date, a cause
+told with a negation ("hail, no wind") reads as both perils, and we haven't tried a noisy,
+interrupted call. Try those on your own calls first.
 
 The input is five synthetic calls in [`data/`](./data) (16 kHz mono WAV, 39 to 44 s each) and
 [`data/claims.csv`](./data/claims.csv), the five claims the intake agent saved from them.
@@ -326,18 +327,6 @@ The input is five synthetic calls in [`data/`](./data) (16 kHz mono WAV, 39 to 4
 > for each caller) and `afconvert`. Every caller, policy number, claim number, phone number,
 > address and the insurer (Harborline Mutual) is invented; the phone numbers are in the
 > 555-0100 to 555-0199 range set aside for fiction.
-
-Here's what's in each call and what the run on 2026-11-04 (UTC) gave:
-
-| Case | What's in it | Should come out | Came out | Why |
-| --- | --- | --- | --- | --- |
-| Quintero | Complete call (hail and wind, nobody hurt); the saved claim has every field and agrees | `checks_passed` | `checks_passed`, no flag | The clean case |
-| Achterberg | Near miss: the caller has no policy number to hand; the agent found the policy by name, so the claim has it | Policy `in_claim`, no callback | Policy `in_claim`, no callback question | Not said on the call is not missing from the claim |
-| Achterberg | Changed: the caller says "87 Maple Street, unit 2", the agent saved "78 Maple Street" | `differs`: location, both values shown | `differs`: claim "78 Maple Street, Oakdale", call "87 Maple Street, Unit 2, Oakdale" at 00:22 | Two transposed digits send the field adjuster next door |
-| Vellanki | The husband cut his arm and needed stitches; the agent left the injury field at "No" | `differs`: injuries, `injury_reported` | `differs`: claim "No", call "Yes" at 00:26; `injury_reported` | The caller said it, the claim lost it, and this is the claim that should be seen first |
-| Vellanki | The agent never asked when it happened, and the claim's date of loss is blank | `callback_needed`: date of loss | `callback_needed`, with the date-of-loss question | Neither the call nor the claim has it, so this is a real callback |
-| Okafor | Near miss: "He was hurt but he didn't need an ambulance"; the claim says no injury | `differs`: injuries, `injury_reported`, marked ambiguous | `differs`: claim "No", call "Yes" at 00:36; `injury_reported (ambiguous)` | The negation is about the ambulance, not the injury |
-| Delacroix | Near miss: a complete call where the caller says rain is still coming through the ceiling and they're staying with family; the claim has every field | `checks_passed`, `urgent_assistance` | `checks_passed`, `urgent_assistance` | Every field filled in, and it still can't wait two business days |
 
 Seven cases on five calls show the wiring works end to end; they don't measure accuracy, and
 your calls will find things these don't.

@@ -108,7 +108,7 @@ are three of the messages in `data/messages/`, and what should happen to each.
 - **Expected outcome:** kept readable in the masked note, and carried into the summary.
 
 On the live run, 6 of 7 things we looked for came out as expected.
-[What came out](#what-came-out) has every one.
+[What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -312,23 +312,22 @@ The case came out `summary_checked`.
 - **Verdict:** Miss. The agent has to find it in the case note the summary links to, and no check
   looks for it, so the case still came out `summary_checked`.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 6 of 7 things we looked for came out as expected. The one that
-didn't is the dispute reference, which stayed readable but didn't make it into the summary, as
-explained below the table. The table's eighth row, the wrong amount, is a stand-in reply in
-`selfcheck.py`, not part of the live run.
+didn't is the dispute reference. Separately, `selfcheck.py` tries a stand-in reply that gives 98.99
+for the Quillon payment, and that comes out `needs_review`; it's not part of the live run.
 
-**Where it works:** getting card data out before the summary model reads it (the card number, the
-mistyped card and the CVV), staying current when the customer withdraws a dispute, and quoting the
-promise the bank made.
+**Where it works:** getting card data out before the summary model reads it (the card number, her
+mistyped first try at it, and the CVV), keeping the names in the masked messages, staying current
+when the customer withdraws a dispute, and quoting the promise the bank made. That's the six.
 
 **Where it fails:** what the summary leaves out. The checks can tell you a quote is real, but
-nothing looks for a line that's missing. That's the miss to worry about: the dispute reference the
-next agent needs to chase the dispute isn't in the summary, and the case still came out
-`summary_checked`. The "waiting on" line also leaves out that Quillon has until 6 November. And on
-this case the CVV rests on the rule alone: it caught "They're 731", and the PII model walked past
-it.
+nothing looks for a line that's missing. That's the miss to worry about: the 16-digit dispute
+reference the next agent needs to chase the dispute stayed readable in the case note but isn't in
+the summary, and the case still came out `summary_checked`. The "waiting on" line also leaves out
+that Quillon has until 6 November. And on this case the CVV rests on the rule alone: it caught
+"They're 731", and the PII model walked past it.
 
 The input is the case in [`data/`](./data):
 
@@ -346,24 +345,12 @@ The input is the case in [`data/`](./data):
 > **All of it is synthetic.** Thornbury Vale Bank, its staff, the customer, the merchants and
 > every number are invented. The card number is a made-up value with a valid check digit.
 
-One case, the lost debit card above. Here's what our live run on 4 Nov 2026 (UTC) gave. The case
-came out `summary_checked`:
+One case, the lost debit card above, and it came out `summary_checked`.
 
-| What we looked for | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| Card number in chat | The customer types her full card number into the chat | Masked to `XXXX XXXX XXXX 4421` before the model read it, found by both the rule and the PII model; not in the summary | The most common way card data ends up in a CRM |
-| CVV in passing | "Do you need the 3 numbers on the back too? They're 731." in the chat | Removed by the rule (`They're [CVV removed].`); the PII model didn't tag it | Three digits look like nothing to a number rule |
-| Mistyped card | Her first try at the number has two digits swapped | Masked anyway, and the masking report says "fails the Luhn check; masked as a mistyped card number" | A failed Luhn check next to "card" is a typo, not a safe number |
-| Dispute reference | A 16-digit network dispute reference that fails Luhn | Kept readable in the masked case note, because the card system holds it for this card; the summary didn't mention it | The next agent needs it to chase the dispute |
-| Names stay | "Rosalind Achterberg", "Ros", her landlord Cormac Fennimore, and the Lindqvists | All kept in the masked messages. The summary names Rosalind Achterberg and Edvard and Maren Lindqvist; it left out "Ros" and the landlord | The agent is allowed to see who they're helping |
-| One dispute withdrawn | A fifth message: "the 23.40 at the cafe was me, sorry" | One payment still disputed: Quillon Electronics 89.99 (TXN-5503, open); Copperpot Cafe 23.40 listed as withdrawn (TXN-5502, withdrawn) | A summary that's out of date is how customers get told two things |
-| A promise made | The agent's note: "told her she'll have the refund within five working days" | Listed under what the bank told the customer, quoting the note (M3) | That's the line the next agent most needs |
-| Amount the case doesn't support | A stand-in reply (selfcheck only) that gives 98.99 for the Quillon payment | `needs_review`: "the card system has Quillon Electronics only for 8.99 GBP, 89.99 GBP", and the open dispute isn't listed | The summary is checked against the card system, not trusted |
-
-One of these came out differently from what we wanted. The dispute reference stayed readable where
-it was written, but the model didn't put it in the summary, so the agent finds it in the case note
-the summary links to. "Names stay" counts as expected: it holds for the masking (nothing took a name
-out), and the model chose which names to repeat: it wrote "the customer" for most lines, even with
+One of the seven came out differently from what we wanted. The dispute reference stayed readable
+where it was written, but the model didn't put it in the summary, so the agent finds it in the case
+note the summary links to. The names count as expected: that holds for the masking (nothing took a
+name out), and the model chose which names to repeat: it wrote "the customer" for most lines, even with
 the prompt telling it to name people as the messages do, and the landlord didn't make the cut. No
 check looks for either, so neither changed the status.
 

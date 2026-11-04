@@ -132,8 +132,8 @@ Here are three of the inputs in `data/`, and what should happen to each.
   taken out where the two overlap.
 - **Expected outcome:** nothing readable, with the whole URL tagged as one piece.
 
-On the live run, 12 of 13 cases came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 12 of 13 cases came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -316,39 +316,24 @@ The run on 2026-11-04 (UTC) made 3 SIE calls.
 - **Verdict:** Miss. Nothing leaked, but the rule for overlapping spans never ran on this run, so
   this link says nothing about it. `selfcheck.py` covers that rule with stand-in replies.
 
-### Every example
+### Results
 
 On the live run on 2026-11-04, 12 of 13 cases came out as expected. The reset URL is the
 one that didn't: nothing in it stayed readable, but not for the reason we expected (more below).
 
 **Where it works:** the rules do most of the work (18 of the 25 redactions). What the vendor needs
-stays readable (the build number, the order ID, the status page IP, the vendor endpoint), one
-customer keeps one placeholder across files, and a bare UUID stops the notes file until a person
-decides.
+stays readable (the build number, the 16-digit order ID, the status page IP, the vendor endpoint),
+while a customer's private IP next to your own host still goes. The checkout log and the payment
+worker log lose their token, key and card and go to `review`; the connection string loses only its
+password, and the session cookie its ID. One customer keeps one placeholder across files, the
+on-call notes hide the customer and keep your own staff, and a bare UUID stops the notes file until
+a person decides.
 
 **Where it fails:** the reset URL came out clean by a different route than we meant, and the model
 over-redacted the words "password reset". The one to worry about is what the run didn't test: shapes
 the rules miss pass both the rules and the sweep (a double-encoded email, a card with three or more
 characters between digit groups), and a name the model didn't tag and no rule describes stays
 readable. That's why a person still looks before anything is attached.
-
-Here's the full list:
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| Checkout log | User IDs, client IPs, emails, request IDs, internal hosts, latencies, a bearer token in a debug header | `review`, 16 redactions: token taken out, rotate it; IDs, hosts and latencies kept | The vendor needs the timings; a live token in a log is a finding, not only a redaction |
-| Same customer, three files | Email, user ID, IP and name across both logs and the notes | `[USER_ID_1]` in both logs, `[IP_1]` in the checkout log and the notes, `[PERSON_1]` in the worker log and the notes, `[EMAIL_1]` in the checkout log | The vendor can follow one customer's failed requests through two services |
-| `build=4.18.302.7` | Looks like an IP | Kept | Near miss: fails the octet check, and the vendor wants your version |
-| 16-digit order ID | `order_id=7300018842915562` looks like a card | Kept | Near miss: fails Luhn and no "card" nearby |
-| Status page IP | `203.0.113.10`, a public IP that's the company's own | Kept (allowlist) | Redacting it hides a useful fact |
-| Payment worker log | An API key and a full card number in a debug payload | `review`, 5 redactions: key taken out, card masked to `XXXX XXXX XXXX 1111`, fix the logging; the payload's amount, currency and field names kept | The vendor needs the request's shape, not its card |
-| Vendor endpoint | `https://api.cardvault.example/v1/charges` | Kept (allowlist) | It's the vendor's own URL, and the first thing they'll ask for |
-| On-call notes | The customer's company and name, own staff, a rollback to build 4.18.301 | `[ORG_1] ([PERSON_1])`, a later lone "Delphine" as `[PERSON_1]`; Imogen Tarrant, Felix and build 4.18.301 kept | The customer is only in free text here, known from the ticket's fields |
-| Bare UUID in a stack trace | `charge 5b9d2c14-...` with no field name | `blocked` (the notes file) | It may be the charge ID the vendor needs or a customer's ID; nobody can tell by shape, so the engineer decides |
-| Customer private IP | `client_ip=10.20.3.4` from a customer on a VPN, next to `host=10.0.4.17` | `client_ip=[IP_2] host=10.0.4.17` | Near miss: a private range doesn't make it your host |
-| Reset URL | A password-reset URL holding an email and a reset token | `link=[URL_1]=[EMAIL_2]&token=[TOKEN_3]`: nothing readable but `=` and `&token=` | See below: the model split the URL, so the overlap rule wasn't needed on this run |
-| Connection string | `DATABASE_URL=postgres://payments:<password>@ledger-db:5432/ledger` in a worker startup line | `postgres://payments:[PASSWORD_1]@ledger-db:5432/ledger`, and a review reason to rotate it | The vendor may need to know which database; nobody outside needs its password |
-| Session cookie | `Cookie: session_id=...` in a debug header | `"Cookie": "session_id=[SESSION_1]; lang=en"` | A session ID is as good as a login for as long as it lives |
 
 These cases show the wiring works; they don't measure accuracy. Thirteen hand-written
 cases in three files tell you each path through the flow does what it says, not how often a

@@ -104,8 +104,8 @@ Here are three of the searches in `data/searches.json`, and what should happen t
 - **Expected outcome:** withdrawn notice for G13; G14 below `min_score` or shown as the current
   alternative; logged.
 
-On the live run, 9 of 9 searches came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 9 of 9 searches came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -282,32 +282,21 @@ The input is three files in [`data/`](./data):
   0.4944, under the bar a passage needs. The page still shows it as a plain result, so the notice is
   what tells the nurse the clinic stopped doing this.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 9 of 9 searches came out as expected.
 
-**Where it works:** the model put the passage that answers first when several share the topic (Q-01,
-Q-08) and picked the right sentence inside a passage (Q-09). Python kept retired documents off the
-page (Q-02, Q-06) and the wrong population off it or below a line (Q-03, Q-07), including where
-keyword search put them first (Q-02, Q-06, Q-07). When nothing answered, the page said so (Q-04,
-Q-05).
+**Where it works:** the model put the passage that answers first when several share the topic (blood
+pressure, Q-01; critical potassium, Q-08) and picked the right sentence inside a passage (HbA1c
+interval, Q-09). Python kept retired documents off the page (the old FIT edition, Q-02; home INR
+testing, Q-06) and the wrong population off it or below a line (child asthma plan, Q-03; child
+retinal screening, Q-07), including where keyword search put them first (Q-02, Q-06, Q-07). When
+nothing answered, the page said so (hypnotherapy, Q-04; yellow fever vaccine, Q-05).
 
 **Where it fails:** Q-06 is the one to worry about, because a passage that doesn't answer the question
 still shows as a plain result. The filter also stops at population: Q-07 mixes adult and child with
 type 1 and type 2 diabetes, and it only catches the first. And nothing checks for two current
 documents that disagree; these nine searches don't include that.
-
-| Search | What the guidance has | Should come out | What came out | Why |
-| --- | --- | --- | --- | --- |
-| Q-01 adult BP 142/88, no symptoms | The repeat-measurement passage, the same-day evaluation one and home monitoring | `results`: G01 first | `results`: G01 (0.9998), then G02 (0.9968); G03 at 0.0571 | The closest words ("high", "blood pressure") are in all three; only one answers |
-| Q-02 colonoscopy after a positive FIT | The current protocol G04 and its retired 2021 edition G05 | `results`: G04; replaced notice for G05 | `results`: G04 (0.9997); replaced notice for G05 (0.9999). Keyword search put G05 first | The case keyword search gets wrong |
-| Q-03 child asthma action plan | Adult G07 and pediatric G08 | `results`: G08, not G07 | `results`: G08 (0.9998); G07 scored 0.9737 and stayed off the page | The population filter does its job |
-| Q-04 hypnotherapy for quitting smoking | Tobacco passages that never mention it | `no_good_match`, logged | `no_good_match`, closest G15 at 0.1687, logged | Near the topic isn't an answer |
-| Q-05 yellow fever vaccine before travel | Nothing on travel vaccines | `no_good_match`, logged | `no_good_match`, closest G18 at 0.0008, logged | The clinic has no guidance; say so |
-| Q-06 home INR self-testing | G13, withdrawn, and the current clinic INR passage | Withdrawn notice; clinic INR passage below the bar or shown as the current alternative, depending on its score | `results`: G14 (0.7876) as the current alternative; withdrawn notice for G13 (0.9999); logged | A withdrawn protocol shouldn't come back as the answer |
-| Q-07 first retinal screening, child with type 1 | Only the adult retinal passage G12 | Other-population notice, G12 below the line, logged | `no_good_match`; G12 (0.5974) below the line with the notice; logged | The adult rule isn't the child's rule, and the coordinator should know it's missing |
-| Q-08 potassium 6.4, how fast | Critical G20 and non-urgent G21 lab passages | `results`: G20 first, sentence on the phone call picked out | `results`: G20 (0.9999), then G21 (0.8948); the phone-call sentence picked (0.9983) | Two lab passages, one urgent |
-| Q-09 HbA1c when stable at target | G10, whose one passage gives two intervals | `results`: G10, with the sentence for stable patients picked out | `results`: G10 (0.9999); the six-month sentence picked (0.9997) | The sentence pick shows the right interval, not the first one |
 
 Four searches (Q-04, Q-05, Q-06, Q-07) went to the gap log. Two things in the sample guidance were
 worded for the demo, and no rule or threshold was fitted to this data:
@@ -315,8 +304,8 @@ worded for the demo, and no rule or threshold was fitted to this data:
 - G04 and G05 were worded the way real editions tend to be. Current editions don't copy the
   clinician's phrasing and retired ones often use the old shorthand, so G04 says "aim to
   complete it within 60 days" and G05 uses "positive FIT", the way the question does.
-- G10 gives its two intervals in two sentences, so the sentence pick has something to choose
-  between.
+- G10, the HbA1c guidance, gives its two intervals in two sentences, so the sentence pick has
+  something to choose between.
 
 Treat all of this as a demo that the wiring works, not as a measure of accuracy: nine searches
 tell you the pieces fit, not how often the order is right.

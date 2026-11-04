@@ -132,8 +132,8 @@ Quill.
 - **Expected outcome:** the name and phone replaced, with the last read checking inside the
   brackets.
 
-On the live run, 12 of 13 cases came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 12 of 13 cases came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -325,36 +325,25 @@ Quill.
   to catch and this run doesn't show it working; `selfcheck.py` covers that with an SSN in brackets.
   The initial "W." is still readable, which is one letter and the honest broker's call.
 
-### Every example
+### Results
 
 On the live run on 2026-11-04 (UTC), 12 of 13 cases came out as expected.
 
-**Where it works:** names, numbers, addresses and employers got replaced across the notes, whether the
-regex, the EHR or the model found them, and the follow-up in 01 and the letter in 02 landed on the
-same shifted date. It hands a note to the honest broker when a name fits two people (02), a date has
-no year (03) or a fax names another patient (04).
+**Where it works:** the clean discharge summary comes out `checks_passed` (01). Shifted dates keep
+their gaps: five days from admission to discharge, and the follow-up in 01 lands on the letter's
+date in 02 (01, 02). Two spellings of one MRN get one placeholder (01, 02), ZIPs are cut to three
+digits (01, 03), and 67 stays while 92 becomes `[AGE 90+]` (01, 03). The attending, the facility and
+"since 2019" stay (01, 02), and so do "BP 98/64" and "take 1/2 tablet" (01). "Mr. Quill" becomes
+`Mr. [PATIENT_2]` (03). It hands a note to the honest broker when a name fits two people (02), a
+date has no year (03) or a fax names another patient (04). And the second team's request for the
+same cohort (RS-2026-044) gets different study IDs and offsets, so the two extracts can't be joined
+on their pseudonyms.
 
 **Where it fails:** the bracketed emergency contact in 03 is the one that didn't come out as expected:
 its phone was replaced, but by the regex, so the sweep inside brackets that we wrote it for never
 ran (more below). The thing to worry about is what stays readable. The recipe can leave initials
 and first names in the text, like that "W.", and four notes don't tell you how often a real note
 slips past it.
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| 01 | Discharge summary: name, MRN, DOB, address, phone, daughter, employer, five dates | `checks_passed`, 17 replacements | The clean case still goes to the honest broker |
-| 01, 02 | Admission and discharge five days apart; the follow-up date in 01 is the letter's date in 02 | Both notes moved by +11 days: `[DATE 2026-09-14]` to `[DATE 2026-09-19]`, and the follow-up and the letter are both `[DATE 2026-10-03]` | The reason to shift instead of delete |
-| 01, 02 | MRN `00482913` and `0048-2913`; DOB in both | One `[MRN_1]`, one `[DOB_1]`; DOB removed, not shifted | Two spellings of one identifier |
-| 01, 03 | ZIP 02134 and ZIP 03601 (a restricted three-digit area) | `[ZIP 021]` and `[ZIP 000]` | ZIP rule |
-| 01, 03 | "67-year-old" vs "92-year-old" and "Age: 92" | 67 kept; 92 becomes `[AGE 90+]` | Near miss on the age rule |
-| 01, 02 | Attending, referral addressee, the facility, "Hashimoto's thyroiditis", "since 2019" | Kept | The allowlist, and a year alone is allowed |
-| 01 | "BP 98/64" and "take 1/2 tablet" added to the discharge summary | Both kept; 01 stays `checks_passed` | Clinical numbers must not look like dates |
-| 02 | "Ms. Vance": the patient or her daughter Ines Vance? | `review`, 11 replacements: `a name that could be [PATIENT_1], [PERSON_1]; replaced as [PERSON_5]` | A name that fits two people, and the study needs to know whose history it is |
-| 03 | "Mr. Quill" | `Mr. [PATIENT_2]` | Title plus surname |
-| 03 | "since the nurse's visit on 9/29": a date with no year | Removed as `[DATE_3]`; `escalate`, 17 replacements | A date the rules can't shift |
-| 03 | The note already has a bracketed line, "[Emergency contact: W. Brightwater 603-555-0187]" | `[Emergency contact: W. [PERSON_4] [PHONE_4]]`: the regex took the phone, so the sweep had nothing left to catch | Original brackets must not hide from the sweep |
-| 04 | The export files the lab fax under Teodora Vance, but the fax names a different patient and MRN | `escalate`, 7 replacements: the patient field and the MRN (another EHR patient's) don't match; dates removed as `[DATE_1]`, `[DATE_2]`; held out of the extract | A note under the wrong patient would get the wrong offset, and the wrong patient's text would go out |
-| Two requests | The same cohort run under RS-2026-044 | Study IDs S-94XC3V and S-K88AMZ in the first extract, S-2Y44HQ and S-TQRZ7M in the second; offsets +11 and -26 days in the first, -39 and -32 in the second, so the discharge is `2026-09-19` in one manifest and `2026-07-31` in the other | Two extracts handed to different teams can't be joined on their pseudonyms |
 
 Every case came out with the output we planned, one of them for a different reason. They
 show the wiring works; they don't measure accuracy. Thirteen cases in four notes tell you each path

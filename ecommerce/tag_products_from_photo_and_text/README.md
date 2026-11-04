@@ -111,8 +111,8 @@ Here are three of the listings in `data/`, and what should happen to each.
   with the quote, and fill the empty field.
 - **Expected outcome:** material cotton, `from_text`, `filled`.
 
-On the live run, 11 of 14 listings came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 11 of 14 listings came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -289,37 +289,27 @@ On our live run on 4 Nov 2026 (UTC), 13 listings came back `checks_passed` and 5
   you it's cotton. And the specialist still has to open the listing, because the model's color quote
   didn't hold up (see below).
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026, 11 of 14 listings came out as expected (counting each of the
 four clear listings on its own).
 
-**Where it works:** listings that are already right pass and take no one's time (P01, P03, P07, P09).
-The text beats a wrong tag and shows the change (P11), settles what a photo can't (P05, P18), and an
-empty color gets filled from the photo for a person to confirm (P14). When nothing on the list fits,
-nothing gets picked (P15).
+**Where it works:** listings that are already right pass and take no one's time: the backpack (P01),
+leather sofa (P03), ceramic planter (P07) and suede sandal (P09). The text beats a wrong tag and
+shows the change (P11), and settles what a photo can't: the Dutch oven's enamelled cast iron (P05)
+and the ottoman's vegan leather (P18). A color field with a material word in it still reads right
+(P02), a two-tone desk keeps its second color (P16), and an empty color on the boots gets filled
+from the photo for a person to confirm (P14). When nothing on the list fits, as with the Lightning
+cable (P15), nothing gets picked.
 
-**Where it fails:** P12 came out `checks_passed` with color black instead of a photo color for review.
-P17 and P04 got the tag we wanted, but as `text_and_photo` rather than `from_text`, and both
-listings went to `review` for their color. Worry about P17 and P04: the model's text reading of the
-color was dropped on both, so a tag that's right still costs the specialist a look. P12 worries us
-less, since text, photo and catalog all agree on black.
+**Where it fails:** the mirror whose color field says "Glass" (P12) came out `checks_passed` with
+color black instead of a photo color for review. The blanket's cotton (P17) and the storage bench
+(P04) got the tag we wanted, but as `text_and_photo` rather than `from_text`, and both listings went
+to `review` for their color. Worry about P17 and P04: the model's text reading of the color was
+dropped on both, so a tag that's right still costs the specialist a look. P12 worries us less, since
+text, photo and catalog all agree on black.
 
-| Case | What's in it | Should come out | What came out | Why |
-| --- | --- | --- | --- | --- |
-| Clear listings | P01 backpack, P03 leather sofa, P07 ceramic planter, P09 suede sandal | `checks_passed`, every tag `same` | As planned: all four `checks_passed`, every tag `same` and `text_and_photo` | Most listings are fine, and those should take no one's time |
-| Cotton in the bullets | P17 throw blanket, empty material field, "100% Cotton" in bullet 3 | material cotton, `from_text`, `filled` | cotton, `filled`, quote "100% Cotton" from bullet 3, but `text_and_photo`: the photo reading also said cotton. The listing went to `review` for its color, see below | The answer was in the listing all along; a photo could never have told you |
-| Velvet, navy | P02, color "Navy Blue Velvet", material Velvet | color blue and material velvet, both `same` | As planned, quotes "Navy Blue" and "Velvet fabric" | The color field carries a material word; the synonyms have to cope |
-| Faux leather | P11, title "Faux Leather", material tag "Leather" | material faux leather `from_text`, `changed` from Leather | As planned; the photo said `unclear` | The text beats a wrong tag, and the change is shown |
-| Enamel or ceramic | P05 Dutch oven, text says enamelled cast iron | material cast iron `from_text`; the photo can't confirm it | As planned; the photo said `unclear` | What the photo alone sent to review, the text settles |
-| Bench or ottoman | P04, text says storage bench, photo looks like an ottoman | type bench `from_text`; `review` only if the photo reading conflicts | type bench `text_and_photo`, `same` (the photo read bench too); the listing went to `review` for its color, see below | A storage bench really does look like one |
-| Odd color field | P12 mirror, color "Glass", bronze-toned frame | color from the photo, `changed`, `review` | Not as planned: color black, `text_and_photo`, `same`, `checks_passed` | The title says "Black" and the model saw a black frame |
-| Empty color | P14 boots with no color in the fields or the text | color `from_photo`, `filled` | As planned (brown); the listing went to `review` because its material came from the photo only | A gap only the photo can fill, for a person to confirm |
-| Two-tone desk | P16, "White/Brown" | color white `same`, brown named as a second color | As planned: white `same`, `also` brown | Agreement on the main color; the second one isn't silently dropped |
-| Not on the list | P15 Lightning cable | type `not_found`, `review`, never "headphones" | As planned (the photo said `none`); its material plastic was photo-only, a second reason | Nothing on the list fits, so nothing should be picked |
-| Negated material | P18, "vegan leather" in the title and a bullet, empty material field | never leather; faux leather or `not_found` | faux leather, `from_text`, `filled`, quote "vegan leather"; the photo said `unclear` | The word "leather" in the text isn't the same as leather |
-
-Four listings outside the table are ordinary traffic. P06 (hard-shell luggage,
+Four more listings sit outside the 14 and are ordinary traffic. P06 (hard-shell luggage,
 plastic from "polycarbonate material") and P10 (grey velvet pouf) came out `checks_passed` with
 every tag `same`. P13, a metal bed with no fields at all, got type bed, material metal from the
 title and color black from the photo, all `filled`. P08's jute rug went to `review`, see below.

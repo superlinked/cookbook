@@ -128,7 +128,7 @@ of the things we wrote into them, and what should happen to each.
   comes out `summary_checked`.
 
 On the live run, 8 of 9 cases came out as expected (a tenth is checked only in the selfcheck).
-[What came out](#what-came-out) has every one.
+[What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -314,21 +314,22 @@ models. A warm run makes 6 SIE calls (5 to `superlinked/pii-redact`, one per doc
   the status didn't change. The new adjuster still sees the promise, just in one section instead of
   two.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 8 of the 9 cases the run covers came out as
-expected; the tenth row in the table, the wrong reserve, is a stand-in reply in the selfcheck
-only. The one that didn't is the plumber reimbursement, which we wrote to come out as promised and
-open, and it came out as promised only.
+expected; a tenth, the wrong reserve, is a stand-in reply in the selfcheck only, where it comes out
+`needs_review`. The one that didn't is the plumber reimbursement, which we wrote to come out as
+promised and open, and it came out as promised only.
 
-**Where it works:** on the numbers and on what stays readable: the account number, the SSN and the mistyped
-card are all masked, the vendor's job ticket and the names stay, the unanswered question is listed
-as open, and the health reason doesn't name the condition.
+**Where it works:** on the numbers and on what stays readable. The account number, the SSN and the
+mistyped card are all masked, the vendor's job ticket stays readable because the claims system holds
+it, the names stay, Tibor's unanswered question is listed as open, both promises in Marisol's note
+are listed under promises, and the health reason doesn't name the condition.
 
-**Where it fails:** on the plumber reimbursement,
-promised and not paid, which came out as promised but not open. That's the one to worry about,
-because no check looks for it and the status stays `summary_checked`. And this is one claim, so it
-tells you the checks run, not how often the summaries are right.
+**Where it fails:** on the plumber reimbursement, promised and not paid, which came out as promised
+but not open. That's the one to worry about, because no check looks for it and the status stays
+`summary_checked`. And this is one claim, so it tells you the checks run, not how often the
+summaries are right.
 
 The input is the claim in [`data/`](./data):
 
@@ -350,27 +351,13 @@ The input is the claim in [`data/`](./data):
 > with 666 (which is never issued), and the card number is a made-up number with one digit
 > changed from a valid one.
 
-One claim, the Varga water loss. Here's what our live run on 4 Nov 2026 (UTC) gave. The claim
-came out `summary_checked`:
+One claim, the Varga water loss. It came out `summary_checked` on our live run on 4 Nov 2026 (UTC).
 
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| Bank account | Tibor's email gives the credit union account number for the direct deposit | Masked to `XXXX XXXX 9310` before the model read it, found by both the rule and the PII model; not in the summary | The most common way an account number ends up in a file note |
-| SSN | "You asked for my SSN for the 1099: ..." | Replaced with "SSN on file"; the summary lists no open SSN request | The adjuster needs to know it arrived, not what it is |
-| Mistyped card | Tibor's card number with one digit wrong, after "my card" | Masked to `XXXX XXXX XXXX 6467` anyway, and the masking report says "fails the Luhn check; masked as a mistyped card number" | A failed checksum next to "card" is a typo, not a safe number |
-| Vendor job ticket | A 16-digit job ticket that fails the checksum, in D2 and D5 | Kept readable, because the claims system holds it for Driftwood on this claim; the summary didn't mention it | Accounts payable matches the invoice on it |
-| Names stay | Ilona, Tibor, "Mrs. Varga", the tenant Wendell Okafor, the Driftwood crew | All kept in the masked documents. The summary names Ilona, Tibor, Wendell Okafor, Marisol, Solveig, Driftwood and the tenant's insurer; it left out "Mrs. Varga" | The new adjuster is allowed to know who's who |
-| Unanswered question | Tibor asks whether the old policy number HO-448120 is still right; nobody replied | Listed as open, with Solveig Brannock, quoting "Is that still right?" | The question the insured will ask again on the first call |
-| A promise made | Marisol's note: she told Ilona the plumber's call-out would be reimbursed and the contents adjuster would call by October 16 | Both listed under promises, quoting D4 | That's the line the new adjuster most needs |
-| Health reason | The same note: the Vargas asked for a hotel during drying because of Tibor's asthma | "A hotel stay was approved for the insureds under Coverage D due to a health reason.", quoting a sentence that doesn't name it | The adjuster needs the reason for the hotel bill, not the diagnosis |
-| Paid or promised | The plumber reimbursement is promised in a note, and the claim record has no payment for it | Listed as promised, not as paid. Not listed under open items | The record says what's paid; the note says what's owed |
-| Amount the record doesn't support | A stand-in reply (selfcheck only) that gives the dwelling reserve as $15,800.00 | `needs_review`: "Coverage A reserve $15,800.00: the claims system has 18500.00" | The summary is checked against the claims system, not trusted |
-
-One of these came out differently from the plan. The plumber reimbursement was supposed to show
+One case came out differently from the plan. The plumber reimbursement was supposed to show
 up as promised and open; the model put it under promises and left it out of the open items, and
 the contents adjuster's call too. Nothing checks that a promise with no matching payment also
 appears as open, so the status didn't change. The new adjuster still sees the promise, just in
-one section instead of two. "Names stay" holds for the masking (nothing took a name out); the
+one section instead of two. The names stay through the masking (nothing took a name out); the
 model chose which names to repeat, and on this run that included the tenant.
 
 Treat all of this as a demo that the wiring works, not as a measure of accuracy: one claim tells

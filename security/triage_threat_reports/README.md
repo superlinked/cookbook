@@ -98,8 +98,8 @@ Here are three of the reports in `data/reports.jsonl`, and what should happen to
   both of ours, so nobody gets a ticket. Its IP should go to the SOC to search for.
 - **Expected outcome:** `hunt`, no ticket.
 
-On the live run, 10 of 11 reports came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 10 of 11 reports came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -312,15 +312,17 @@ CVE-2099-50213 patched on both. Our live run was on 4 Nov 2026 (UTC).
 - **Verdict:** Miss. The gateway part worked, but tagging review reasons come before `hunt`, so its
   IP stays off the hunt list until the analyst clears the report.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026, 10 of 11 reports came out as expected. R-05 is the one that
 didn't: it came out `review` instead of `hunt`, for tagging reasons explained below. R-10 counts as
 expected with one unplanned extra review reason, "mail gateway" tagged as a tool.
 
-**Where it works:** an open CVE gets one ticket to the team that owns the host (R-01), and a patched
-one gets none (R-05). Indicators go on the hunt list (R-02, R-07), and a product with a close name
-goes to a person (R-11).
+**Where it works:** an open CVE gets one ticket to the team that owns the host (R-01), and a patch
+summary is just filed (R-08). Indicators go on the hunt list (R-02), and a version number and a
+filename that look like indicators don't (R-07). The rest go to a person: a product with a close
+name (R-11), an alias under two actors (R-03), a new actor (R-04), live URLs and a malformed hash
+(R-06), an admin's `rclone` backup (R-09) and "No Mimikatz execution was observed" (R-10).
 
 **Where it fails:** R-05 should have reached the hunt list and went to review, because any tagging
 review reason comes first, including a tool nobody mapped or a word the model mistook for a tool. So
@@ -328,21 +330,7 @@ review reason comes first, including a tool nobody mapped or a word the model mi
 the scanner has no result for it, which could mean you don't run it or that the scanner doesn't
 check for it, and the recipe can't tell those apart.
 
-| Report | What's in it | Should come out | Result on our live run | Why |
-| --- | --- | --- | --- | --- |
-| R-01 | CVE-2099-41077 in the Corvane VPN gateway; the scanner shows it open on vpn-gw-02 | `affects_us`, ticket to the network team | `affects_us`, one ticket to `network` for `vpn-gw-02` | The case the recipe exists for. `vpn-gw-01` is a note: patched |
-| R-05 | CVE-2099-50213 in the same gateway; the scanner shows it patched | `hunt` for its indicators, no ticket | **`review`**, no ticket | The lookups came out as planned (no ticket, "patched on vpn-gw-01, vpn-gw-02" noted), but the report also names `Chisel`, a tool with no ATT&CK mapping, and NuNER Zero tagged "RDP" as a tool. Both are tagging review reasons, and they come before `hunt` |
-| R-02 | A loader and a domain, nothing you run | `hunt` | `hunt` | A domain, an MD5 and a SHA-1 go on the hunt list; aliases normalized to Ashen Heron, QuillRAT, Mothvine |
-| R-08 | A quarterly patch summary | `filed` | `filed` | Nothing to act on |
-| R-11 | **Near miss.** A report naming "Corvane VPN Concentrator", a different product line, with a CVE and a domain | `review`, not `affects_us` | `review` | A close name isn't the same product. Without the near-miss rule it would have been `hunt` |
-| R-03 | `Grey Lantern`, listed under two actors | `review` | `review` | Ambiguous alias, both candidates named |
-| R-04 | New actor `Velvet Ostrich` | `review` | `review` | Not in the alias table; SaltGlass and vssadmin still tagged |
-| R-06 | Live `https://` and `http://` URLs, an MD5 one character short | `review` | `review` | Two live URLs, defanged in every output but the hunt list, and a malformed hash |
-| R-07 | `build 4.2.0.118` and `mothvine_cfg.dat` look like an IP and a domain | `hunt` | `hunt` | Only the defanged `cdn-sync[.]example[.]org` counts, and it goes on the hunt list |
-| R-09 | Administrators used `rclone` to back up a file server | `review` | `review` | rclone tagged, its candidate T1567.002 held: the sentence says "back up" |
-| R-10 | "No Mimikatz execution was observed" | `review` | `review` | T1003.001 held: the sentence says "no". NuNER Zero also tagged "mail gateway" as a tool (0.91), a second reason |
-
-That's 1 `affects_us`, 2 `hunt`, 1 `filed` and 7 `review`. Treat these reports as a demo that
+The run gave 1 `affects_us`, 2 `hunt`, 1 `filed` and 7 `review`. Treat these reports as a demo that
 the wiring works. They say nothing about accuracy: eleven reports tell you the lookups and rules
 fire where they should, not how often they're wrong.
 

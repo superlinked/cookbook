@@ -92,7 +92,7 @@ Here are three of the sentences in `data/reports.jsonl`, and what should happen 
   doesn't decide that on its own. The sentence is held back and the CTI analyst checks it.
 - **Expected outcome:** Murkbell is `needs_review`, with the sentence in the held-back column.
 
-On the live run, 6 of 6 cases came out as expected. [What came out](#what-came-out) has every one.
+On the live run, 6 of 6 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -274,28 +274,20 @@ We ran it live on 4 Nov 2026 (UTC).
 - **Verdict:** Pass. The cost is the CTI analyst's time: the recipe stops at "go and read this" and
   leaves the call to them.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026, 6 of 6 cases came out as expected.
 
-**Where it works:** it finds tools with a clear use and no rule (Quillstep, Larchwick), matches a
-rule written under another name (Thornpipe), and doesn't let a close name count as a rule
-(Larchwood). It also keeps a denial the model read as a use off the backlog (R-04), and sends a
-hedge to a person (Murkbell).
+**Where it works:** the clear uses with no rule come out `no_rule` (Quillstep; Larchwick, which two
+groups share). A rule written under another name still counts (Thornpipe, through DR-0101), and a
+close name doesn't (Larchwood: DR-0103 scores 0.82 against Larchwick, so Larchwick stays `no_rule`
+with a note). A denial the model read as a use stays off the backlog (R-04, Thornpipe and Saltmarsh
+Kettle), and a hedge goes to a person (Murkbell).
 
 **Where it fails:** this run didn't test the wording the doubt words miss. A denial or hedge without
 one of them ("stopped using", "retracted", "we assess with moderate confidence") stays a claim, and
 that's the one to worry about, since it can put the wrong tool on the backlog. It also doesn't join
 a group to a sector across two sentences, so a chain written that way is left out.
-
-| Item | What's in the data | Result on our live run | Why |
-| --- | --- | --- | --- |
-| Quillstep | Saltmarsh Kettle uses it (two Northfold reports) and targets port operators; no rule | **`no_rule`**, Saltmarsh Kettle | The case the recipe exists for |
-| Thornpipe | Velvet Gorse used it against a freight broker; DR-0101 covers "Thornpipe implant" | **`rule_exists`**, Velvet Gorse | Already handled. The rule names an alias, and the alias table makes it a match |
-| Thornpipe and Saltmarsh Kettle | "We found no evidence that Saltmarsh Kettle used Thornpipe." | No edge; Saltmarsh Kettle isn't one of Thornpipe's groups, and the sentence is in `held_back` | A denial is not a claim. The model returned it at 0.92 anyway |
-| Larchwick | A commodity stealer Velvet Gorse and Saltmarsh Kettle both used; no rule | **`no_rule`**, both groups listed | Shared tooling still counts |
-| Murkbell | Only a hedged attribution: "Murkbell is possibly attributable to Saltmarsh Kettle" | **`needs_review`** | A hedge isn't enough to spend an engineer's week on |
-| Larchwood (near miss) | DR-0103 covers "Larchwood stealer", which scores 0.82 against "Larchwick stealer" (difflib), above the 0.8 `near_name_ratio` | Larchwick stays **`no_rule`**, with a note naming DR-0103 | A close name is a different tool until someone says otherwise |
 
 The run gave 4 backlog rows (2 `no_rule`, 1 `needs_review`, 1 `rule_exists`), and a graph of 17
 nodes, 15 edges, 16 review items and 4 dropped relations. Treat these cases as a demo of

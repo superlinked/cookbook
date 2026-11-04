@@ -115,8 +115,8 @@ Here are three of the ten photos in `data/inspection-photos.jpg`, and what shoul
   instead of letting the higher score win.
 - **Expected outcome:** `inspector`, with the conflict's position.
 
-On the live run, 10 of 10 photos came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 10 of 10 photos came out as expected. [What came out](#what-came-out) has
+the results.
 
 ## How we'll solve it
 
@@ -295,32 +295,21 @@ This is from the live run on 2026-11-03 (UTC), `runs/20261103T142629Z`.
 - **Verdict:** Pass. This catch depends on SAM 3 seeing the hole. If the loose bolt had covered the
   hole entirely, there'd be no hole box and this flange would count 8 and pass.
 
-### Every example
+### Results
 
 On the live run on 3 Nov 2026, 10 of 10 photos came out as expected.
 
-**Where it works:** It passed complete assemblies (FL-101, CV-201), found missing bolts when the
-empty hole was there to see (FL-102, FL-103, CV-202), ignored a spare bolt on the bench (FL-104),
-and sent a bad photo and a covered position to the inspector (FL-105, FL-106).
+**Where it works:** It passed the complete flange and cover plate (FL-101, CV-201), found missing
+bolts when the empty hole was there to see (FL-102, FL-103, CV-202), and ignored a spare bolt on the
+bench (FL-104). It sent to the inspector an out-of-focus, dark photo, for a retake with no SIE call
+(FL-105), a rag over one bolt position (FL-106), a loose bolt lying across an empty hole (FL-107)
+and a socket-head screw it read as a possible hole (FL-108).
 
 **Where it fails:** This run didn't test real photos: these ten are drawn, and real ones have glare,
 rust and paint. The limit to worry about is FL-107: the conflict rule only catches what SAM 3 sees,
 so a loose bolt that covers its hole entirely would count as fitted and pass. The cost on the other
 side is FL-108, a complete flange that goes to a person anyway. If your line uses socket-head screws
 everywhere, every photo lands in that queue.
-
-| Photo | Assembly | What we drew | Status | Why |
-| --- | --- | --- | --- | --- |
-| FL-101 | 8-bolt flange | complete | `all_bolts_seen` | 8 of 8 bolts on the part, no empty hole |
-| FL-102 | 8-bolt flange | 1 bolt missing | `defect`, hole at 6 o'clock | one empty hole (0.90) for the one missing bolt; an unsure bolt (0.33) on it was dropped |
-| FL-103 | 8-bolt flange | 2 bolts missing | `defect`, holes at 1 and 11 o'clock | two empty holes for two missing bolts |
-| FL-104 | 8-bolt flange | near miss: complete, with a spare bolt lying on the bench inside the frame | `all_bolts_seen` | the spare bolt (0.83) is detected and ignored as outside the flange |
-| FL-105 | 8-bolt flange | out of focus and underexposed | `inspector`: retake | sharpness 1.0 and brightness 43.9, under 50 and 60, so no SIE call; its count cells are empty |
-| FL-106 | 8-bolt flange | a shop rag covers one bolt position | `inspector` | 7 of 8 bolts seen and no empty hole to show the eighth is missing |
-| FL-107 | 8-bolt flange | **new near miss**: 1 bolt missing, a loose bolt lying on the flange across the empty hole | `inspector`, conflict at 8 o'clock | the loose bolt (0.81) and the hole under it (0.79) are on the same spot |
-| FL-108 | 8-bolt flange | **new near miss**: complete, one position fitted with a socket-head cap screw | `inspector`, possible hole at 5 o'clock | SAM 3 saw the screw head as a bolt (0.76) and the socket as a possible hole (0.66), on the same spot |
-| CV-201 | 6-bolt cover plate | complete | `all_bolts_seen` | 6 of 6 bolts on the plate, no empty hole |
-| CV-202 | 6-bolt cover plate | 1 bolt missing | `defect`, hole at 6 o'clock | one empty hole for the one missing bolt |
 
 That's with the settings as written. That wasn't true on the first run of
 this version: FL-108 came out `all_bolts_seen`, because the 0.66 socket hole sat under

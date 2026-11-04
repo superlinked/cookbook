@@ -107,7 +107,7 @@ Here are three of the questions in `data/questions.jsonl`, and what should happe
 - **Expected outcome:** `quote_checked`, page 8 revision C, 20 N m.
 
 On the live run, 10 of 10 questions came out as expected. [What came out](#what-came-out) has
-every one.
+the results.
 
 ## How we'll solve it
 
@@ -278,13 +278,16 @@ From the live run on 2026-11-03 14:31 UTC (`runs/20261103T143143Z`):
 - **What came back:** `quote_checked`, page 8 revision C, 20 N m.
 - **Verdict:** Pass. The revision B strainer page scored 0.664 and was never read.
 
-### Every example
+### Results
 
 On the live run on 3 Nov 2026, 10 of 10 questions came out as expected.
 
-**Where it works:** It found answers in a table, a schedule row and on drawings (Q1 to Q5, Q7), read
-only the right revision's page (Q6, Q10), and came back with no answer when no page scored high
-enough (Q8) or no page it read answered (Q9).
+**Where it works:** It found answers in tables: the E07 fault code (Q1), the refrigerant charge (Q4)
+and the condenser cleaning interval, a schedule row (Q5). It found answers that are only on a
+drawing: the drain valve (Q2), the remote start terminals (Q3) and the amber lamp (Q7). It read only
+the right revision's page for the strainer torque on both units (Q6, Q10). And it came back with no
+answer for the pump impeller nut torque, where no page scored high enough (Q8), and for the pump
+seal kit part number, where the two pages it read didn't answer (Q9).
 
 **Where it fails:** This run didn't test the hard cases: it's one synthetic manual, with no degraded
 scan or look-alike tags. The limit to worry about is that a checked quote doesn't make the answer
@@ -292,19 +295,6 @@ right or complete. An answer like "open V3" doesn't bring along the cool-down wa
 a quote stitched from two labels can still pass (see Potential improvements), so the technician
 reads the cited page before acting. Q8's 0.496 against the 0.50 threshold also shows how little
 room that threshold had here.
-
-| Question | Unit (revision) | What it tests | Planned | Came out | Why |
-| --- | --- | --- | --- | --- | --- |
-| Q1 | CH-03 (C) | Fault code E07, in a table | `quote_checked`, p. 6 | `quote_checked`, p. 6 | A plain table row |
-| Q2 | CH-03 (C) | Drain valve: the answer is only the V3 tag on the piping diagram | `quote_checked`, p. 4 | `quote_checked`, p. 4 (second page read) | The reason the recipe exists: the answer is a diagram label |
-| Q3 | CH-03 (C) | Remote start wiring: terminal numbers only on the wiring diagram | `quote_checked`, p. 5 (TB1 1 and 2) | `quote_checked`, p. 5, terminals 1 and 2 | The terminal numbers in the answer are in the quote |
-| Q4 | CH-03 (C) | Refrigerant charge, in the spec table | `quote_checked`, p. 2 | `quote_checked`, p. 2 (second page read) | The contents page outranked p. 2 |
-| Q5 | CH-03 (C) | Condenser coil cleaning interval | `quote_checked`, p. 7 | `quote_checked`, p. 7 | A schedule row |
-| Q6 | CH-03 (C) | Strainer cover bolt torque. Near miss: the revision B strainer page gives another torque | `quote_checked`, p. 8 rev C, 20 N m | `quote_checked`, p. 8 rev C, 20 N m | The revision B page (0.664) was never read |
-| Q7 | CH-03 (C) | Amber lamp, a control-panel callout | `quote_checked`, p. 3 | `quote_checked`, p. 3 | A numbered callout on a drawing |
-| Q8 | CH-03 (C) | Pump impeller nut torque: in-domain, not in the manual. Near miss of Q6 | `no_reliable_match` | `no_reliable_match` | Best revision C page scored 0.496 against 0.50 |
-| Q9 | CH-03 (C) | Pump seal kit part number: in-domain, pages score above the threshold, no page answers | `review`, answer blank | `review`, answer blank | Two pages read, neither answers |
-| Q10 (new) | CH-01 (B) | The same torque question for the older unit | `quote_checked`, p. 8 rev B, 25 N m | `quote_checked`, p. 8 rev B, 25 N m | Read the revision B page, not revision C's (0.677), which outscored it |
 
 In all: 8 `quote_checked`, 1 `review` and 1 `no_reliable_match`, every one as planned. That's
 after one fix: in the run before it, Q6 and Q10 went to `review`, and the first bullet below says

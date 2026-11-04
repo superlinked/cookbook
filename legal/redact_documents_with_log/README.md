@@ -133,7 +133,7 @@ Here are three of the documents in `data/text/`, and what should happen to each.
   redacted text sees something shaped like an SSN still readable and hands it to a person.
 - **Expected outcome:** `needs_review` for line 10, with the account shown as "account ending 0321".
 
-On the live run, 8 of 8 cases came out as expected. [What came out](#what-came-out) has every one.
+On the live run, 8 of 8 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -302,14 +302,17 @@ starts the PII model. A warm run makes 6 SIE calls, one per document, and takes 
 - **Verdict:** Pass. This is the limit. The recipe can't tell a claim reference from an SSN, so
   it leaves the number readable and a person decides.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 8 of 8 cases came out as expected.
 
-**Where it works:** only what the protocol lists comes out, each with its log line (PMS0000002), one
-account gets caught in two spellings (PMS0000003 and PMS0000005), names and a delivery date right
-next to a date of birth stay readable, the privilege flag lands on one paragraph of a chain
-(PMS0000004), and opposing counsel's words don't get flagged (PMS0000005).
+**Where it works:** only what the protocol lists comes out. The shipment email (PMS0000001) goes out
+with every name readable, the crew email (PMS0000002) loses its SSN, date of birth and home address
+with a log line each, and the delivery date next to that date of birth stays (PMS0000002 again). One
+account gets caught in two spellings (PMS0000003 and PMS0000005), and the claim reference shaped
+like an SSN goes to a person (PMS0000003). The privilege flag lands on one paragraph of a chain
+(PMS0000004), opposing counsel's words don't get flagged (PMS0000005), and the price list goes out
+with nothing redacted, marked `CONFIDENTIAL` (PMS0000006).
 
 **Where it fails:** it sends work to a person when it can't tell, as with the claim reference in
 PMS0000003, and it doesn't decide privilege at all. The one to worry about is what this run doesn't
@@ -330,21 +333,8 @@ Hollis & Crane LLP for Pellham:
 > **All of it is synthetic.** Every person, company, firm, bank, number and address is invented.
 > Emails use reserved `.example` domains; the SSN starts with 666, which is never issued.
 
-Case by case:
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| PMS0000001 shipment email | Osric Pellham, his operations manager and Kittering's operations director by name, dates and amounts | `redactions_checked`, no redactions, every name readable | The other side is entitled to who said what |
-| PMS0000002 crew insurance email | A crew member's SSN, date of birth and home address | `redactions_checked`; all three redacted, one log line each (lines 8, 11, 12); "Tomas Reyna" readable | The plain case: exactly what the protocol lists |
-| PMS0000003 wire confirmation | Account `4471900321` here and `4471 9003 21` in PMS0000005 | "account ending 0321" in both, one log line each | One account, two spellings |
-| PMS0000003 | Insurer claim reference `404-18-2210`, shaped like an SSN | `needs_review`: "line 10: an SSN-shaped number is still readable" | The sweep can't tell; a person decides |
-| PMS0000004 email chain | Osric forwards the dispute to Priya Okonjo at the firm and asks whether he can hold back the second payment | `privilege_flag` on lines 6 to 8 only; the forwarded email from Kittering readable | A partly privileged chain, the job's hardest box |
-| PMS0000005 near miss | An email quoting Kittering's lawyer, Leontyne Farrow of Ashby Quill LLP | No privilege flag; `redactions_checked` with the account masked | Opposing counsel's words aren't our privilege |
-| PMS0000006 price list | Pellham's prices to other customers, coded CONFIDENTIAL | `redactions_checked`, nothing redacted, designation `CONFIDENTIAL` from the coding | Commercial terms go out marked under the protective order, not blacked out |
-| PMS0000002 near miss | The date of birth next to a delivery date | Date of birth redacted, "12 June 2026" kept | Both are dates; only one is on the list |
-
-Treat this as a demo that the wiring works, not as a measure of accuracy: six documents tell you
-the rules do what they say, not how often the model misses a value in your own documents.
+Treat these results as a demo that the wiring works, not as a measure of accuracy: six documents
+tell you the rules do what they say, not how often the model misses a value in your own documents.
 
 A few things worth noticing:
 

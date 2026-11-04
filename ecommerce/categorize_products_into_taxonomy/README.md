@@ -107,8 +107,8 @@ AV-H700 Headphones"
 - **Expected outcome:** `review`, category *Headphone Cushions & Tips*, never *Headphones*, with
   the reason that the model number follows "for".
 
-On the live run, 10 of 12 cases came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 10 of 12 cases came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -311,46 +311,35 @@ AV-H700 Headphones"
 - **Verdict:** Miss. Right status and category, but the "for" rule didn't run, so this run doesn't
   show it working. The specialist still sees the row.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026, 10 of 12 cases came out as expected (counting each of the
 five clear rows on its own, and the duplicate-SKU pair as one case); TT-F07 and the cushions
 (TT-E13) are the two that didn't.
 
-**Where it works:** rows with one obvious category and every required attribute in the text pass with
-the right category (TT-A02, TT-A09, TT-E01, TT-H05, TT-F01), and the rows a person has to look at
-go to review: two categories that both fit (TT-H12), a missing size (TT-A04), a branch the taxonomy
-doesn't have (TT-X01). The duplicate SKU stops the run before any model call, and TT-A08 keeps what
-the PIM already has.
+**Where it works:** rows with one obvious category and every required attribute in the text pass
+with the right category: the jeans (TT-A02), sneakers (TT-A09), headphones (TT-E01), French press
+(TT-H05) and coffee beans (TT-F01). The rows a person has to look at go to review: a bottle that
+could be a thermos or a water bottle (TT-H12), a sweater with no size (TT-A04), a hose nozzle whose
+branch isn't in the taxonomy (TT-X01). The sheet with one SKU on two products (TT-A13) stops the run
+before any model call, and the hiking socks already in the PIM (TT-A08) keep what they have.
 
-**Where it fails:** TT-F07 and TT-E13 both reached review, but not for what we wrote them to test: the
-extraction call failed on both. So this run doesn't tell you whether "12 x 330 ml" gets read or
-whether the "for" rule fires. The thing to worry about is the failed calls: SIE Cloud's
-empty-result 500 hit four rows that do have the attribute (TT-H01, TT-F06, TT-F10, TT-E13), and each
-one is a row the specialist has to read by hand.
+**Where it fails:** the sparkling water (TT-F07) and the ear cushions (TT-E13) both reached review,
+but not for what we wrote them to test: the extraction call failed on both. So this run doesn't tell
+you whether "12 x 330 ml" gets read or whether the "for" rule fires. The thing to worry about is the
+failed calls: SIE Cloud's empty-result 500 hit four rows that do have the attribute (TT-E13 and
+three more, below), and each one is a row the specialist has to read by hand.
 
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| Clear rows | TT-A02 jeans, TT-A09 sneakers, TT-E01 headphones, TT-H05 French press, TT-F01 coffee beans: one obvious category, every required attribute in the text | `checks_passed`, as planned: *Jeans*, *Sneakers*, *Over-Ear Headphones*, *French Presses*, *Coffee Beans & Ground Coffee* | The rows the specialist should only have to glance at |
-| Thermos or water bottle | TT-H12, a vacuum-insulated bottle | `review`, as planned: *Thermoses* 0.93 vs *Water Bottles* 0.88, log-odds margin 0.60 | Two real categories fit; a person picks. Material was still read |
-| Missing size | TT-A04 merino sweater, no size anywhere | `review`, as planned: size not found, and a question for the supplier | The supplier has to be asked; a guessed size ends up on the product page |
-| Branch not in the taxonomy | TT-X01 brass hose nozzle (Lawn & Garden is not in the trimmed file) | `review`, as planned: best path plain *Home & Garden* at 0.47, so both the low score and the top-level rule fired | The right answer isn't on the list, and a top-level branch is not a category |
-| Net volume in an odd format | TT-F07 sparkling water, "Net volume: 12 x 330 ml" | `review`: GLiNER2's reply had no `data` at all, which counts as a failed call | A pack-times-size quantity is how food suppliers write it |
-| Duplicate SKU | Two rows with the same SKU, a black and a white variant | The run stopped before any model call and named both rows, as planned | One SKU, two products: the result for one would silently replace the other |
-| Accessory naming its host | Replacement ear cushions "for the Aurivox AV-H700 over-ear headphones" | `review`, category *Headphone Cushions & Tips*, never *Headphones*. The model number was never read: the extract call got SIE's empty-result HTTP 500 | The title is full of headphone words, and AV-H700 is the headphones' model number, not the cushions' |
-| Carry-over product (from the PIM lookup) | TT-A08 hiking socks, already PIM product P-10231 | `in_pim`, *Crew Socks*, no model call | A product the store already sells keeps what it has |
-
-Two cases came out differently from the plan, and we left them that way. TT-F07 was meant to
-show whether "12 x 330 ml" gets read; this time GLiNER2 answered without a `data` key, so it went to
+Two cases came out differently from the plan, and we left them that way. TT-F07 was meant to show
+whether "12 x 330 ml" gets read; this time GLiNER2 answered without a `data` key, so it went to
 review as a failed call, and we can't say whether it would have read the volume (the offline check
 shows the recipe accepts "12 x 330 ml" when it is read). And the cushions went to review for two
 reasons other than the one we wrote it for: the reranker couldn't separate *Headphone Cushions &
 Tips* from *Headphone Replacement Parts* (both fair), and the extraction call came back with the
-500. So
-the "for the AV-H700" rule did not run on this run; `selfcheck.py` shows it sending exactly this
-row's text to review, and it did fire live when we swapped in the smaller extraction model (see Try
-another model). Treat all of this as a demo that the pipeline works, not as a measure of accuracy:
-51 rows tell you the wiring is right, not how often it's wrong.
+500. So the "for the AV-H700" rule did not run on this run; `selfcheck.py` shows it sending exactly
+this row's text to review, and it did fire live when we swapped in the smaller extraction model (see
+Try another model). Treat all of this as a demo that the pipeline works, not as a measure of
+accuracy: 51 rows tell you the wiring is right, not how often it's wrong.
 
 A few things worth noticing:
 

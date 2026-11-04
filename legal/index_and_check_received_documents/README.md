@@ -124,8 +124,8 @@ Here are three of the documents in `data/TFL-VOL001/`, and what should happen to
 - **Expected outcome:** page 1 `qc_exception` for the guessed boundary; page 2 `possible_privilege`,
   naming Imogen Sallis, with its own boundary note.
 
-On the live run, 12 of 12 documents came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 12 of 12 documents came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -328,17 +328,22 @@ the models already warm, took 23 s.
   a person has to put the letter back together. Only page 2 goes to the lawyer; page 1, on its own,
   goes to litigation support.
 
-### Every example
+### Results
 
 On the live run on 2026-11-04 (UTC), 12 of 12 documents came out as expected (the
 unnumbered letter TFL0000011-0012 counts as the two documents the recipe was meant to split it
 into). TFL0000013 also picked up QC reasons we didn't write in (a date it couldn't read, windows
 disagreeing on author and type); they only add to a row already going to the lawyer.
 
-**Where it works:** the other side's lawyers get caught by name (TFL0000002-0003, TFL0000005 and the
-cc'd TFL0000006), advice that names no one on the list gets caught by the score (TFL0000007,
-TFL0000013), "legal" in a sentence doesn't fool the score (TFL0000006 on emails.pdf p3, 0.090), and
-the Bates check finds the duplicate TFL0000006 and the missing TFL0000008.
+**Where it works:** plain business records stay clean: the memo (TFL0000001), the delivery form
+(TFL0000004) and the native rate amendment (TFL0000010). The other side's lawyers get caught by name
+(TFL0000002-0003, TFL0000005 and the cc'd TFL0000006 on emails.pdf p2), and advice that names no one
+on the list gets caught by the score (the chronology TFL0000007, the long email TFL0000013). "Legal"
+in a sentence doesn't fool the score (TFL0000006 on emails.pdf p3, 0.090). The Bates check finds the
+duplicate TFL0000006 and the missing TFL0000008, which puts the lunch email right after the gap
+(TFL0000009) in `qc_exception`. The unnumbered letter comes out as the two documents it was meant
+to, each with a boundary note, and counsel is still found on its second page (TFL0000011,
+TFL0000012).
 
 **Where it fails:** it can't join the unnumbered letter (TFL0000011-0012), and on TFL0000013 gliner2's
 windows disagreed on author and type, so those are left blank for a person. The one to worry about
@@ -363,22 +368,8 @@ Custodian: <name>` legend in its footer.
 > PDFs carry no document metadata (no producer, title or dates). The matter, both companies,
 > every person, address and email domain (`.example`) is invented.
 
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| TFL0000001 | Scanned operations memo | `no_exception` (score 0.045) | The plain case |
-| TFL0000002-0003 | Two-page scanned letter of advice from Tollerby's General Counsel, "Page 1 of 2" and "Page 2 of 2" | One document, `possible_privilege`: names Owen Achterberg, scored 0.766 | The classic mistaken disclosure; the list catches it whatever the score says |
-| TFL0000004 | Scanned proof-of-delivery form | `no_exception` (0.075) | A plain business record |
-| TFL0000005 | Tollerby's CEO asks outside counsel for advice on the indemnity cap | `possible_privilege`: names Priya Raman, scored 0.586 | Both checks fire |
-| TFL0000006 (emails.pdf p2) | Business email with outside counsel only on Cc; the Bates number is used twice | `possible_privilege` (list only, score 0.061), duplicate noted | Counsel on Cc doesn't make it advice, but a lawyer should make that call |
-| TFL0000006 (emails.pdf p3) | Near miss: "the legal entity name on the invoice", no lawyer; the duplicate stamp | `qc_exception` (duplicate), score 0.090 | "Legal" in a sentence is not legal advice |
-| TFL0000007 | Chronology "prepared at the request of counsel", no listed lawyer | `possible_privilege` (score only, 0.909) | Work product that names no one on the list |
-| TFL0000009 | Lunch email right after the skipped TFL0000008 | `qc_exception` (gap) | A deficiency to raise with Tollerby |
-| TFL0000010 | Native .docx rate amendment named by its Bates number | `no_exception`, custodian Lena Fairbrook from the cover letter | Natives carry no footer |
-| TFL0000011-0012 | A two-page letter with no page numbers, outside counsel's signature only on page 2 | Page 1 `qc_exception` (boundary note, 0.090); page 2 `possible_privilege` (names Imogen Sallis, 0.489 unsure) with its own boundary note | The recipe can't see that the pages belong together; the per-page check still finds counsel |
-| TFL0000013 | A long email whose privileged paragraph sits in its second privilege window only | `possible_privilege`: windows 0.047 and 0.806, document 0.806 | The strongest window decides, as is |
-
-Treat this as a demo that the wiring works, not as a measure of accuracy: twelve documents tell you
-each path through the checks runs, not how often a real volume fools the models.
+Treat these results as a demo that the wiring works, not as a measure of accuracy: twelve documents
+tell you each path through the checks runs, not how often a real volume fools the models.
 
 The Bates check, from `bates-check.json`, is the deficiency letter in two lines:
 

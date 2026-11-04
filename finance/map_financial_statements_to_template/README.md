@@ -107,7 +107,7 @@ Here are three of the inputs in `data/`, and what should happen to each.
   adding up, off by twice the amount, and the exception names the line.
 - **Expected outcome:** spread `review`, `other_income_expense` -8,700, net income off by 17,400.
 
-On the live run, 7 of 7 cases came out as expected. [What came out](#what-came-out) has every one.
+On the live run, 7 of 7 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -296,15 +296,18 @@ docling and the reranker.
 - **Verdict:** Pass. It also shows the limit on a first-time borrower: six more exceptions came from
   labels the reranker couldn't place (below), and the analyst has to place them.
 
-### Every example
+### Results
 
 On the live run on 2026-11-04 (UTC), 7 of 7 cases came out as expected. Northfield and
 Mesa Verde also had exceptions we didn't write in, from labels the reranker couldn't place; each
 only adds to a spread already in `review` (see below).
 
-**Where it works:** the numbers. It reuses last year's mappings (Harbour Lane), and it catches a
-subtotal that doesn't add up (Northfield), a sign the wrong way round (Mesa Verde) and statements
-for the wrong year (Kestrel).
+**Where it works:** the numbers. Harbour Lane gives three of the cases: known labels placed from
+last year with no model call, the new "Bank loans" kept out of long-term debt, and "Net assets" and
+"Shareholders' funds" (both 712,600) giving one equity value, not two added together. Mesa Verde
+gives two: the sign the wrong way round, and "Owner's draws" at -96,500 read as a negative amount.
+Northfield's subtotal that doesn't add up and Kestrel's scanned statements for the wrong year (June
+30, 2026, when the loan system expects December 31, 2025) make seven.
 
 **Where it fails:** placing labels it hasn't seen. "Rent", "Vehicle and equipment expenses" and
 "Owner's capital" on Mesa Verde and "Other assets" on Northfield all came back as exceptions for the
@@ -326,16 +329,6 @@ The input is four borrowers in [`data/`](./data):
 > of them byte for byte. The PDFs carry no document info (no title, author, producer or dates).
 > The borrowers, their figures and their loan records are invented, and every page says so in
 > its footer.
-
-| Borrower | What's in it | Should come out | What came out | Why |
-| --- | --- | --- | --- | --- |
-| Harbour Lane Joinery Ltd (`BRW-20417`), UK labels, GBP | A returning borrower: 22 labels confirmed last year, including "Bank loans" under "Creditors: amounts falling due after more than one year" and "Directors' loan account" (the analyst put it in other current liabilities, not debt) | Known labels placed with no model call | 22 lines placed from last year; 2 score calls for the whole borrower | Last year's decisions are the bank's, so they're reused, not re-guessed |
-| Harbour Lane | New this year: "Bank loans" under "Creditors: amounts falling due within one year" | Current portion of long-term debt, never long-term debt | `current_portion_long_term_debt`, 120,000 (score 0.97, margin 4.41); long-term debt stays 480,000 | The mapping is keyed on the heading too, so last year's "Bank loans" doesn't apply; the group check would have caught a wrong row |
-| Harbour Lane | Unlabelled subtotals; "Net assets" and "Shareholders' funds" both 712,600 | Subtotals by heading; one equity value, not doubled | Spread `checks_passed`, 0 exceptions; `total_equity` 712,600, "2 lines agree" | Two lines in a total row are compared, never summed |
-| Mesa Verde Landscaping LLC (`BRW-31186`), US small business, USD, first spread | "Other income" shown as -8,700 in an "Other (income) expense" list; no pre-tax line | Placed as filed; the tie-out breaks by twice the amount and an exception names the line | `other_income_expense` -8,700; `net_income` breaks by 17,400: "The difference is twice 'Other income' (-8700)" | The sign is never fixed silently |
-| Mesa Verde | "Owner's draws" written -96,500 | Parsed as -96,500, never a heading | `other_equity` -96,500 | A minus sign is a negative amount |
-| Northfield Cold Storage, Inc. (`BRW-18820`), "in thousands", USD | "Total current liabilities" printed as 7,598; its lines add up to 7,538 | A `subtotal` exception and a broken tie-out | `subtotal`: "add up to 7538; the statement prints 7598"; `current_liabilities` breaks by 60; units `USD thousands` | The statement's own arithmetic is checked, not trusted |
-| Kestrel Valley Dairy Co. (`BRW-40562`), scanned, USD | Statements for the year ended June 30, 2026; the loan system expects December 31, 2025 | A `period` exception on both statements | Read with `docling:ocr`; both statements `period`, nothing else | The period is checked against the loan system, not assumed |
 
 Harbour Lane is `checks_passed`; the other three are `review`: Northfield with 4 exceptions, Mesa
 Verde with 7 and Kestrel with 2. Of the 60 tie-outs, 38 tied, 6 broke and 16 were skipped (the total

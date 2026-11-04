@@ -117,8 +117,8 @@ on 26 October 2026.
   it's compared, so the swap shows.
 - **Expected outcome:** `review`, with `address_matches` not met.
 
-On the live run, 12 of 12 cases came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 12 of 12 cases came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -305,15 +305,18 @@ run with both warm took 89 s.
   "house number '2', application '114'; flat '114', application '2'".
 - **Verdict:** Pass.
 
-### Every example
+### Results
 
 On the live runs on 2026-11-04 (UTC), 12 of 12 cases came out as expected, with the status and the
 requirement we wrote each one to show; `kyc-06` also had one extra requirement not met (see below).
 
 **Where it works:** a fault you can state as a rule against the form and the policy: an expired ID
 (`kyc-03`), a wrong check digit (`kyc-04`), an old bill (`kyc-05`), an address off by a digit or
-with the numbers swapped (`kyc-06`, `kyc-09`), a document of the wrong kind (`kyc-12`). And it
-doesn't flag a bill that only words things differently (`kyc-02`).
+with the numbers swapped (`kyc-06`, `kyc-09`), a bill in a family member's name (`kyc-07`), day and
+month swapped on the form (`kyc-08`), two recent bills at different addresses (`kyc-10`), a blank
+occupation with the ID card as the only address proof (`kyc-11`), and a document of the wrong kind
+(`kyc-12`). And it doesn't flag a clean case (`kyc-01`) or a bill that only words things differently
+(`kyc-02`).
 
 **Where it fails:** it depends on the scan being read properly. The OCR model's misread on `kyc-06`
 added a failure that isn't on the card, and with either of the other two OCR models we tried, every
@@ -342,21 +345,6 @@ The input is twelve personal-account cases, all received on 26 October 2026, in
 
 Every case is dated 26 October 2026, so an address document must be dated 26 July 2026 or
 later.
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| `kyc-01` | Form complete, ID and bill all consistent | `checks_passed` | Nothing to look at |
-| `kyc-02` | Near miss: the bill drops the middle name and adds "Mr", writes "Flat 2, 114 Harbour Rd" for "114 HARBOUR ROAD FLAT 2", is 89 days old | `checks_passed` | Same person, same flat, inside three months |
-| `kyc-03` | ID expired 31 August 2026 | `review`: `id_valid` not met; ask for an ID that's in date | The policy doesn't accept an expired ID |
-| `kyc-04` | MRZ birth-date check digit wrong | `review`: `id_mrz` not met, for the analyst | A bad check digit is a misread or an altered document |
-| `kyc-05` | Bill dated 12 May 2026 | `review`: `address_age` not met | Too old to prove the current address |
-| `kyc-06` | Bill at number 18, application at number 8 | `review`: `address_matches` not met, and `id_mrz` (see below) | One digit, different house |
-| `kyc-07` | Bill in another family member's name | `review`: `address_holder` not met | Same address, different person |
-| `kyc-08` | The application says 03/04/1988 (stored as 1988-04-03), the passport 04 MAR 1988 | `review`: `id_date_of_birth` not met, "day and month swapped" | Day and month swapped on the form, or not the applicant's ID |
-| `kyc-09` | Near miss: application "Flat 2, 114 Harbour Road", bill "Flat 114, 2 Harbour Road" | `review`: `address_matches` not met | Same words, different flat |
-| `kyc-10` | Two recent bills in the applicant's name, at different addresses | `review`: `address_matches` not met on the second, `address_documents_agree` not met | Two in-date bills that disagree prove neither address; the recipe never keeps one and drops the other |
-| `kyc-11` | Occupation left blank, and the only address proof is the ID card itself | `review`: `form_occupation` and `address_document` missing; no OCR needed to say so | The policy, not the documents, is what's unmet |
-| `kyc-12` | Uploaded as a "utility bill", but it's a mobile phone bill | `review`: `address_type` not met | The customer's label isn't the document's type |
 
 `kyc-06` came out with one extra requirement not met on every run. Treat that as a demo that the
 wiring works, not as a measure of accuracy: twelve cases tell you each path through the

@@ -120,7 +120,7 @@ Here are three of the alerts in `data/alertmanager-webhooks.jsonl`, and what sho
   claim with a real citation gets through and the responder has to catch it.
 - **Expected outcome:** `runbook_suggested`, RB-03.
 
-On the live run, 8 of 8 cases came out as expected. [What came out](#what-came-out) has every one.
+On the live run, 8 of 8 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -296,13 +296,16 @@ first calls can wait a few minutes while SIE Cloud starts the three models; our 
 - **Verdict:** Pass. But nothing in the group mentions checkout. Every citation is in the group, so
   the checks can't see it, and only the responder reading the note can.
 
-### Every example
+### Results
 
 On the two live runs on 2026-11-04, 8 of 8 cases came out as expected.
 
-**Where it works:** the alerts from all five causes land in their own groups under the right runbook
-or, for Kafka, on the gap list with no improvised note. Links that already exist get used as they
-are (A-29, A-30), and staging's charge errors stay out of production's group (A-31, A-32).
+**Where it works:** each cause's alerts land in their own group under the right runbook:
+`paymentFailure` (RB-01), `adHighCpu` (RB-02), `recommendationCacheFailure` (RB-03) and
+`productCatalogFailure` (RB-04). `kafkaQueueProblems` goes on the gap list with no improvised note,
+since no runbook covers Kafka. The runbooks for services that are fine are never chosen (RB-05 to
+RB-10), links that already exist get used as they are (A-29, A-30), and staging's charge errors stay
+out of production's group (A-31, A-32).
 
 **Where it fails:** a note can pass its checks and still say something untrue, like G3's checkout
 claim, and that's the one to worry about. This run also didn't test a messy storm: it's one storm
@@ -328,17 +331,6 @@ The input is one storm, incident INC-4127 on 2026-10-14, in [`data/`](./data):
 > not captured from a running demo. The runbooks are invented, and every URL is on
 > `example.internal`. [`make_data.py`](./make_data.py) writes all three files and rebuilds them
 > byte for byte.
-
-| Case | What's in it | Expected | Came out | Why |
-| --- | --- | --- | --- | --- |
-| `paymentFailure` | 7 alerts across payment, checkout and frontend (A-01 A-03 A-08 A-11 A-16 A-21 A-26) | `runbook_suggested` RB-01 | `runbook_suggested` RB-01, 0.9998 | One cause seen from three services |
-| `adHighCpu` | 6 alerts on ad and frontend (A-02 A-06 A-12 A-17 A-22 A-28) | `runbook_suggested` RB-02 | `runbook_suggested` RB-02, 0.9997 | CPU and latency wording for the same fault |
-| `recommendationCacheFailure` | 6 alerts on recommendation and frontend (A-04 A-09 A-14 A-18 A-23 A-27) | `runbook_suggested` RB-03 | `runbook_suggested` RB-03, 0.9998 | Memory, cache and latency wording |
-| `productCatalogFailure` | 4 alerts on product-catalog, checkout and frontend (A-07 A-13 A-19 A-24) | `runbook_suggested` RB-04 | `runbook_suggested` RB-04, 0.9999 (RB-10 next at 0.8565) | Shares checkout and the frontend with other groups |
-| `kafkaQueueProblems` | 5 alerts on accounting, fraud-detection and kafka (A-05 A-10 A-15 A-20 A-25); no runbook covers Kafka | `no_confident_match` | `no_confident_match`, best RB-09 at 0.0011 | A real gap; the note isn't written, the group goes on the gap list |
-| Distractors | RB-05 to RB-10 cover services that are fine | never chosen | never chosen | Runbooks that read close but don't fit |
-| Link already there | Two payment alerts (A-29 A-30) carry `runbook_url` for RB-01 | `linked_runbook` for those two | `linked_runbook` RB-01 | The structured link wins; no model is asked about them |
-| Same symptoms, other environment | Charge errors from `env=staging` (A-31 A-32) during the same storm | a separate group from production's payment group | its own group, `runbook_suggested` RB-01, 0.9996 | Near miss: identical words, different incident |
 
 Both runs used the settings as first written and gave 7 groups and 12 SIE calls, and all five notes
 passed their checks. Treat that as a demo that the wiring works, not as a measure of accuracy. One

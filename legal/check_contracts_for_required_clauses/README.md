@@ -123,8 +123,8 @@ Here are three of the contract packages in `data/`, and what should happen to ea
   carve-out, so no clause should come out as a clean `found`. All of them wait for the lawyer.
 - **Expected outcome:** all eight clauses `needs_review`.
 
-On the live run, 5 of 5 contracts came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 5 of 5 contracts came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -319,15 +319,17 @@ warm, our run on 2026-11-04 (UTC) took 90 s for its 96 calls.
 - **Verdict:** Pass. This is the trade-off. One blurred page sends all eight clauses to the
   lawyer, including the ones the model read correctly.
 
-### Every example
+### Results
 
 On the live run on 2026-11-04 (UTC), 5 of 5 contracts came out as expected (27 `found`, 11
 `needs_review`, 2 `not_found` across the 40 rows), with one row on Brindlecote we didn't expect sent
 to review.
 
-**Where it works:** it reports the gaps in Brennick, the weak wording in Tallowmere and the fee added by
-Brindlecote's amendment, each with the passage to read, and it holds back Brackwater rather than
-trust what it could read.
+**Where it works:** the clean contract (Nimbusline, `EB-ICT-0117`) came out 8 x `found`. It reports
+the gaps in Brennick (`EB-ICT-0098`, no locations or incident-assistance clause, and a note that
+Schedule 4 is missing), the weak incident-assistance wording in Tallowmere (`EB-ICT-0142`) and the
+fee added by Brindlecote's amendment (`EB-ICT-0076`), each with the passage to read, and it holds
+back Brackwater (`EB-ICT-0051`) rather than trust what it could read.
 
 **Where it fails:** it costs review. Brindlecote's harmless shortened quote went to the lawyer, because
 Python can't tell a harmless gap from one that matters. The one to worry about is a `not_found`: it
@@ -354,14 +356,6 @@ The input is five contract packages in [`data/`](./data) and the register that p
 > address are invented, and every page says so in its footer. The PDFs carry no document
 > metadata (no title, author or dates). The scans are drawn with Pillow with skew, speckle and
 > blur; the text-layer PDFs come from a small PDF writer in the same file.
-
-| Contract | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| `EB-ICT-0117` Nimbusline (text layer) | All eight clauses, plainly worded | 8 x `found` | The plain case |
-| `EB-ICT-0098` Brennick (scan) | No locations clause and no incident-assistance clause; the agreement refers to Schedule 4, which the package doesn't hold | `data_locations` and `incident_assistance` `not_found`, the other six `found`, and a note on the missing Schedule 4 | The gaps the lawyer is looking for, reported as not found in the passages read |
-| `EB-ICT-0142` Tallowmere (text layer) | Incident assistance "at its discretion", billed at "then-current" rates | `incident_assistance` `needs_review`, the other seven `found` | A near miss: the clause is there, but weaker than Article 30(2)(f) asks |
-| `EB-ICT-0076` Brindlecote (text layer, scanned amendment) | A compliant termination clause (9.2), then Amendment No. 1 in 2025 adding a termination fee | `termination_rights` `needs_review` with both passages cited; `incident_assistance` `needs_review` too (not expected, see below); the other six `found` | The original wording alone would read as `found` |
-| `EB-ICT-0051` Brackwater (scan) | The schedules page blurred past reading; the agreement pages hold every clause | All eight `needs_review`; the model said `found` on all eight | The lost page could hold a qualifier, so `found` is held back as well as `not_found` |
 
 The review row we didn't expect is Brindlecote's `incident_assistance`, where the model shortened
 its quote with "...". The three critical-or-important contracts (Nimbusline, Tallowmere,

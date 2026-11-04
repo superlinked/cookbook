@@ -115,8 +115,8 @@ Here are three of the searches in `data/queries.csv`, and what should happen to 
   should change the answer that the photo alone gives.
 - **Expected outcome:** `results`, P34 only, and the chrome P11 not shown.
 
-On the live run, 13 of 13 searches came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 13 of 13 searches came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -303,37 +303,23 @@ The input is four files in [`data/`](./data):
 - **Verdict:** Pass. By a thin margin, though: the 0.09 words bar sits in a small gap, so move it a
   hair and the oak lamp or the glass lamp comes along (see below).
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026, 13 of 13 searches came out as expected.
 
-**Where it works:** words alone (Q01 to Q03), a cropped photo (Q07), a photo from the real world (Q08)
-and a photo with words (Q11). It also says so when nothing fits, instead of showing a lookalike
-(Q04, Q10, Q12), handles a department that no longer exists (Q05), and logs a close style when the
-color or the stock is off (Q09, Q13).
+**Where it works:** words alone find the stemless wine glasses (Q01) and the grey laptop bag, with
+and without a department (Q02, Q03). A crop finds the lamp (Q07), a photo of a man wearing the bag
+finds the bag (Q08), and a photo with words finds the dark wood lamp (Q11). It also says so when
+nothing fits, instead of showing a lookalike: the drill (Q04), the uncropped room shot (Q06), the
+claw hammer (Q10) and the brown leather bag (Q12). It handles a department that no longer exists
+(Q05), and logs a close style when the color or the stock is off: the black flat (Q09) and the
+unavailable rug (Q13).
 
 **Where it fails:** not in these 13 searches, and that's a weak claim, because the thresholds were
-fitted to this same data. Worry about Q11: the words separate the lamps by 0.022 at most, so
-move the bar a hair and the answer changes. Q06 shows a limit too: an
-uncropped room shot gets "no close match", so the shopper has to crop. And the recipe can't tell the
-exact product from a lookalike in the same color, and an embedding doesn't understand "not".
-
-The searches, from our live run on 4 Nov 2026 (UTC):
-
-| Case | The search | Came out | Why |
-| --- | --- | --- | --- |
-| Three sets of glasses | Q01 "stemless wine glasses" in DRINKING_CUP | `results`: P27 only (0.193); P28 (0.098) and P26 (0.096) not shown | Every hit has to clear the bar, not only the best one |
-| Same words, two departments | Q02 "grey laptop bag" with no filter, Q03 the same in BACKPACK | Q02: the grey messenger bag P17 first (0.153), then three backpacks; Q03: the backpack P22 (0.144) | The department facet does its job |
-| Nothing like it | Q04 "cordless power drill"; the catalog sells no tools | `no_good_match`, logged; best P05, a recliner, at 0.013 | A recliner is not a drill |
-| Stale department | Q05 "navy ballet flat" in SANDAL, a category the catalog doesn't have | `unknown_department`, logged, no model call | The shopper gets a way out, not an empty page or a wait |
-| Room shot | Q06, a room with the P11 lamp small in the corner | `no_good_match`, logged; best P09 at 0.640 | The shopper didn't say which thing in the room they meant |
-| Cropped room shot | Q07, the same photo cropped to the lamp, in LAMP | `results`: P11 first (0.876), then four more lamps above 0.70 | A crop is how the shopper says which thing |
-| Worn bag | Q08, a man wearing the P17 messenger bag | `results`: P17 (0.895) | A photo from the real world finds the catalog photo |
-| Other color | Q09, the black Madison flat; the catalog has only the navy one (P33) | `results`: P33 (0.929), logged as a close style | Right style, wrong color, and the team may want to know shoppers ask for black |
-| Wrong department entirely | Q10, a claw hammer | `no_good_match`, logged; best P28, a drinking glass, at 0.619 | The best hit is below the bar |
-| This, but with a wood base | Q11, the cropped lamp photo from Q07 plus "but the base should be dark wood"; the catalog has the same faux wood table lamp in espresso dark brown (P34) and oak (P35), both from ABO | `results`: P34 only (photo 0.774, words 0.098); the chrome P11 not shown | The words change the answer; the photo alone returns P11 first |
-| Words the catalog can't meet | Q12, the worn messenger bag photo plus "in brown leather"; the catalog has only the grey fabric one | `no_good_match`, logged with the words; P17 words score 0.041 | Showing the grey bag as a match ignores what the shopper asked; the buyer sees the request |
-| Exact match unavailable | Q13, another ABO photo of the P15 rug, which the PIM marks unavailable; P16 is the same pattern in grey | `results`: P16 (0.738); P15 never shown; logged as a close style | A shopper can't buy the closest match if it's out of stock |
+fitted to this same data. Worry about Q11: the words separate the lamps by 0.022 at most, so move
+the bar a hair and the answer changes. Q06 shows a limit too: an uncropped room shot gets "no close
+match", so the shopper has to crop. And the recipe can't tell the exact product from a lookalike in
+the same color, and an embedding doesn't understand "not".
 
 That's with the rules as committed. The thresholds were fitted to this
 data (the comments in `rules.yaml` say from which numbers), so treat

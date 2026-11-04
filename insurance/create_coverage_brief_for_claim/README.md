@@ -125,8 +125,8 @@ Here are three of the claims in `data/claims.csv`, and what should happen to eac
 - **Expected outcome:** `quotes_checked`; EXC-02 read as printed and WB-01 `applies`, shown
   together.
 
-On the live run, 8 of 10 claims came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 8 of 10 claims came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -183,7 +183,8 @@ schema (`strict: true`) and temperature 0. The schema limits `clause_id` to the 
 `verdict` to the three values. It's the model the other document recipes here use for reading
 text and answering in JSON with quotes, and on this data it copied quotes cleanly: every quote
 in our run was found. It is also, left to itself, an enthusiastic question asker: CLM-01, a
-burst dishwasher hose, came back with 8 questions, and CLM-03 with 8 more.
+burst dishwasher hose, came back with 8 questions, and CLM-03, the drain dripping for
+months, with 8 more.
 
 No generative model sets the status. Both models are called once per claim, except that a claim
 the search finds nothing for never reaches the LLM.
@@ -268,7 +269,8 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 writes `runs/<timestamp>/` with `briefings.json`, `briefings.csv` and `briefings.md` (one card
 per claim, the question list first). The first calls can wait a few minutes while SIE Cloud
 starts the reranker and the LLM. A warm run makes 19 SIE calls (10 `score` calls, one per claim,
-and 9 `chat_completions` calls, since CLM-08 never reaches the LLM) and took about 90 seconds.
+and 9 `chat_completions` calls, since CLM-08, a caterer's deposit, never reaches the LLM) and took
+about 90 seconds.
 
 ## What came out
 
@@ -296,20 +298,23 @@ and 9 `chat_completions` calls, since CLM-08 never reaches the LLM) and took abo
   needs. But the model didn't read EXC-02 as printed, so the "read on its own, the exclusion says
   no" line isn't in the briefing, and nothing in the status tells you that.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 8 of 10 claims came out as expected. CLM-06 and CLM-09
 got the status and the clauses we wrote them to get, but not the detail: CLM-06 asked only half the
-question we expected, and CLM-09 didn't read EXC-02 as printed. Both are explained below the table.
+question we expected, and CLM-09 didn't read EXC-02 as printed. Both are explained below.
 
-**Where it works:** when the description holds the fact that decides it: CLM-01 and CLM-03 get opposite answers
-from the same room, CLM-02, CLM-04, CLM-05 and CLM-07 find their clauses, CLM-08 says the search
-found nothing instead of "not covered", and CLM-10 turns "about two weeks" into a question for the
-insured.
+**Where it works:** when the description holds the fact that decides it. The hose that split
+(CLM-01) and the months of dripping (CLM-03) get opposite answers from the same room. The tree
+through the roof (CLM-02), the creek in the basement (CLM-04), the garage break-in with its police
+report condition (CLM-05) and the stove fire (CLM-07) find their clauses. The caterer's deposit
+(CLM-08) says the search found nothing instead of "not covered", and the stain (CLM-10) turns "about
+two weeks" into a question for the insured.
 
-**Where it fails:** on the finer detail: CLM-06 asked only half the question, and CLM-09, the one to
-worry about, got `quotes_checked` on a reading that isn't the one the prompt asks for. A found quote
-means the words are in the text, not that the reading is right.
+**Where it fails:** on the finer detail. The frozen pipe in the empty house (CLM-06) asked only half
+the question, and the backed-up drain (CLM-09), the one to worry about, got `quotes_checked` on a
+reading that isn't the one the prompt asks for. A found quote means the words are in the text, not
+that the reading is right.
 
 The inputs are in [`data/`](./data):
 
@@ -327,21 +332,6 @@ The inputs are in [`data/`](./data):
 > **All of it is synthetic.** The policy wording was written for this recipe in the style of a
 > standard homeowners form, and the insurer, the insureds and the claims are invented. It is not
 > a real policy, and none of this is legal advice.
-
-Our live run on 4 Nov 2026 (UTC), with the settings as committed:
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| CLM-01 | Dishwasher hose splits; water across the kitchen for 20 minutes | `quotes_checked`; COV-05 `applies`, EXC-03 `does_not_apply` | The sudden leak the policy is written to cover; twenty minutes is not 14 days |
-| CLM-02 | Wind blows a tree through the roof; rain comes in through the hole | `quotes_checked`; COV-04 and COV-07 `applies` | Two perils in one loss, both worth citing |
-| CLM-03 | Drain dripping for months; rot and mold. Near miss of CLM-01 | `quotes_checked`; EXC-03 `applies` (EXC-04 too), COV-05 `does_not_apply` | Same room, same water, opposite answer. The months are what matter |
-| CLM-04 | Creek overflows into the basement | `quotes_checked`; EXC-01 `applies` | Flood exclusion, with the creek named in the description |
-| CLM-05 | Garage break-in, bikes and tools taken, police report made | `quotes_checked`; COV-06 `applies`, CON-02 (police report) in the conditions to confirm | The coverage hangs on a condition, so the condition has to be in the briefing |
-| CLM-06 | Pipe freezes while the house is empty with the heat off. Near miss of CLM-01 | `quotes_checked`; EXC-06 `applies`, with "Did the insured shut off the water supply and drain all plumbing systems before leaving?" to establish | The exclusion has its own exception, and the adjuster has to ask about it |
-| CLM-07 | Stove oil fire, smoke damage | `quotes_checked`; COV-03 `applies` | The plain fire case |
-| CLM-08 | A caterer keeps a wedding deposit: not a property loss | `no_clause_retrieved` (best: EXC-08 at 0.07), no LLM call | The search found nothing, and the briefing says that rather than "not covered" |
-| CLM-09 | Near miss: a floor drain backs up into the basement; this policy carries a water backup endorsement | `quotes_checked`; EXC-02 and WB-01 shown together, WB-01 `applies` | Read on its own, the exclusion says no. The endorsement gives it back |
-| CLM-10 | Near miss: a leak behind the washing machine; the insured "noticed a stain about two weeks ago" | `quotes_checked`; EXC-03 `unclear`, with "Was the water leaking continuously or repeatedly for at least 14 days prior to the date of loss?" to establish | The exclusion starts at 14 days, and "about two weeks" doesn't settle it |
 
 Every claim got the status we wrote it to get, but two missed the detail they were written for. On
 CLM-06 we expected the question "was heat maintained or the water shut off?". The model asked only

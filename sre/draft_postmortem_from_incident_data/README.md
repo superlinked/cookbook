@@ -115,7 +115,7 @@ Here are three of the incident channels in `data/`, and what should happen to ea
   deploy or the question about it sends the root cause to review.
 - **Expected outcome:** `checks_passed`, root cause on the expired certificate.
 
-On the live run, 9 of 9 cases came out as expected. [What came out](#what-came-out) has every one.
+On the live run, 9 of 9 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -288,14 +288,16 @@ took 37 seconds on our run.
   "a month", which is the model's arithmetic on "since September", and no check can tell that from a
   fact.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026, 9 of 9 cases came out as expected.
 
-**Where it works:** claims tie back to real lines, the cause lands on the certificate and not the
-nearby deploy (INC-0103), and "we don't know" stays "we don't know" (INC-0104). Anything without a
-clean alert window goes to review (INC-0105, INC-0106), and a late support count still counts as
-evidence (INC-0101).
+**Where it works:** claims tie back to real lines. The plain deploy and rollback (INC-0101) and the
+flag flip (INC-0102) pass, the cause lands on the certificate and not the nearby deploy (INC-0103),
+and a flapping page keeps one window with its firing time shown (INC-0107). "We don't know" stays
+"we don't know" (INC-0104). A page still firing (INC-0105), no page at all (INC-0106) and an alert
+history cut off before the first message (also INC-0106) go to review, and support's count the next
+morning still counts as evidence (also INC-0101).
 
 **Where it fails:** the checks prove a quote is really in the line it cites, not that the claim is
 right. INC-0103's "a month" got through that way, and that's the one to worry about, because a real
@@ -316,20 +318,8 @@ The input is the six seeds in [`data/`](./data), written by `make_data.py`:
 
 All seven incidents are at a fictional shop, Larkspur Outfitters. The seeds also hold events for
 unrelated services on the same days (a search deploy, a recommendation memory alert, a search
-index lag alert, a later checkout deploy), which no report should pick up, and none did. Here's
-what our live run on 4 Nov 2026 (UTC) gave:
-
-| Case | What happens in it | Came out | Why |
-| --- | --- | --- | --- |
-| INC-0101 | A deploy shrinks the payment client pool to 8; rollback fixes it | `checks_passed`, 36.0 min alert window | The straightforward case: deploy, symptom, rollback |
-| INC-0102 | A flag queries the DB once per line item; flag turned off | `checks_passed`, 45.0 min | The cause is a flag flip, not a deploy |
-| INC-0103 | A gateway deploy lands 12 min into the outage; the cause is an expired certificate | `checks_passed`, 43.5 min; root cause cites S04, never D01 | Near miss: the deploy closest to the outage didn't cause it |
-| INC-0104 | Latency recovers on its own; nobody finds the cause | `needs_review`: root cause not established | "We don't know" is an honest answer and a person decides what to do with it |
-| INC-0105 | The page is still firing when the record ends | `needs_review`: the alert window has not closed | No end time to report |
-| INC-0106 | Customer-reported; only a warning alert, no page | `needs_review`: no alert window | The window has to come from support data or metrics |
-| INC-0107 | The page flaps: fires, resolves, fires again | `checks_passed`, 50.3 min (39.7 min firing) | The gap between firings isn't proof customers recovered |
-| Truncated history (in INC-0106) | The warning fired at 10:21, six minutes after the bad deploy and more than the 60-minute lookback before the first message; only its resolve is in range | `needs_review`: the alert history is incomplete | The record can't show when the alert started, so the review item says when it fired |
-| Late impact confirmation (in INC-0101) | Support posts the final count the next morning, 18 hours after the alert resolved | the impact claim cites that message (S11) and passes | A late message is still evidence; nothing ties impact lines to the alert window |
+index lag alert, a later checkout deploy), which no report should pick up, and none did. Our live
+run was on 4 Nov 2026 (UTC).
 
 We put the truncated history in INC-0106 rather than add an eighth incident, because that's where it
 happens naturally (a warning that paged nobody, well over an hour before the customers noticed), so

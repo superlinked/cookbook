@@ -146,8 +146,8 @@ Here are three of the twelve delivered lots in `data/`, and what should happen t
   any further, even though the number passes.
 - **Expected outcome:** `filled` and `review`, on `dimensions`.
 
-On the live run, 12 of 12 lots came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 12 of 12 lots came out as expected. [What came out](#what-came-out) has
+the results.
 
 ## How we'll solve it
 
@@ -362,15 +362,20 @@ The input is four deliveries and twelve delivered lots in [`data/`](./data):
 - **Verdict:** Pass. The cost is extra review: the reading is inside the limit and the lot still
   waits for a person, because the gauge can't tell it from a reading just outside.
 
-### Every example
+### Results
 
 On the live run on 3 Nov 2026, 12 of 12 lots came out as expected, both fill status and check
 status.
 
-**Where it works:** The quantity side got the right status every time (`lot-01` to `lot-04`). The
-document checks caught values outside their limits (`lot-05`, `lot-07`), a swapped heat number
-(`lot-06`) and things missing from the paperwork (`lot-09`, `lot-11`, `lot-12`), and let through the
-near misses that really do pass (`lot-02`, `lot-10`).
+**Where it works:** Each quantity got the right fill status: the full delivery (`lot-01`), the
+partial one with 4 plates still open (`lot-02`), the one 2 plates over (`lot-03`) and the line whose
+grade doesn't match the PO line it names (`lot-04`). The document checks called a low yield
+(`lot-05`) and a thin T3 reading the form marks "OK" (`lot-07`) `nonconforming`. They sent a swapped
+heat number (`lot-06`), a reading too close to its limit (`lot-08`), a blank inspector box
+(`lot-09`), a T3 row left off the form (`lot-11`) and a missing Charpy result (`lot-12`) to
+`review`. And they let through the near misses that really do pass: a yield exactly on the minimum
+with the form's heat written "A-41902" (`lot-02`), and a yield of 348 on 20 mm plate, where the
+minimum is 345 (`lot-10`).
 
 **Where it fails:** This run didn't test how often a real scan gets misread: twelve lots only show
 that each path through the checks runs. It also doesn't check chemistry, elongation, the certificate
@@ -378,21 +383,6 @@ type or the delivery condition. The limit to worry about is the plate itself: th
 on the delivery note, the certificate and the form tells you the paperwork agrees, not that the
 stamp on the steel says the same thing. And a lot with a passing reading can still wait for a
 person (`lot-08`).
-
-| Lot | What's in it | Fill status | Check status | Why |
-| --- | --- | --- | --- | --- |
-| `lot-01` | Full delivery: 6 of 6 ordered, nothing received before; documents consistent, S355J2+N 12 mm | `filled` | `checks_passed` | Quantity matches the order and every check has a reading inside its limit |
-| `lot-02` | Partial delivery: 6 of 10 ordered. Near miss on the documents: yield exactly the 355 minimum, written "355 N/mm2"; tensile 471 (minimum 470); thinnest reading 11.53 against an 11.50 limit, outside the 0.02 mm guard band; form heat written "A-41902" | `partially_filled` (4 open) | `checks_passed` | Less than ordered is a fill status, not a fault in the steel; a value on its limit passes, "N/mm2" is MPa and hyphens are ignored in heat numbers |
-| `lot-03` | Over-delivery: 8 ordered, 6 received on an earlier delivery, 4 on this one; documents consistent | `over_delivered` (2 over) | `checks_passed` | The buyer decides about the extra 2; the steel itself checks out |
-| `lot-04` | The delivery note line cites PO-48213 line 4, ordered as S355J2+N, but says S275JR | `no_po_line` | `review`: `po_line` | Wrong grade for the line it names, so nothing is booked and there's no limit to check against |
-| `lot-05` | Yield strength 341 MPa, minimum 355 | `filled` | `nonconforming`: `yield_strength` | Below the grade minimum for 12 mm |
-| `lot-06` | Delivery note says heat B17730; certificate and form say B17703 | `filled` | `review`: `heat_number` | Two digits swapped; the certificate may belong to another heat |
-| `lot-07` | Thickness T3 14.38 mm on 15 mm plate (limit 14.50); the form marks it "OK" | `filled` | `nonconforming`: `dimensions` | The recipe compares the reading with `rules.yaml` and ignores the form's own "Result" column |
-| `lot-08` | Thickness T2 11.51 mm: inside the 11.50 limit by less than the gauge's 0.02 mm | `filled` | `review`: `dimensions` | The gauge can't tell it from a reading just outside |
-| `lot-09` | Inspector box and signature left blank | `filled` | `review`: `inspector` | Not read, so not assumed |
-| `lot-10` | Near miss: 20 mm plate with yield 348, which passes the 345 minimum for 16 to 40 mm; grade written "S355 J2+N" | `filled` | `checks_passed` | The yield band follows the ordered thickness; spaces are ignored in grades |
-| `lot-11` | New near miss: a 14.38 mm T3 reading like `lot-07`'s, with the T3 row left off the form; T1, T2, T4, width and length all pass | `filled` | `review`: `dimensions` | Thickness T3 is on the inspection plan and wasn't read. Before this change, the lot passed |
-| `lot-12` | New near miss: S355J2+N with yield and tensile inside the limits, but no impact energy box on the certificate | `filled` | `review`: `impact_energy` | A J2 grade needs a Charpy result; strength alone isn't enough. Before this change, the lot passed |
 
 That's with the settings as first written. Two warm reruns gave the same 12 results, the
 last one after the delivery note table check went in; all four delivery notes added up (four,

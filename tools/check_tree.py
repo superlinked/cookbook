@@ -43,7 +43,7 @@ CROSS_IMPORT = re.compile(
 # a model and how to self-host it. Headings must be whole lines outside code blocks.
 README_SECTIONS = (
     "### Examples",
-    "### Every example",
+    "### Results",
     "### What you do next",
     "## Try another model",
     "## Run it on your own SIE",

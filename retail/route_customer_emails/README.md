@@ -96,8 +96,8 @@ Here are three of the emails in `data/emails.json`, and what should happen to ea
   "shattered" aren't on the safety list, and we wrote this email knowing it would get past the list.
 - **Expected outcome:** you'd want `product-safety` by `escalation`. Expect it to miss.
 
-On the live run, 8 of 12 emails came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 8 of 12 emails came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -246,37 +246,25 @@ matched, and `also_send_to` the queues after the first.
 - **Verdict:** Miss. It reached a person in the general queue only because the model wasn't sure
   what it was either. That's luck, and this is the limit of a phrase list you can read.
 
-### Every example
+### Results
 
 On the live run on 2 Nov 2026, 8 of 12 emails came out as expected.
 
-**Where it works:** where the email uses the words on the list, or asks one clear thing: E-03, E-04 and E-12
-all escalated, E-05's "Sue" stayed out of legal, and the plain questions went to the right team.
+**Where it works:** where the email uses the words on the list, or asks one clear thing. The burn
+(E-03), the attorney (E-04) and the injury with a lawyer (E-12) all escalated, and E-05's "Sue"
+stayed out of legal. The plain questions (E-01, E-02, E-07) went to the right team, even with an
+order number typed as `lk 208 331`, and the email with no detail at all (E-10) went to the general
+queue with a top score of 0.32.
 
-**Where it fails:** when an injury is told in other words (E-11, the one to worry about), when an email has two
-problems (E-06), when an email is too vague to route but the model picks a team anyway (E-08), and
-when a team description has a cue that fits the wrong email (E-09).
-
-| Email | What's in it | Route on our live run | Why |
-| --- | --- | --- | --- |
-| E-01 | Where is order LK-204517 | `orders-delivery`, model (0.98) | Plain delivery question |
-| E-02 | Refund for an in-store return, order written `lk 208 331` | `returns-refunds`, model (0.80); `LK-208331`, Riverside Plaza | The order check turns `lk 208 331` into `LK-208331`; the model read "Riverside Plaza", the store's full name |
-| E-03 | Heater sparked and burned a child's hand | `product-safety`, escalation; order and store still read | `burned`, `sparking`, `recalled` |
-| E-04 | Third reply on a refund thread, mentions an attorney | `legal-escalations`, escalation; `in_reply_to` kept | `attorney` |
-| E-05 | Near miss: "Sue at the Maple Grove store was so helpful", subject "Thank you to Sue" | `store-experience`, model (0.98); "Sue" is a name, not a legal threat | Bare "sue" is not a legal phrase |
-| E-06 | Two issues: charged twice and not delivered | `orders-delivery`, model (0.65 vs `billing` 0.33) | Margin 0.32, over the 0.20 limit |
-| E-07 | Rewards points missing | `loyalty`, model (0.68, margin 0.52) | Clear enough to pass both limits |
-| E-08 | Vague call-back request naming an unknown "Northgate store" | `store-experience`, model (0.98); store flagged as not in the list | "Northgate store" isn't on the store list |
-| E-09 | Assembly question for a garden bed picked up at the Eastport store | `store-experience`, model (0.59 vs `product-help` 0.38) | "picked up at the store" matches the `in-store pickup` cue |
-| E-10 | "I need some help with something. Could someone get back to me?" | `customer-care-general`: top `orders-delivery` 0.32 | Under 0.50 |
-| E-11 | Near miss: a glass table top shattered and "a piece cut my child's cheek", no listed phrase | `customer-care-general`: top `product-help` 0.39; not escalated | Phrase-only escalation: nothing in the list matches |
-| E-12 | A ladder collapsed, "my husband was injured", and "we have spoken to a lawyer" | `product-safety`, escalation; `also_send_to` `legal-escalations` | Both flags kept: `injured` and `lawyer` |
+**Where it fails:** when an injury is told in other words (E-11, the one to worry about), when an
+email has two problems (E-06), when an email is too vague to route but the model picks a team anyway
+(E-08), and when a team description has a cue that fits the wrong email (E-09).
 
 On our live run (2026-11-02, UTC) the 12 emails came out as 3 escalated, 7 by model and 2 to
 `customer-care-general`. Four emails didn't go where we wrote them to go, and we left the
 rules and thresholds alone after seeing them: E-06, E-08 and E-09 (more below), and E-11, which
 we wrote knowing it would miss the escalation and which is the one to worry about. Treat the
-table as a demo that the wiring works, not as a measure of accuracy: twelve emails tell you
+results as a demo that the wiring works, not as a measure of accuracy: twelve emails tell you
 the pipeline runs end to end, not how often it's wrong.
 
 A few things worth noticing:
@@ -299,7 +287,7 @@ A few things worth noticing:
   the general queue only because GLiNER2.5-Decide wasn't sure what it was either (top
   `product-help` at 0.39, `store-experience` next). That's luck, not a rule. A slightly more
   confident model would have sent it to `product-help` as an assembly question. We didn't add
-  "cut" to the list to make this row look better; for a home and garden retailer, "the mower
+  "cut" to the list to make this result look better; for a home and garden retailer, "the mower
   won't cut" is a Tuesday.
 - **E-06 was written to split between billing and delivery**, but the model chose delivery with
   a margin of 0.32, clear of the 0.20 limit. The customer has two problems and the row names

@@ -125,8 +125,8 @@ Here are three of the citations in `data/draft_brief.docx`, and what should happ
   it.
 - **Expected outcome:** `check_citation`: support only in the dissent.
 
-On the live run, 9 of 9 citations came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 9 of 9 citations came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -317,21 +317,25 @@ already warm, took 19 s.
   the majority paragraph that answers it (P4, 0.3569) scored under `min_score` 0.5, so the model
   never saw it. Only the part check caught this one.
 
-### Every example
+### Results
 
-On the live run on 2026-11-04 (UTC), 9 of 9 citations came out as expected (the table below).
+On the live run on 2026-11-04 (UTC), 9 of 9 citations came out as expected.
 The draft's 3 ordinary statute citations also came out `support_found`.
 
-**Where it works:** the mistakes that read fine on a quick pass. It caught one changed word in a quote
-(row 4), a sentence the case says the opposite of (row 6), a dissent cited as the holding (row 5),
-an overruled case and a superseded statute (rows 9 and 10), and another state's case cited with no
-signal (row 8), and it let the same kind of case through when the draft says so (row 7).
+**Where it works:** the mistakes that read fine on a quick pass. The exact quote (citation 1,
+Ardley) came out `support_found`. It caught one changed word in a quote (citation 4, Ardley), a
+sentence the case says the opposite of, "Westmark courts may rewrite an overbroad covenant"
+(citation 6, Ardley), a dissent cited as the holding (citation 5, Pell), an overruled case (citation
+9, Carrow Builders), a superseded statute (citation 10, § 59.18.280) and another state's case cited
+with no signal (citation 8, Ludvik). It let the same kind of case through when the draft says so
+(citation 7, Kessler Tools), and it sent a case the folder doesn't hold to the cite checker
+(citation 12, Tolliver).
 
-**Where it fails:** the one to worry about is the threshold, which can keep the contrary passage away
-from the model, as it did for Pell's P4 (row 5). That row came out right only because of the part
-check. A citation it can't look up (row 12) gets no check at all, and the cite checker does it by
-hand. It doesn't test citation format, page pin cites or anything in the brief that isn't a
-citation, and `support_found` means the checks passed, not that the argument is good.
+**Where it fails:** the one to worry about is the threshold, which can keep the contrary passage
+away from the model, as it did for Pell's P4 (citation 5). That one came out right only because of
+the part check. A citation it can't look up (citation 12) gets no check at all, and the cite checker
+does it by hand. It doesn't test citation format, page pin cites or anything in the brief that isn't
+a citation, and `support_found` means the checks passed, not that the argument is good.
 
 The input is one draft and the matter's files, in [`data/`](./data):
 
@@ -349,24 +353,12 @@ The input is one draft and the matter's files, in [`data/`](./data):
 > **All of it is fictional:** the states of Westmark and Ardena, the courts, parties, citations,
 > statutes, the firm and the draft. No real case or statute is quoted or summarized.
 
-| # | Citation | What's in it | Expected | Came out | Why |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Ardley (A01), exact quote | The reasonableness rule, quoted word for word | `support_found` | `support_found`, P3 (majority) at 0.9999 | The plain case |
-| 4 | Ardley, one word changed | "reasonably necessary" where the case says "necessary" | `check_citation`: quoted words not in the authority, closest passage shown | `check_citation`, closest words in P3 (majority) shown | A near miss that a search for the quote misses entirely |
-| 6 | Ardley, sentence with no quote | "Westmark courts may rewrite an overbroad covenant" | `check_citation`: the model finds no passage that supports it | `check_citation`, the model found no support in P5, P3, P4 | The case says courts may narrow, not rewrite; same topic, opposite point |
-| 5 | Pell (A04), dissent cited as the holding | Three years for client relationships, which only Judge Varga's dissent says | `check_citation`: support only in the dissent | `check_citation`, support only in P6 (dissent) | The reranker ranks the dissent high; only the part label catches it |
-| 9 | Carrow Builders (A15) | Cited for the economic loss rule | `check_citation`: overruled by A16 | `check_citation`, overruled, see 221 Westm. 2d 410 (2020) | Reads perfectly; the citator is the only thing that knows |
-| 10 | § 59.18.280 (2009) (A07) | The 2009 deposit deadline | `check_citation`: superseded by A06 | `check_citation`, superseded, see § 59.18.280 (as amended 2022) | The old text reads the same with a different number of days |
-| 8 | Ludvik (A12) cited as binding | An Ardena case cited without a signal in a Westmark motion | `check_citation`: another jurisdiction | `check_citation`, Ardena Supreme Court authority, no signal | Right answer, wrong state |
-| 12 | Tolliver, a missing authority | A citation to a case the folder doesn't hold | `not_in_folder` | `not_in_folder` | The cite checker pulls it by hand |
-| 7 | Kessler Tools (A03) with "Cf." | Ardena case, but the sentence names Ardena and uses a signal | `support_found` | `support_found`, P3 (majority) at 0.9999 | Near miss for row 8: the draft says it's another state's law |
-
-The other three rows (the Noncompetition Covenants Act, the Trade Secrets Act and the Wage Payment
-Act, rows 2, 3 and 11) are ordinary support and came out `support_found`. With the settings in
-`rules.yaml` the run gave 5 `support_found`, 6 `check_citation`, 1 `not_in_folder`, 22 SIE calls.
-Treat that as a demo that the wiring works, not as a measure of accuracy. One draft with tidy
-problems we wrote ourselves tells you each path through the recipe runs, not how often a real brief
-gets checked right.
+The other three citations (the Noncompetition Covenants Act, the Trade Secrets Act and the Wage
+Payment Act, citations 2, 3 and 11) are ordinary support and came out `support_found`. With the
+settings in `rules.yaml` the run gave 5 `support_found`, 6 `check_citation`, 1 `not_in_folder`, 22
+SIE calls. Treat that as a demo that the wiring works, not as a measure of accuracy. One draft with
+tidy problems we wrote ourselves tells you each path through the recipe runs, not how often a real
+brief gets checked right.
 
 A few things worth noticing:
 
@@ -393,7 +385,7 @@ A few things worth noticing:
   justified" (P4) scored 0.3569, under `min_score` 0.5, so the model saw only P6. The row still
   came out right, because of the part check, but it shows the threshold can keep the contrary
   passage away from the model. Potential improvements has the fix.
-- **The changed word is caught by Python, not the model.** For row 4 the model said P3 supports
+- **The changed word is caught by Python, not the model.** For citation 4 the model said P3 supports
   the sentence and quoted "necessary to protect a legitimate business interest such as customer
   goodwill or confidential information", which is true. It's the draft's "reasonably necessary"
   that isn't in the case, and `check_draft_quotes` shows the closest words: "and necessary to
@@ -403,10 +395,10 @@ A few things worth noticing:
   supports the sentence, because P5 says a trial court "may not ... substitute a different
   restraint for the one the parties chose." Same topic, opposite point, and the reranker had
   scored all three above 0.94.
-- **Row 10 is the one that would have hurt.** The brief cites the 2009 text to show Quellmark met
-  its forty-five-day deadline by sending its statement on day thirty-eight. The 2022 amendment
-  the citator points to gives the landlord twenty-one days and adds double damages, so the
-  sentence defends Quellmark with the rule that now says it was seventeen days late.
+- **Citation 10 is the one that would have hurt.** The brief cites the 2009 text of § 59.18.280 to
+  show Quellmark met its forty-five-day deadline by sending its statement on day thirty-eight. The
+  2022 amendment the citator points to gives the landlord twenty-one days and adds double damages,
+  so the sentence defends Quellmark with the rule that now says it was seventeen days late.
 
 ### What you do next
 

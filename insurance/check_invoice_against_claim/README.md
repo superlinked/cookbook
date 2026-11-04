@@ -109,8 +109,8 @@ Here are three of the inputs in `data/`, and what should happen to each.
   blank, so this one missed.
 - **Expected outcome:** `review`, `invoice_math` (the tax wasn't read).
 
-On the live run, 9 of 10 invoices came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 9 of 10 invoices came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -288,20 +288,22 @@ Cloud starts the OCR and extraction models. On 2026-11-04 (UTC) a run that waite
   the arithmetic check then agreed with itself. The handler still approves each payment, but the
   row looks like any other.
 
-### Every example
+### Results
 
 On the live runs on 2026-11-04 (UTC), 9 of 10 invoices came out as expected. The one that
 didn't is `clm-08`, covered below.
 
-**Where it works:** when the page is read faithfully: the early date, the mistyped claim number, the wrong
-subtotal, the other shop, the total over the limit and the wrong customer (`clm-03` to `clm-07`,
-`clm-09`) all went to review, and a shop name written two ways and an approved supplement (`clm-02`,
-`clm-10`) didn't trip anything.
+**Where it works:** when the page is read faithfully. The invoice that matches in every field
+(`clm-01`), the shop name written two ways with a total right on the limit (`clm-02`) and the
+approved supplement (`clm-10`) all pass. The invoice dated before the loss (`clm-03`), the claim
+number missing a digit (`clm-04`), the subtotal that doesn't match its lines (`clm-05`), the other
+shop (`clm-06`), the total over the limit (`clm-07`) and the wrong customer (`clm-09`) all go to
+review.
 
-**Where it fails:** when the reader fills in what the page doesn't say.
-`clm-08` is the one to worry about: every check passed on the text it was given, and the invoice is
-in the payment queue with a tax the shop never printed. Checks that only see a model's output can't
-catch that.
+**Where it fails:** when the reader fills in what the page doesn't say. `clm-08` is the one to worry
+about: the tax line is blank, the OCR model wrote one in, every check passed on the text it was
+given, and the invoice is in the payment queue with a tax the shop never printed. Checks that only
+see a model's output can't catch that.
 
 The input is ten invoices waiting on ten open claims, in [`data/`](./data):
 
@@ -319,19 +321,6 @@ The input is ten invoices waiting on ten open claims, in [`data/`](./data):
 > carries no document metadata (no title, author or dates). The insurer ("Larkspur Mutual"),
 > the insureds, the shops, the addresses, the vehicles and every number are invented, and every
 > page says so in its footer. Every VIN carries a Q, a letter real VINs never use.
-
-| Case | What's in it | Should come out | What came out | Why |
-| --- | --- | --- | --- | --- |
-| `clm-01` | A roofing invoice that matches its claim in every field | `checks_passed` | `checks_passed` | The clean case, so you can see what a pass looks like |
-| `clm-02` | Near miss: the claim says "Kestrel Auto Body & Paint", the invoice says "Kestrel Auto Body and Paint, Inc."; the total equals the authorized amount to the cent | `checks_passed` | `checks_passed` | The same shop written two ways, and a total right on the limit, should not trip anything |
-| `clm-03` | The invoice is dated before the date of loss | `review`: invoice date | `review`: `invoice_date` | Work billed before the loss happened is either a typo or a repair that has nothing to do with this claim |
-| `clm-04` | The claim number on the invoice is missing a digit | `review`: claim match | `review`: `claim_match` | A shop that mistypes the reference can get its invoice filed under someone else's claim |
-| `clm-05` | The subtotal says 2,410.00; the lines add up to 2,140.00 | `review`: invoice math | `review`: `invoice_math` | Two swapped digits worth 270.00, the kind of thing nobody sees in a long queue |
-| `clm-06` | The invoice is from a different glass shop than the one on the claim | `review`: vendor | `review`: `vendor` | The insured may have changed shops, which is allowed, but the adjuster should know |
-| `clm-07` | The invoice total is 6,800.00; the authorized amount is 6,262.48 | `review`: over authorized, by 537.52 | `review`: `authorized_amount`, by 537.52 | The shop billed more than anyone approved |
-| `clm-08` | The tax line is blank; the total includes tax | `review`: tax not read | **`checks_passed`** | A blank tax line is not a zero tax line, so the arithmetic can't be checked. The OCR model filled the blank in, see below |
-| `clm-09` | Near miss: an invoice from the right shop, with the same total as the claim's estimate, billed to a different customer at a different address and with no claim number | `review`: claim match | `review`: `claim_match` | The invoice that would get paid on the wrong claim if you only compared shop and amount |
-| `clm-10` | Near miss: the total is 1,180.00 above the original estimate, and the claim record has an approved supplement for exactly that | `checks_passed` | `checks_passed` | Supplements are normal. The total is compared with what's authorized now, not with the first estimate |
 
 Both runs gave the same results. Treat that as a demo that the pipeline works, not as a measure
 of accuracy: ten invoices tell you each path through the checks runs, not how often a real scan

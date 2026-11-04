@@ -102,8 +102,8 @@ Here are three of the supplier records in `data/supplier_feed.csv`, and what sho
   having to work it out.
 - **Expected outcome:** `likely_same_product`.
 
-On the live run, 10 of 14 cases came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 10 of 14 cases came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -330,43 +330,33 @@ records came out as 1 `same_identifier`, 3 `likely_same_product`, 8 `likely_vari
 - **Verdict:** Miss. This is what the rule that catches L30 costs: the supplier's title names no
   material, so the steward has to check it. On the first run the judge linked it correctly.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026, 10 of 14 cases came out as expected (counting each supplier
-record on its own, so a table row with two records is two cases); the four that didn't are L08,
+record on its own); the four that didn't are L08,
 the second-photo shoes L24 and L28, and L01, which went to `review` for another reason.
 
-**Where it works:** identifiers settle L42 and L44 by rule, size and color variants land
-under the right parent (L03, L05), and near-identical titles that are different products stay apart
-(L10, L19). What one side states and the other doesn't goes to the steward: the plug (L13), the pack
-count (L45) and the material (L30). So does a title and photo that disagree (L43).
+**Where it works:** identifiers settle it by rule: the ballet flat with L41's model number (L42) and
+the record with L12's title and photo but another model number (L44). Size and color variants land
+under the right parent: the 10-foot cable (L03) and the blue one (L05). Near-identical titles that
+are different products stay apart: the fiberglass hammer (L10) and the salted cashews (L19). What
+one side states and the other doesn't goes to the steward: the plug (L13), the pack count (L45) and
+the material on the suede flat (L30). So does the Lightning cable title with an HDMI cable photo
+(L43).
 
-**Where it fails:** none of the four misses is a confident wrong link, but three are real matches the
-steward has to make by hand. L24 and L28 are the same shoes as L23 and L27, and L08 is the same
-hammer as L07, which the judge also matched to the 16 oz L09. L01 went to review, as we wanted, for
-another reason. Worry about L24 and L28: they aren't one-offs, because every shoe whose supplier
-names no material goes to review the same way.
+**Where it fails:** none of the four misses is a confident wrong link, but three are real matches
+the steward has to make by hand. L24 and L28 are the same shoes as L23 and L27, and their supplier
+titles name no material. L08 is the same hammer as L07, but the judge also matched it to the 16 oz
+L09, so the chain check sent it to review. L01, a cable title with no color, went to review as we
+wanted, but because the judge was unsure about the white L04, not because of the chain check. Worry
+about L24 and L28: they aren't one-offs, because every shoe whose supplier names no material goes to
+review the same way.
 
-| Case | What's in it | Should come out | Came out | Why |
-| --- | --- | --- | --- | --- |
-| Shared identifier | L41-L42, the same ballet flat with one model number on both records | `same_identifier`, no model call | `same_identifier`, link to L41 | "Same model number as L41." L42 was never embedded |
-| Same product, nothing shared | L07-L08, the same hickory hammer under two different titles and photos | `likely_same_product` | **`review`** | The judge called L08 the same product as the 20 oz L07 and the 16 oz L09, so the chain check sent both matches to review |
-| Different plug, same charger | L13-L14, the same phone charger, photographed with a different plug type on each side | `review` (or `likely_variant`), never `likely_same_product` | `review` | "plug: UK stated by the PIM only". The judge was also unsure about L13 vs the 65W charger L11 |
-| Variant by size or color | L02-L03 (6 ft vs 10 ft cable), L02-L05 (black vs blue) | `likely_variant` | `likely_variant` for L03 and L05, new child under PL-LTG-CABLE | "Feet 10 vs 6", "Color blue vs black", same brand and product line |
-| Variant only the photo shows | L29-L30, black leather vs black suede, both titled "Black, 7 B US" | `likely_variant` or `review` | `review` | "material: leather stated by the PIM only", before the judge. On the first run, before the material rule, the judge said same product with high confidence (combined 0.966) and L30 was linked to L29 |
-| Same shoe, a second photo | L23-L24 (Bond sandal) and L27-L28 (Madison flat), one ABO item each, the supplier side shown with another photo from its listing | `likely_same_product` | **`review`** | "material: leather stated by the PIM only": the supplier titles name no material. On the first run the judge linked both, correctly |
-| Different product, near-identical title | L09-L10 (hickory vs fiberglass handle), L18-L19 (unsalted vs salted) | `different` | `different` for L10 and L19 | The judge said "variant" both times; neither title names the PIM product line ("missing: hickory", "missing: unsalted") |
-| Title and photo disagree | L43, a Lightning cable title with an HDMI cable photo | `review` | `review` | Against L02: title similarity 0.959, photo 0.678 |
-| Short title, chain conflict | L01 (no color) against L02 (black) and L04 (white) | `review` for both of L01's matches | `review`, for another reason | The judge matched L02 and was unsure about L04 (suggested variant), so the unsure pair sent L01 to review; the chain check had one match to work with |
-| Same look, different model number | L44, the same title and photo as L12, model number CHG65-B2 vs CHG65-B1 | `different`, by rule | `different`, create a new product | "Model numbers differ: CHG65-B2 vs CHG65-B1." No model call for that pair |
-| Pack count missing | L45, a white 6-foot cable with no pack count, against the L06 2-pack | `review`: pack count unknown | `review` | "pack_count: 2 stated by the PIM only", at a combined 0.980 |
+One thing worth saying up front. The color variant is L05 against L02, not L04 against L02: L01's
+case needs L02 and L04 on the same side (both in the PIM), and records on one side are never
+compared.
 
-Two things are worth saying up front. The color variant is L02-L05, not
-L02-L04: the chain case needs L02 and L04 on the same side (both in the PIM), and records on one
-side are never compared. And four cases didn't come out as planned, in bold above or explained
-in the Why column: L08, L24 and L28, and L01's reason.
-
-None of the records in the table trips the checks on identifiers, sizes in no shared unit or fields
+None of these 14 records trips the checks on identifiers, sizes in no shared unit or fields
 that can't be read: L42's color and size agree with L41's, and every size in the data shares a
 unit with the size it's compared with. One rule did change the outcome, and you should know
 which. The first live run linked L30 to L29 as `likely_same_product`: a confident wrong link.

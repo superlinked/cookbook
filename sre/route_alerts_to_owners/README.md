@@ -111,8 +111,8 @@ Here are three of the alerts in `data/alerts.json`, and what should happen to ea
   and the responder checks it.
 - **Expected outcome:** `team_suggested`, with "the alert names no system" in the reason.
 
-On the live run, 11 of 11 alerts came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 11 of 11 alerts came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -264,14 +264,16 @@ the records can't place, and takes about 2 seconds.
 - **Verdict:** Pass. But storefront is a guess. The alert says nothing about who owns it, so the
   responder has to check before reassigning.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026, 11 of 11 alerts came out as expected.
 
-**Where it works:** six of the eleven settle from the records with no model at all (AL-01, AL-02,
-AL-03, AL-07, AL-08, AL-10). When the model does read the text, it told a stalled consumer from a
-broker problem (AL-04, AL-11) and placed a renamed service (AL-09), and a close split stays with the
-responder (AL-05).
+**Where it works:** six of the eleven settle from the records with no model at all: a plain label
+(AL-01), another label key (AL-02), a host the inventory knows (AL-03), a label that beats the words
+(AL-07), a known service with no owner (AL-08) and a known label next to an unknown one (AL-10).
+When the model does read the text, it told a stalled consumer from a broker problem (AL-04, AL-11)
+and placed a renamed service (AL-09). A close split stays with the responder (AL-05), and an alert
+that names nothing says so in its reason (AL-06).
 
 **Where it fails:** a confident score on an alert that names nothing (AL-06), and that's the one to
 worry about, since raising the limits wouldn't help and a wrong guess pages the wrong team. This run
@@ -285,20 +287,6 @@ namespaces.
 
 The catalog, the inventory, the alerts and the shop (Larkspur Supply) are synthetic, written for
 this recipe.
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| AL-01 | `service=payments-api` | `owner_in_catalog`: payments | The plain case: the label is in the catalog |
-| AL-02 | `app=Frontend`: another label key, an alias, different case | `owner_in_catalog`: storefront | Why it fell through: the route wanted `service=web-frontend` |
-| AL-03 | No service label, Postgres replication lag, `instance=10.0.4.17:9187` | `owner_in_catalog`: data-platform, from the inventory | The instance is `pg-orders-2`, a host of `orders-db`; no model needed |
-| AL-04 | Unknown `service=loyalty-points`, consumer lag, partitions with no active consumer | `team_suggested`: loyalty 0.83, streaming the runner-up at 0.15 | Near miss: the consumer is down, not the broker, so "Kafka" in the text is not the owner |
-| AL-05 | No service label, TLS certificate on the shop hostname, `namespace=edge` (not in the records) | `no_clear_owner`: platform 0.54 vs storefront 0.38 | The hostname reads like both; margin 0.16 is under 0.20 |
-| AL-06 | No service label, vague synthetic-check failure | `team_suggested`: storefront 0.57, with "the alert names no system" in the reason | Confidence isn't evidence; the reason tells the responder there was nothing to look up |
-| AL-07 | Text sounds like a database disk alert, label says `search-es` | `owner_in_catalog`: search | Near miss: the label wins over the words |
-| AL-08 | Known service `legacy-reports` with no owner | `ownerless_service` | The catalog knows nobody owns it; the model isn't asked |
-| AL-09 | Unknown `service=auth-v2`, OAuth login failures | `team_suggested`: identity 0.88 | A renamed service the text identifies clearly |
-| AL-10 | `service=checkout-v3` (unknown) and `app=checkout-ui` (known) | `owner_in_catalog`: storefront, from `app` | Near miss: an unknown first label must not hide a known second one |
-| AL-11 | No service label, Kafka broker with under-replicated partitions, `instance` of a host not in the inventory | `team_suggested`: streaming 0.56, margin 0.37 | The other half of AL-04: a broker problem really is the streaming team's |
 
 The run gave 5 `owner_in_catalog`, 1 `ownerless_service`, 4 `team_suggested` and 1 `no_clear_owner`,
 with the limits as first written. Two warm runs gave the same scores. Treat this as a demo that the

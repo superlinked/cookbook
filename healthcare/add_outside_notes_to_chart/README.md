@@ -116,8 +116,8 @@ Here are three of the outside notes in `data/`, and what should happen to each.
   clinician.
 - **Expected outcome:** `clinical_review`: allergy status not documented anywhere; N30.00 suggested.
 
-On the live run, 10 of 10 notes came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 10 of 10 notes came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -320,14 +320,16 @@ visit. The code set is [`data/icd10cm-subset.tsv`](./data/icd10cm-subset.tsv), 7
 - **Verdict:** Pass. The status is right, but the note says "HR 88" and that number isn't in the
   draft, so the clinician has to read it off the note.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 10 of 10 notes came out as expected.
 
-**Where it works:** the checks caught the typos (note-02, note-03), the allergy conflict (note-04), the
-stopped drugs (note-05, note-09), the missing dose (note-06) and the missing allergy statement
-(note-08). Family history stayed off the problem list (note-10), and a problem with no good code
-went to the coder (note-07).
+**Where it works:** the clean follow-up (note-01) is a draft the clinician only has to confirm. The
+checks caught the unit slip on levothyroxine (note-02), the "HR 720" (note-03), the allergy conflict
+(note-04), the statin the other clinic stopped (note-05), the inhaler with no dose (note-06) and the
+missing allergy statement (note-08). The later "stop" won over the medication list (note-09), family
+history stayed off the problem list (note-10), and the problem with no good code went to the coder
+(note-07).
 
 **Where it fails:** the extraction model still misreads things. note-08 also got one review item we
 didn't expect (a heart rate it couldn't trust, below); that only adds to a review it was getting
@@ -337,19 +339,6 @@ anyway, and it's the one to look at. Some details came back partial (note-01, no
 > **The notes and charts are synthetic.** [`make_data.py`](./make_data.py) writes them; every
 > patient, clinician and clinic (Larkspur Family Practice, Harrow Creek Medical Group, Bellwether
 > Internal Medicine) is invented. No real patient data.
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| note-01 | Diabetes and hypertension follow-up; chart lists the same metformin and lisinopril doses | `checks_passed`: both medications `matches_chart`; E11.9 and I10 suggested | The clean case: a draft the clinician only has to confirm |
-| note-02 | "Levothyroxine 50 mg"; the intake form says 50 mcg | `clinical_review`: dosed in mcg, and `differs_from_chart`; hypothyroidism `matches_chart` | A unit slip a person retyping would copy |
-| note-03 | "HR 720"; BP 168/102 | `clinical_review`: heart rate outside 25-250, next to the chart's 76; BP kept with high flags | A typo in the outside record, and the chart has a nurse visit to compare it with |
-| note-04 | Penicillin allergy, "Start amoxicillin 500 mg" | `clinical_review`: allergy class conflict; J02.0 suggested | The outside note contradicts itself; your clinician needs to know before the list is reconciled |
-| note-05 | Simvastatin stopped, atorvastatin started; chart's intake list still has simvastatin 40 mg | `clinical_review`: simvastatin discontinued and `differs_from_chart`; atorvastatin `new` | The near miss: a drug the patient still lists but the other clinic stopped |
-| note-06 | "Albuterol inhaler as needed", no dose; asthma and allergic rhinitis | `clinical_review`: dose not documented; J45.20 and J30.1 suggested | An inhaler with no dose, and sibling codes that all score above 0.99 |
-| note-07 | Plantar fasciitis, left out of the code subset on purpose | `coder_review`: best code M79.672 scored 0.23; E66.9 suggested for obesity | One problem with no right answer in the list |
-| note-08 | No allergy statement in the note, none on file in the chart | `clinical_review`: allergy status not documented anywhere; N30.00 suggested | A missing field, not a "no allergies" |
-| note-09 | Medication list says "Lisinopril 10 mg daily"; the plan says "Stop lisinopril because of a dry cough. Start losartan 50 mg daily." | `checks_passed`: lisinopril discontinued, losartan active and `matches_chart` (the intake form already has it) | The later "stop" has to win over the first mention |
-| note-10 | "Mother has type 2 diabetes." with an A1c in the prediabetes range and "Prediabetes" in the assessment | `checks_passed`: prediabetes R73.03; type 2 diabetes left out as family history | A family-history mention must not become a diagnosis |
 
 Treat this as a demo that the wiring works, not as a measure of accuracy: ten notes tell you the
 checks fire, not how often the models miss something in your own outside records.

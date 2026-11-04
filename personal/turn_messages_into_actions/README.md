@@ -118,8 +118,8 @@ Here are three of the inputs in `data/`, and what should happen to each.
   The memo gives no time, so nobody should make one up.
 - **Expected outcome:** a to-do or a `question`, with no time invented.
 
-On the live run, 12 of 12 cases came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 12 of 12 cases came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -307,16 +307,19 @@ GLiNER2.5-Decide, 13 to gliner2-large-v1, one each to parakeet and LightOnOCR) a
   booking, so Jordan answers a question about an appointment that doesn't exist yet instead of
   getting a to-do.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 12 of 12 cases came out as expected (13 items from
 15 messages).
 
-**Where it works:** messages with a date you can work out from the sent time (msg-04, msg-06,
-msg-11), and the ones you'd trip on reading each message alone: a reminder that repeats a
+**Where it works:** messages with a date you can work out from the sent time (the plumber's name,
+msg-04; the registration memo, msg-06; picking up Leo, msg-11), and the ones you'd trip on reading
+each message alone: a conference already on the calendar (msg-01), a reminder that repeats a
 confirmation (msg-03, msg-10), a second appointment on the same day (msg-14), a moved practice
-(msg-02, msg-13), a cancellation above its original (msg-15). It also refuses to pick a day for a
-vague "next week" (msg-07), and it takes the amount due from the bill, not the late fee (msg-08).
+(msg-02, msg-13), a cancellation above its original (msg-15). It asks instead of guessing on a vague
+"next week" (msg-07) and on a vet memo with no time (msg-09), it takes the amount due from the bill,
+not the late fee (msg-08), and it leaves the newsletter and the delivery notice alone (msg-05,
+msg-12).
 
 **Where it fails:** nothing missed here, but this run didn't test the limits the recipe knows it
 has. One message gives one action, a hedged "Maybe practice is cancelled" still reads as a
@@ -337,21 +340,6 @@ Power as paper-billed, no autopay, and Bayview Waste Collection as a near miss o
 > seeds, renders the memos with macOS `say` and `afconvert` and draws the bill with Pillow. Every
 > person, business, address and number is invented. The bill photo carries no EXIF or other
 > metadata.
-
-| Case | What's in it | Came out | Why |
-| --- | --- | --- | --- |
-| School conference (msg-01) | Email: "Thursday, November 5 at 4:15 PM", already on the calendar | `matches_existing`, calendar `cal-04`, no new hold | The calendar already has it; a duplicate hold is noise |
-| Dentist, two messages (msg-03, msg-10) | Confirmation for Tuesday, November 3 at 10:30 AM, then a reminder text "next Tuesday at 10:30am" | One `schedule` hold, `checks_passed`, both sources | Same who, date and time: one event |
-| Second dentist appointment (msg-14) | Brightsmile email: Leo's cleaning, Tuesday, November 3 at 11:15 AM | A separate hold, `checks_passed` | Same sender, same day, different patient and time: a near-identical event that must not merge |
-| Practice moved (msg-02, msg-13) | "this Saturday at 9 AM", then "practice this Saturday moves to 11 AM" | `change` to the calendar's 9 AM entry (`cal-01`), now 11 AM, `checks_passed`, both sources | The later text says it's a change; the old time is replaced, not asked about. The November 7 practice is left alone |
-| Cancellation above the original (msg-15) | "Sorry, Saturday's book-fair shift is cancelled", above the quoted "Your shift is Saturday, November 7 at 10 AM" | `change` removing the shift (`cal-06`), `checks_passed`; no hold at 10 AM | The time in the message belongs to the quoted original |
-| Plumber (msg-04) | "can you send me the name of the plumber...? Please reply by Friday", sent Tuesday | `reply`, due Fri Oct 30, `checks_passed` | Relative deadline from the sent time |
-| Registration memo (msg-06) | Voice memo: "Renew the car registration online before Friday" | `todo`, due Fri Oct 30, `checks_passed` | Audio with no transcript |
-| Vet memo (msg-09) | "Book a vet appointment ... due by November 20th", with the phone's transcript | Read as `schedule` (0.85); no time, so a `question` | Booking something is a task; the appointment doesn't exist yet, and no time is invented |
-| Coffee (msg-07) | "let's grab coffee sometime next week" | `question`: "'next week' is not a date" | Vague time, no guessed date |
-| Paper bill (msg-08) | Photo: amount due $84.17, due November 12, 2026, with a $5.00 late fee on the page | `pay` $84.17 to Bayview Water & Power, due Nov 12, `checks_passed` (`pay` 0.84) | The late fee is a number on the bill, not the amount due; the summary must add up |
-| Pick up Leo (msg-11) | "Can you pick up Leo from school tomorrow at 3?" | `todo`, due Oct 30 3:00 PM, `checks_passed` | "Tomorrow" and a bare hour from the sent time |
-| Newsletter, delivery (msg-05, msg-12) | Neighborhood news, "Your package was delivered" | `no_action` | Nothing to do, and a delivery time is not an appointment |
 
 The run gave 8 `checks_passed`, 2 `question`, 1 `matches_existing` and 2 `no_action`, from 15
 messages. We wrote the vet memo to come out as a to-do or a question, and it came out as the

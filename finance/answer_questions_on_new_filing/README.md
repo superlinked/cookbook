@@ -121,8 +121,8 @@ meet, and what should happen to each.
   with 2024, so an answer calling 22.2 percent the 2025 rate fails.
 - **Expected outcome:** `draft_answer` from P28, 22.3 percent.
 
-On the live run, 8 of 8 questions came out as expected. [What came out](#what-came-out) has every
-one.
+On the live run, 8 of 8 questions came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -295,13 +295,16 @@ EDGAR asks every client to identify itself) and run `uv run fetch_data.py`.
   (`both_years`). The model wrote "22.3 percent, up from 22.2 percent in fiscal 2024".
 - **Verdict:** Pass. The year check agreed on both figures.
 
-### Every example
+### Results
 
 On the live run on 4 Nov 2026 (UTC), 8 of 8 questions came out as expected.
 
-**Where it works:** finding the one paragraph that answers among others that look like it (AAPL-1,
-AAPL-2, TGT-1), keeping two years in one sentence apart (TGT-2), and saying there's no answer
-instead of guessing (AAPL-4, TGT-4).
+**Where it works:** finding the one paragraph that answers among others that look like it:
+manufacturing purchase obligations next to the other ones (AAPL-1), the tax rate against last year
+and not the statutory rate (AAPL-2), Greater China next to the other segments (AAPL-3), next year's
+capex plan and not last year's spend (TGT-1), and why inventory changed (TGT-3). It keeps two years
+in one sentence apart (TGT-2), and it says there's no answer instead of guessing on Vision Pro
+revenue (AAPL-4) and Target's manufacturing purchase obligations (TGT-4).
 
 **Where it fails:** this run never tested what the analyst reads first: no row came out
 `new_this_year` or `missing_this_year`. An answer with the wrong scale or the wrong year only
@@ -316,19 +319,6 @@ paragraphs that look like they do: other purchase obligations, leases and notes,
 on manufacturing purchase obligations with no figure, the tax rate against the statutory rate,
 last year's capex, the inventory accounting estimate and the operating cash flow paragraph that
 mentions inventory. Each filing's every passage is scored for every question.
-
-Here's our live run on 4 Nov 2026 (UTC), with the settings as written:
-
-| Question | What it tests | This year (FY2025) | Last year (FY2024) | Comparison | Why |
-| --- | --- | --- | --- | --- | --- |
-| AAPL-1 manufacturing purchase obligations, and how much is due in 12 months | Near misses: other purchase obligations (P07), leases (P05), notes (P04), all on topic | `draft_answer`: P06, $56.2 billion with $55.4 billion in 12 months | `draft_answer`: P33, $53.0 billion with $52.9 billion | `both_years` | Same shape of sentence, different obligation; P07 scored 0.9961 and the answer model still cited P06 |
-| AAPL-2 why the tax rate moved from the prior year | The paragraph comparing with the statutory rate (P10, P37) | `draft_answer`: P11, the $10.7 billion State Aid decrease | `draft_answer`: P38, the $10.2 billion one-time charge | `both_years` | Two explanations of the same rate; the model cited the one against the prior year both times |
-| AAPL-3 what drove Greater China sales | Services and Wearables explanations in the same section | `draft_answer`: P15 | `draft_answer`: P42, with the renminbi | `both_years` | Same sentence pattern, different segment |
-| AAPL-4 Vision Pro revenue | Hits mention Vision Pro and Wearables, never a Vision Pro figure | `no_answer_found` (best P12, 0.16) | `no_answer_found` (best P39, 0.14) | `neither_year` | Not in these passages; the analyst gets no guess |
-| TGT-1 capex plan for next year and what it's for | The 2025 capex paragraph (P23) and the store network | `draft_answer`: P22, about $5 billion in 2026 | `draft_answer`: P49, $4 billion to $5 billion in 2025 | `both_years` | Last year's actual is not next year's plan, and last year's plan is the comparison |
-| TGT-2 effective tax rate and why it moved | One sentence gives 22.3 percent for 2025 and 22.2 percent for 2024 | `draft_answer`: P28, 22.3 percent | `draft_answer`: P52, 22.2 percent | `both_years` | The filing's year is not the year of every figure in it |
-| TGT-3 why inventory changed | Other year-end balances, the inventory accounting estimate (P44, P55) | `draft_answer`: P30 | `draft_answer`: P54, with its two bullets | `both_years` | A "why" that only MD&A answers |
-| TGT-4 manufacturing purchase obligations | Only a general paragraph that points to the notes | `no_answer_found` (best P26, 0.06) | `no_answer_found` (best P50, 0.04) | `neither_year` | The next step is in the notes, and the brief shows P26 saying so |
 
 No row came out `new_this_year` or `missing_this_year`:
 Apple and Target answered the same standing questions in both years, which is what you'd hope
@@ -366,7 +356,7 @@ A few things worth noticing:
   rate was 22.3 percent compared with 22.2 percent in 2024." The model wrote "22.3 percent, up
   from 22.2 percent in fiscal 2024", and the year check agreed on both figures: 22.3 takes the
   2025 earlier in the sentence, 22.2 the 2024 right after it. Last year's filing says 22.2
-  percent for 2024, so the two columns agree with each other too.
+  percent for 2024, so the two years agree with each other too.
 - **TGT-4 is a "look in the notes".** No passage scored anywhere near 0.50, and the closest one is
   shown in the brief with its last sentence, "The Notes to the Consolidated Financial Statements
   provide additional information." That's the analyst's next step, and the recipe doesn't
