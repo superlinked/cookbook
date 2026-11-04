@@ -871,25 +871,29 @@ wheels = [
 ]
 
 [[package]]
-name = "sie-check-bolts-in-photos"
+name = "sie-screen-assistant-prompts"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "numpy" },
-    { name = "pillow" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "sie-sdk" },
 ]
 
+[package.dev-dependencies]
+data = [
+    { name = "pillow" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "numpy", specifier = ">=2" },
-    { name = "pillow", specifier = ">=12.3.0,<13" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "sie-sdk", specifier = ">=0.10.1" },
 ]
+
+[package.metadata.requires-dev]
+data = [{ name = "pillow", specifier = ">=12.2.0,<13" }]
 
 [[package]]
 name = "sie-sdk"

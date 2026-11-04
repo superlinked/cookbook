@@ -1,5 +1,5 @@
 [project]
-name = "sie-screen-copilot-prompts"
+name = "sie-screen-assistant-prompts"
 version = "0.1.0"
 description = "Screen prompts to a security copilot: allow, block or review, with the reason."
 requires-python = ">=3.12"

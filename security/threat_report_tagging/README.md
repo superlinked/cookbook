@@ -151,7 +151,7 @@ you can add `vulnerability` or `target sector` without training anything. Spans 
 There's no structure to fill, so `output_schema` adds nothing. When NuNER Zero finds nothing, it
 returns `entities: []`. When a GLiNER2 model finds no spans, SIE Cloud answers with an HTTP 500
 instead of an empty list, with or without `output_schema`, and that fails the whole batch. That's
-our inference from how SIE behaves: `security/triage_phishing_reports` hits the same 500 on a plain
+our inference from how SIE behaves: `security/triage_reported_phishing` hits the same 500 on a plain
 `labels` call. NuNER Zero's labels are plain words in `rules.yaml`. The alias table already
 knows the familiar names, so what you really need the model for is the names the table doesn't
 know yet (e.g. "Velvet Ostrich", "Chisel"). Those are exactly the ones an analyst has to see.

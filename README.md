@@ -7,7 +7,7 @@
 Example apps built on open models served by [SIE](https://github.com/superlinked/sie), the
 Superlinked Inference Engine. Each recipe is one job a team does every week, such as redacting
 chats or triaging phishing, built from SIE model calls plus rules in plain Python and YAML that
-you can read and change. The same code runs on [SIE Cloud](https://superlinked.com) or on an SIE
+you can read and change. The same code runs on [SIE Cloud](https://superlinked.com/?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or on an SIE
 you host yourself.
 
 Every recipe is its own folder with its own `pyproject.toml` and `uv.lock`, so you install only
@@ -16,11 +16,11 @@ what that recipe needs. Copy a folder into your own project and it still runs.
 ## Run a recipe
 
 You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY; every recipe reads this root .env
-cd security/screen_copilot_prompts
+cd security/screen_assistant_prompts
 uv run recipe.py
 ```
 
@@ -51,25 +51,25 @@ requests (one request can carry many items).
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Check a shelf from one photo: in stock, right product, right price](retail/check_shelf_stock) | grounding-dino-base, GLM-OCR, Qwen3.8-27B-FP8 | 43 | 43 s |
-| [Check a returned item against the sale before taking it back](retail/check_returned_item) | GLM-OCR, Qwen3.8-27B-FP8 | 15 | 31 s |
-| [Route customer emails to the right team](retail/route_customer_emails) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
+| [Check a shelf from one photo: in stock, right product, right price](retail/check_shelf_from_photo) | grounding-dino-base, GLM-OCR, Qwen3.8-27B-FP8 | 43 | 43 s |
+| [Check a returned item against the sale before taking it back](retail/check_returned_item_against_sale) | GLM-OCR, Qwen3.8-27B-FP8 | 15 | 31 s |
+| [Route customer emails to the right team, escalating safety and legal](retail/route_customer_emails) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
 
 ### Manufacturing
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Draft the work-order completion form from a technician's notes](manufacturing/close_out_work_order) | GLiNER2.5-Decide, gliner2-large-v1 | 14 | 4 s |
-| [Check a steel delivery against its purchase order and mill certificates](manufacturing/check_steel_delivery) | LightOnOCR-3-4B, gliner2-large-v1 | 52 | 3 min |
-| [Answer maintenance questions from the equipment manual](manufacturing/answer_from_equipment_manual) | tomoro-colqwen3-embed-4b:compact, Qwen3.8-27B-FP8 | 31 | 50 s |
-| [Check every bolt is there in inspection photos](manufacturing/check_bolts_in_photos) | sam3 | 9 | 6 s |
+| [Fill in a work-order completion form from the technician's notes](manufacturing/fill_work_order_from_notes) | GLiNER2.5-Decide, gliner2-large-v1 | 14 | 4 s |
+| [Check a delivery against its purchase order and certificates](manufacturing/check_delivery_against_po) | LightOnOCR-3-4B, gliner2-large-v1 | 52 | 3 min |
+| [Answer maintenance questions from the equipment manual, with the page](manufacturing/answer_from_equipment_manual) | tomoro-colqwen3-embed-4b:compact, Qwen3.8-27B-FP8 | 31 | 50 s |
+| [Check no part is missing in assembly photos](manufacturing/check_parts_in_assembly_photos) | sam3 | 9 | 6 s |
 
 ### Security
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Triage reported phishing and pull IOCs](security/triage_phishing_reports) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 1 s |
-| [Screen prompts to your security copilot](security/screen_copilot_prompts) | Qwen3Guard-Gen-4B, LightOnOCR-3-4B | 15 | 10 s |
+| [Triage reported phishing and pull out the indicators](security/triage_reported_phishing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 1 s |
+| [Screen prompts before they reach an AI assistant (copilot)](security/screen_assistant_prompts) | Qwen3Guard-Gen-4B, LightOnOCR-3-4B | 15 | 10 s |
 | [Tag actors, malware and tools in threat reports](security/threat_report_tagging) | NuNER_Zero | 1 | 1 s |
 | [Map how threats relate across reports](security/threat_relations) | gliner-relex-large-v1.0 | 1 | 1 s |
 

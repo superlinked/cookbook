@@ -1,4 +1,14 @@
-# Answer maintenance questions from the equipment manual
+# Answer maintenance questions from the equipment manual, with the page
+
+> **This example:** a technician at a stopped line asking about a coolant system's manual.
+>
+> **How it works:** a model that searches page images finds the right pages of this unit's manual
+> revision, diagrams included, and a vision-language model answers from the page with a quote.
+> Python checks the cited page, that the quote is printed on it and that the answer's numbers and
+> tags are in the quote, or the answer isn't shown.
+>
+> **Use the same pattern for:** finding a torque spec in a scanned service manual, the right
+> lockout steps for a machine, a spare part number from an exploded diagram.
 
 ## Background
 
@@ -29,6 +39,19 @@ manual revision leaves a leaking cover or a stripped bolt. The site in this reci
 CR-220 chillers on different manual revisions, and the strainer cover torque changed between
 them. The maintenance system says which revision each unit uses, so the search doesn't have to
 guess.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+    A[Technician has a question about the chiller] --> B[Technician opens the work order from the maintenance system]
+    B --> C[Manual revision for this unit]
+    C --> D["Find the manual page that answers the question,<br/>with a quote from it"]
+    D --> E[Technician reads the cited page and works on the machine]
+    D -->|no reliable match, or the check failed| F["Page through the manual,<br/>or call engineering"]
+    classDef recipe fill:#e8f0fe,stroke:#1a73e8
+    class D recipe;
+```
 
 ## The problem
 
@@ -172,7 +195,7 @@ cells. `make_data.py` draws the manual.
 ## Run it
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys)).
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -285,13 +308,12 @@ read that as "under a minute", not a benchmark.
 model="TomoroAI/tomoro-colqwen3-embed-4b", profile="default", operation="encode", region="us"`,
 through all six retries. So the recipe uses the model's `:compact` profile: the same weights,
 capped at 768 patch vectors per page (the
-[visual-document-search](https://superlinked.com/visual-document-search) run uses it too). To try
+[visual-document-search](https://superlinked.com/visual-document-search?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual) run uses it too). To try
 the default profile once it is billed, change `models.embed` and run live again. There is no
 server-side MaxSim either. `score` on this model fails the same way (`missing rate ...
 operation="score"`) and its model config declares no score task, so the ranking runs
 `sie_sdk.scoring.maxsim` on the client, the SDK's encode-once, score-many pattern. See the SIE task
-page for [visual document search](https://superlinked.com/visual-document-search) and the
-[manufacturing](https://superlinked.com/manufacturing) solutions page.
+page for [visual document search](https://superlinked.com/visual-document-search?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual).
 
 ## Potential improvements
 

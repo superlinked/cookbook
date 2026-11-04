@@ -24,13 +24,13 @@ for every model it calls. Grouped:
 | Images | Recipes |
 | --- | --- |
 | `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging) |
-| `cuda12-transformers5` | [check_bolts_in_photos](manufacturing/check_bolts_in_photos) |
-| `cuda12-default` + `cuda12-sglang-vision-extract` | [check_steel_delivery](manufacturing/check_steel_delivery) |
-| `cuda12-sglang` + `cuda12-sglang-vision-extract` | [screen_copilot_prompts](security/screen_copilot_prompts) |
-| `cuda12-default` + `cuda12-transformers5` | [close_out_work_order](manufacturing/close_out_work_order), [route_customer_emails](retail/route_customer_emails), [triage_phishing_reports](security/triage_phishing_reports) |
+| `cuda12-transformers5` | [check_parts_in_assembly_photos](manufacturing/check_parts_in_assembly_photos) |
+| `cuda12-default` + `cuda12-sglang-vision-extract` | [check_delivery_against_po](manufacturing/check_delivery_against_po) |
+| `cuda12-sglang` + `cuda12-sglang-vision-extract` | [screen_assistant_prompts](security/screen_assistant_prompts) |
+| `cuda12-default` + `cuda12-transformers5` | [fill_work_order_from_notes](manufacturing/fill_work_order_from_notes), [route_customer_emails](retail/route_customer_emails), [triage_reported_phishing](security/triage_reported_phishing) |
 | `cuda12-default` + `cuda13-sglang-cu130` | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual) |
-| `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_returned_item](retail/check_returned_item) |
-| `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_shelf_stock](retail/check_shelf_stock) |
+| `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_returned_item_against_sale](retail/check_returned_item_against_sale) |
+| `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_shelf_from_photo](retail/check_shelf_from_photo) |
 
 Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB), except where a
 note below says otherwise.
@@ -102,7 +102,7 @@ recipes allow 15 minutes for that (`WAIT_S` in `recipe.py`).
 
 ## More
 
-- [SIE deployment docs](https://superlinked.com/docs/deployment/)
+- [SIE deployment docs](https://superlinked.com/docs/deployment/?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=self-hosting)
 - [SIE model catalog](https://github.com/superlinked/sie/tree/main/packages/sie_server/models):
   one YAML per model, with its profiles and the bundle each profile needs
 - [MODELS.md](MODELS.md): every model these recipes use, with its license
