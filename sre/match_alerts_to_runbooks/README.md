@@ -99,21 +99,28 @@ make up a step, which is why the responder reads it against the runbook before d
 Here are three of the alerts in `data/alertmanager-webhooks.jsonl`, and what should happen to each.
 
 **1. Payment charges failing in production.**
-- **Input:** "oteldemo.PaymentService/Charge error rate 48% over 5m (threshold 5%)", one of 7 alerts across payment, checkout and frontend with no runbook link.
-- **What should happen:** the seven should land in one group, the best-scoring runbook should be "Payment: Charge requests failing" (RB-01), and the note should pass its citation checks.
+- **Input:** "oteldemo.PaymentService/Charge error rate 48% over 5m (threshold 5%)", one of 7 alerts
+  across payment, checkout and frontend with no runbook link.
+- **What should happen:** the seven should land in one group, the best-scoring runbook should be
+  "Payment: Charge requests failing" (RB-01), and the note should pass its citation checks.
 - **Expected outcome:** `runbook_suggested`, RB-01.
 
 **2. Kafka backing up, and no runbook for it.**
-- **Input:** "accounting consumer group lag on Kafka topic 'orders' is 48,000 messages and rising", one of 5 alerts on accounting, fraud-detection and kafka.
-- **What should happen:** no runbook covers Kafka, so no score should clear the limit. No note gets written and the group goes on the gap list.
+- **Input:** "accounting consumer group lag on Kafka topic 'orders' is 48,000 messages and rising",
+  one of 5 alerts on accounting, fraud-detection and kafka.
+- **What should happen:** no runbook covers Kafka, so no score should clear the limit. No note gets
+  written and the group goes on the gap list.
 - **Expected outcome:** `no_confident_match`.
 
 **3. The same words from staging.**
-- **Input:** "oteldemo.PaymentService/Charge error rate 100% over 5m (threshold 5%)", with `env=staging`, during the same storm.
-- **What should happen:** it reads like the production alert, but grouping each environment on its own should keep it out of production's group, so its note sees staging's own log lines.
+- **Input:** "oteldemo.PaymentService/Charge error rate 100% over 5m (threshold 5%)", with
+  `env=staging`, during the same storm.
+- **What should happen:** it reads like the production alert, but grouping each environment on its
+  own should keep it out of production's group, so its note sees staging's own log lines.
 - **Expected outcome:** its own group, `runbook_suggested` RB-01.
 
-On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
 
 ## How we'll solve it
 
@@ -270,9 +277,12 @@ first calls can wait a few minutes while SIE Cloud starts the three models; our 
 
 ### The three examples
 
-- **Payment, production:** `runbook_suggested` RB-01 at 0.9998, the note passed its checks. As expected.
-- **Kafka:** `no_confident_match`, best RB-09 at 0.0011, no note, one row in `runbook-gaps.csv`. As expected.
-- **Payment, staging:** its own group G7, `runbook_suggested` RB-01 at 0.9996, with a note that blames the v1.9.0 client upgrade instead of the flag (quoted below). As expected.
+- **Payment, production:** `runbook_suggested` RB-01 at 0.9998, the note passed its checks. As
+  expected.
+- **Kafka:** `no_confident_match`, best RB-09 at 0.0011, no note, one row in `runbook-gaps.csv`. As
+  expected.
+- **Payment, staging:** its own group G7, `runbook_suggested` RB-01 at 0.9996, with a note that
+  blames the v1.9.0 client upgrade instead of the flag (quoted below). As expected.
 
 ### Every planted case
 
@@ -309,10 +319,10 @@ The input is one storm, incident INC-4127 on 2026-10-14, in [`data/`](./data):
 | Link already there | Two payment alerts (A-29 A-30) carry `runbook_url` for RB-01 | `linked_runbook` for those two | `linked_runbook` RB-01 | The structured link wins; no model is asked about them |
 | Same symptoms, other environment | Charge errors from `env=staging` (A-31 A-32) during the same storm | a separate group from production's payment group | its own group, `runbook_suggested` RB-01, 0.9996 | Near miss: identical words, different incident |
 
-On our two live runs on 2026-11-04 (UTC), every planted case came out as planned with the settings
-as first written: 7 groups, 12 SIE calls, and all five notes passed their checks. Treat that as a
-demo that the wiring works, not as a measure of accuracy. One storm with five tidy faults tells
-you each path through the recipe runs, not how often a real storm gets grouped right.
+Both runs used the settings as first written and gave 7 groups and 12 SIE calls, and all five notes
+passed their checks. Treat that as a demo that the wiring works, not as a measure of accuracy. One
+storm with five tidy faults tells you each path through the recipe runs, not how often a real storm
+gets grouped right.
 
 A few things worth noticing:
 
@@ -370,7 +380,11 @@ A few things worth noticing:
 
 ### What you do next
 
-The responder, usually the incident commander for the first ten minutes, pastes the triage note into the incident channel, splits or merges any group that's wrong, and reads each note against its runbook before working the steps they agree with. Nothing is executed for them. After the incident, the owning teams pick up the `runbook-gaps.csv` rows, here the Kafka group, and write the runbook that was missing.
+The responder, usually the incident commander for the first ten minutes, pastes the triage note into
+the incident channel, splits or merges any group that's wrong, and reads each note against its
+runbook before working the steps they agree with. Nothing is executed for them. After the incident,
+the owning teams pick up the `runbook-gaps.csv` rows, here the Kafka group, and write the runbook
+that was missing.
 
 ## Potential improvements
 

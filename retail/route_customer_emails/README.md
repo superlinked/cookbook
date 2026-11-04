@@ -95,7 +95,8 @@ Here are three of the emails in `data/emails.json`, and what should happen to ea
   escalate. The team model picks a team.
 - **Expected outcome:** `store-experience` by `model`, not `legal-escalations`.
 
-On the live run, 8 of 12 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 8 of 12 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 

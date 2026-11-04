@@ -101,19 +101,20 @@ Here are three of the work orders in `data/work_orders.csv`, and what should hap
 - **Expected outcome:** `checks_passed`, with `6205-2RS x2; LS-35 x1` and 3.5 h.
 
 **2. A part number one digit off.** WO-26104, pump F-403.
-- **Input:** "Fitted new impeller 44-0918 and 1 x wear ring WR-150. Labor 4 h."
+- **Input:** "... Fitted new impeller 44-0918 and 1 x wear ring WR-150. Labor 4 h."
 - **What should happen:** the catalog has 44-0919, not 44-0918, so the exact catalog match flags
   the impeller and keeps the wear ring.
 - **Expected outcome:** `review`, parts used flagged: "44-0918 is not in the parts catalog".
 
 **3. A leak that wasn't there.** WO-26106, pump P-105.
 - **Input:** "Operator reported a leak at the P-105 seal. Ran the pump and checked, seal dry, no
-  leak found."
+  leak found. ..."
 - **What should happen:** the word "leak" is in the note, but there's no leak. The problem code
   must be no-fault or flagged, never leak.
 - **Expected outcome:** `review`, problem set to `NOF` because the note says "no leak", and flagged.
 
-On the live run, 7 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 7 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -280,9 +281,9 @@ WO-26110 came out only partly as planned, and WO-26101 not as planned.
 | Electrical trip | WO-26109, P-106 | electrical; replace; 0.75 h down | As planned. `checks_passed`: `ELF`, `OVLD`, `REPL`, `CT-40 x1`, 0.75 h from "45 min" | A short note that still fills most of the form |
 | Part with no quantity | WO-26110, "Replaced drive belts" | part matched, quantity flagged | Partly. gliner2 still returned no parts span, but parts used is now flagged: "remedy REPL says a part went in, but no part is booked". Cause also flagged (0.499) | A part without a count can't be booked out of the storeroom |
 
-The planted cases show the wiring working, not accuracy. Ten orders is a demo: 7 came out as
-planned (WO-26107 with two extra flags), 2 partly (WO-26108, WO-26110) and 1 not (WO-26101). We left the thresholds
-alone and wrote down what happened.
+The planted cases show the wiring working, not accuracy. Ten orders is a demo: 7 came out as planned
+(WO-26107 with two extra flags), 2 partly (WO-26108, WO-26110) and 1 not (WO-26101). We left the
+thresholds alone and wrote down what happened.
 
 - **The confident wrong answer is the one to worry about.** WO-26106 says "seal dry, no leak
   found" and GLiNER2.5-Decide still picked leak at 0.567, clearing both limits. The score and

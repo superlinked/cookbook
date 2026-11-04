@@ -97,8 +97,8 @@ Here are three of the ten photos in `data/inspection-photos.jpg`, and what shoul
 
 **1. A complete flange.** FL-101.
 - **Input:** `FL-101,WO-4101,pipe_flange_8,...`, a drawn 8-bolt flange with all 8 bolts fitted.
-- **What should happen:** the photo passes the sharpness and brightness check, the detector finds the
-  flange and 8 sure bolts on it, and no empty hole.
+- **What should happen:** the photo passes the sharpness and brightness check, the detector finds
+  the flange and 8 sure bolts on it, and no empty hole.
 - **Expected outcome:** `all_bolts_seen`, 8 of 8.
 
 **2. One bolt missing.** FL-102.
@@ -115,7 +115,8 @@ Here are three of the ten photos in `data/inspection-photos.jpg`, and what shoul
   the higher score win.
 - **Expected outcome:** `inspector`, with the conflict's position.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -299,7 +300,7 @@ On the live run on 3 Nov 2026, 10 of 10 planted cases came out as expected.
 | CV-201 | 6-bolt cover plate | complete | `all_bolts_seen` | 6 of 6 bolts on the plate, no empty hole |
 | CV-202 | 6-bolt cover plate | 1 bolt missing | `defect`, hole at 6 o'clock | one empty hole for the one missing bolt |
 
-All ten came out as planned, with the settings as written. That wasn't true on the first run of
+That's with the settings as written. That wasn't true on the first run of
 this version: FL-108 came out `all_bolts_seen`, because the 0.66 socket hole sat under
 `hole_sure` and was thrown away. A review pointed out that throwing a hole away is the wrong way
 to be unsure, so possible holes now get their own band (more below). Nothing was tuned to these

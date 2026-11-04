@@ -284,8 +284,6 @@ The input is three seeds in [`data/`](./data):
 > **The product text is real, the stock and filters are not.** They say nothing about any real
 > seller's stock.
 
-Our live run on 4 Nov 2026 (UTC):
-
 ### The three examples
 
 - **Q-02:** `ranked`, the Wantdo jacket first at 0.982. As expected.

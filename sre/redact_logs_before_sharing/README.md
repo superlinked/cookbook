@@ -109,20 +109,30 @@ Here are three of the inputs in `data/`, and what should happen to each.
 
 **1. A version number that looks like an IP.**
 - **Input:** `build=4.18.302.7 host=10.0.4.17 msg="service started"` (checkout log).
-- **What should happen:** `4.18.302.7` fails the octet check, and `10.0.4.17` is your own host, so both stay readable for the vendor.
-- **Expected outcome:** kept as is. (The checkout log as a whole still goes to `review`, for the bearer token elsewhere in it.)
+- **What should happen:** `4.18.302.7` fails the octet check, and `10.0.4.17` is your own host, so
+  both stay readable for the vendor.
+- **Expected outcome:** kept as is. (The checkout log as a whole still goes to `review`, for the
+  bearer token elsewhere in it.)
 
 **2. A card number in a debug payload.**
-- **Input:** `payload={"amount": 4210, "currency": "USD", "card": "4111 1111 1111 1111", "exp": "09/29", "name": "Delphine Marchetti", ...` (payment worker log).
-- **What should happen:** the `card` field rule masks the card, the customer's name is found from the support ticket's requester fields, and the amount, currency and field names stay so the vendor sees the request's shape.
-- **Expected outcome:** `review`: the card is masked to `XXXX XXXX XXXX 1111`, and the logging has to be fixed at the source.
+- **Input:**
+  `payload={"amount": 4210, "currency": "USD", "card": "4111 1111 1111 1111", "exp": "09/29", "name": "Delphine Marchetti", ...`
+  (payment worker log).
+- **What should happen:** the `card` field rule masks the card, the customer's name is found from
+  the support ticket's requester fields, and the amount, currency and field names stay so the vendor
+  sees the request's shape.
+- **Expected outcome:** `review`: the card is masked to `XXXX XXXX XXXX 1111`, and the logging has
+  to be fixed at the source.
 
 **3. A bare UUID in a stack trace.**
-- **Input:** `PaymentTimeout: charge 5b9d2c14-8e3f-4a71-b0d6-2c7e9f1a4b38 exceeded 4.5 s` (on-call notes).
-- **What should happen:** no rule names it, and nobody can tell by shape whether it's cardvault's charge ID or a customer's ID, so the sweep stops the file.
+- **Input:** `PaymentTimeout: charge 5b9d2c14-8e3f-4a71-b0d6-2c7e9f1a4b38 exceeded 4.5 s` (on-call
+  notes).
+- **What should happen:** no rule names it, and nobody can tell by shape whether it's cardvault's
+  charge ID or a customer's ID, so the sweep stops the file.
 - **Expected outcome:** `blocked`, for the notes file.
 
-On the live run, 12 of 13 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 12 of 13 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -284,9 +294,12 @@ The run on 2026-11-04 (UTC) made 3 SIE calls.
 
 ### The three examples
 
-- **`build=4.18.302.7`:** kept, and the checkout log went to `review` with 16 redactions for its token. As expected.
-- **The card payload:** the payment worker log went to `review` with 5 redactions, the line reading `"card": "XXXX XXXX XXXX 1111", "exp": "09/29", "name": "[PERSON_1]"` (quoted below). As expected.
-- **The bare UUID:** the notes file came out `blocked`, with `line 8: a UUID no rule names` in `report.csv`. As expected.
+- **`build=4.18.302.7`:** kept, and the checkout log went to `review` with 16 redactions for its
+  token. As expected.
+- **The card payload:** the payment worker log went to `review` with 5 redactions, the line reading
+  `"card": "XXXX XXXX XXXX 1111", "exp": "09/29", "name": "[PERSON_1]"` (quoted below). As expected.
+- **The bare UUID:** the notes file came out `blocked`, with `line 8: a UUID no rule names` in
+  `report.csv`. As expected.
 
 ### Every planted case
 
@@ -354,7 +367,11 @@ A few things worth noticing:
 
 ### What you do next
 
-The on-call engineer opens each cleaned file next to its original and reads `report.csv`. On this run nothing is ready to attach as is: they rotate the bearer token, the API key and the database password, get the card logging fixed at the source, and decide on the charge ID in the notes before anything goes to cardvault. Only then do they attach the files to the vendor case themselves; the recipe never uploads anything.
+The on-call engineer opens each cleaned file next to its original and reads `report.csv`. On this
+run nothing is ready to attach as is: they rotate the bearer token, the API key and the database
+password, get the card logging fixed at the source, and decide on the charge ID in the notes before
+anything goes to cardvault. Only then do they attach the files to the vendor case themselves; the
+recipe never uploads anything.
 
 ## Potential improvements
 

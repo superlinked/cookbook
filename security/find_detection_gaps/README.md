@@ -71,21 +71,29 @@ is, and those matter for what to build first.
 Here are three of the sentences in `data/reports.jsonl`, and what should happen to each.
 
 **1. A tool you already have a rule for.**
-- **Input:** "Gorse Moth, the group other vendors call Velvet Gorse, deployed Thornpipe against a freight broker in July." (R-02, Dunmore Intel)
-- **What should happen:** "Gorse Moth" merges into Velvet Gorse, the sentence makes it a group targeting freight, and the catalog's DR-0101 covers "Thornpipe implant", an alias of Thornpipe.
+- **Input:** "Gorse Moth, the group other vendors call Velvet Gorse, deployed Thornpipe against a
+  freight broker in July." (R-02, Dunmore Intel)
+- **What should happen:** "Gorse Moth" merges into Velvet Gorse, the sentence makes it a group
+  targeting freight, and the catalog's DR-0101 covers "Thornpipe implant", an alias of Thornpipe.
 - **Expected outcome:** Thornpipe is `rule_exists`, with Velvet Gorse on the row.
 
 **2. A tool nobody wrote a rule for.**
-- **Input:** "Saltmarsh Kettle used the Quillstep loader to gain a foothold on harbour networks. Saltmarsh Kettle targeted port operators along the northern coast." (R-03, Northfold CERT)
-- **What should happen:** a clear use by a group that targets port operators, and nothing in the catalog covers Quillstep.
+- **Input:** "Saltmarsh Kettle used the Quillstep loader to gain a foothold on harbour networks.
+  Saltmarsh Kettle targeted port operators along the northern coast." (R-03, Northfold CERT)
+- **What should happen:** a clear use by a group that targets port operators, and nothing in the
+  catalog covers Quillstep.
 - **Expected outcome:** Quillstep is `no_rule`, with Saltmarsh Kettle on the row.
 
 **3. A denial.**
 - **Input:** "We found no evidence that Saltmarsh Kettle used Thornpipe." (R-04, Northfold CERT)
-- **What should happen:** the model may well read this as a use, but the negation word holds it back, so it never becomes an edge.
-- **Expected outcome:** no edge; Saltmarsh Kettle is not one of Thornpipe's groups, and the sentence shows up under `held_back`.
+- **What should happen:** the model may well read this as a use, but the negation word holds it
+  back, so it never becomes an edge.
+- **Expected outcome:** no edge; Saltmarsh Kettle is not one of Thornpipe's groups, and the sentence
+  is listed in the backlog's held-back column, the sentences the recipe kept out of the graph for an
+  analyst to read.
 
-On the live run, 6 of 6 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 6 of 6 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
 
 ## How we'll solve it
 
@@ -245,9 +253,13 @@ We ran it live on 4 Nov 2026 (UTC).
 
 ### The three examples
 
-- **Thornpipe:** `rule_exists`, Velvet Gorse, matched to DR-0101 through the alias table. As expected.
-- **Quillstep:** `no_rule`, Saltmarsh Kettle, with Dunmore Intel and Northfold CERT as publishers (the row is quoted below). As expected.
-- **The denial:** the model returned it at 0.92 anyway, and the recipe held it back: no edge, and the line "R-04: Saltmarsh Kettle uses Thornpipe: a negation or hedging word in its sentence" under Thornpipe. As expected.
+- **Thornpipe:** `rule_exists`, Velvet Gorse, matched to DR-0101 through the alias table. As
+  expected.
+- **Quillstep:** `no_rule`, Saltmarsh Kettle, with Dunmore Intel and Northfold CERT as publishers
+  (the row is quoted below). As expected.
+- **The denial:** the model returned it at 0.92 anyway, and the recipe held it back: no edge, and
+  the line "R-04: Saltmarsh Kettle uses Thornpipe: a negation or hedging word in its sentence" under
+  Thornpipe. As expected.
 
 ### Every planted case
 
@@ -317,7 +329,11 @@ result fewer than it was sent or a `null` key (both failed calls), and a failed 
 
 ### What you do next
 
-The CTI analyst reads `backlog.csv` first: the `needs_review` rows (Murkbell here), the `held_back` sentences, and any `no_rule` row that rests on a single source, and decides what goes on the backlog. The detection engineers then pick the next rules to write from the `no_rule` rows (Quillstep and Larchwick on this run), weighing what the recipe can't see: your exposure, your telemetry and how recent the activity is.
+The CTI analyst reads `backlog.csv` first: the `needs_review` rows (Murkbell here), the `held_back`
+sentences, and any `no_rule` row that rests on a single source, and decides what goes on the
+backlog. The detection engineers then pick the next rules to write from the `no_rule` rows
+(Quillstep and Larchwick on this run), weighing what the recipe can't see: your exposure, your
+telemetry and how recent the activity is.
 
 ## Potential improvements
 

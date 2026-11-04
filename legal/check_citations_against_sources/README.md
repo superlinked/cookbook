@@ -124,7 +124,8 @@ Here are three of the citations in `data/draft_brief.docx`, and what should happ
   may both like that paragraph; the part check in Python should refuse it.
 - **Expected outcome:** `check_citation`: support only in the dissent.
 
-On the live run, 9 of 9 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 9 of 9 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
 
 ## How we'll solve it
 
@@ -336,12 +337,11 @@ The input is one draft and the matter's files, in [`data/`](./data):
 | 12 | Tolliver, a missing authority | A citation to a case the folder doesn't hold | `not_in_folder` | `not_in_folder` | The cite checker pulls it by hand |
 | 7 | Kessler Tools (A03) with "Cf." | Ardena case, but the sentence names Ardena and uses a signal | `support_found` | `support_found`, P3 (majority) at 0.9999 | Near miss for row 8: the draft says it's another state's law |
 
-The other three rows (the Noncompetition Covenants Act, the Trade Secrets Act and the Wage
-Payment Act, rows 2, 3 and 11) are ordinary support and came out `support_found`. On our live
-run on 2026-11-04 (UTC), every planted case came out as planned with the settings in
-`rules.yaml`: 5 `support_found`, 6 `check_citation`, 1 `not_in_folder`, 22 SIE calls. Treat that as a
-demo that the wiring works, not as a measure of accuracy. One draft with tidy plants tells you
-each path through the recipe runs, not how often a real brief gets checked right.
+The other three rows (the Noncompetition Covenants Act, the Trade Secrets Act and the Wage Payment
+Act, rows 2, 3 and 11) are ordinary support and came out `support_found`. With the settings in
+`rules.yaml` the run gave 5 `support_found`, 6 `check_citation`, 1 `not_in_folder`, 22 SIE calls.
+Treat that as a demo that the wiring works, not as a measure of accuracy. One draft with tidy plants
+tells you each path through the recipe runs, not how often a real brief gets checked right.
 
 A few things worth noticing:
 

@@ -116,7 +116,8 @@ Here are three of the outside notes in `data/`, and what should happen to each.
 - **Expected outcome:** `checks_passed`, lisinopril discontinued, losartan active and
   `matches_chart`.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -331,9 +332,8 @@ it was getting anyway.
 | note-09 | Medication list says "Lisinopril 10 mg daily"; the plan says "Stop lisinopril because of a dry cough. Start losartan 50 mg daily." | `checks_passed`: lisinopril discontinued, losartan active and `matches_chart` (the intake form already has it) | The later "stop" has to win over the first mention |
 | note-10 | "Mother has type 2 diabetes." with an A1c in the prediabetes range and "Prediabetes" in the assessment | `checks_passed`: prediabetes R73.03; type 2 diabetes left out as family history | A family-history mention must not become a diagnosis |
 
-On our live run on 4 Nov 2026 (UTC) all ten notes got the status we planted. Treat that as a demo that
-the wiring works, not as a measure of accuracy: ten notes tell you the checks fire, not how often
-the models miss something in your own outside records.
+Treat this as a demo that the wiring works, not as a measure of accuracy: ten notes tell you the
+checks fire, not how often the models miss something in your own outside records.
 
 A few things worth noticing:
 

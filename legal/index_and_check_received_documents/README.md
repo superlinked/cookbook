@@ -120,7 +120,8 @@ Here are three of the documents in `data/TFL-VOL001/`, and what should happen to
   the Bates check should flag the stamp used twice.
 - **Expected outcome:** `qc_exception` for the duplicate stamp, with a low privilege score.
 
-On the live run, 12 of 12 planted documents came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 12 of 12 planted documents came out as expected; [What came out](#what-came-out)
+has each one.
 
 ## How we'll solve it
 
@@ -348,9 +349,8 @@ Custodian: <name>` legend in its footer.
 | TFL0000011-0012 | A two-page letter with no page numbers, outside counsel's signature only on page 2 | Page 1 `qc_exception` (boundary note, 0.090); page 2 `possible_privilege` (names Imogen Sallis, 0.489 unsure) with its own boundary note | The recipe can't see that the pages belong together; the per-page check still finds counsel |
 | TFL0000013 | A long email whose privileged paragraph sits in its second privilege window only | `possible_privilege`: windows 0.047 and 0.806, document 0.806 | The strongest window decides, as is |
 
-On our run on 2026-11-04 (UTC) all 12 rows came out as planned. Treat that as a demo that the
-wiring works, not as a measure of accuracy: twelve documents tell you each path through the checks runs, not how
-often a real volume fools the models.
+Treat this as a demo that the wiring works, not as a measure of accuracy: twelve documents tell you
+each path through the checks runs, not how often a real volume fools the models.
 
 The Bates check, from `bates-check.json`, is the deficiency letter in two lines:
 

@@ -279,10 +279,9 @@ On our live run on 4 Nov 2026 (UTC), 13 listings came back `checks_passed` and 5
 ### Every planted case
 
 On the live run on 4 Nov 2026, 11 of 14 planted cases came out as expected (counting each of the
-four clear listings on its own). P12 came out
-`checks_passed` with color black instead of a photo color for review. P17 and P04 got the tag we
-wanted, but as `text_and_photo` rather than `from_text`, and both listings went to `review` for
-their color.
+four clear listings on its own). P12 came out `checks_passed` with color black instead of a photo
+color for review. P17 and P04 got the tag we wanted, but as `text_and_photo` rather than
+`from_text`, and both listings went to `review` for their color.
 
 | Case | What we planted | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
@@ -350,11 +349,11 @@ A few things worth noticing:
 
 ### What you do next
 
-The catalog operations specialist opens `review.csv` and works through the five listings with
-their reasons: a color conflict on P08, a dropped quote on P04 and P17, a photo-only material on
-P14 and P15 to confirm against the supplier's spec sheet, and P15's type that isn't on the list. `tags.csv` has every tag with its old
-and new value side by side. The specialist decides what to write back to the catalog for every
-listing; the recipe writes nothing back.
+The catalog operations specialist opens `review.csv` and works through the five listings with their
+reasons: a color conflict on P08, a dropped quote on P04 and P17, a photo-only material on P14 and
+P15 to confirm against the supplier's spec sheet, and P15's type that isn't on the list. `tags.csv`
+has every tag with its old and new value side by side. The specialist decides what to write back to
+the catalog for every listing; the recipe writes nothing back.
 
 ## Potential improvements
 

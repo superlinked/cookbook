@@ -121,7 +121,8 @@ Here are three of the fax packets in `data/`, and what should happen to each.
   so it finds exactly one chart and fills the member ID from it instead of calling.
 - **Expected outcome:** `checks_passed`, member ID `SHC-417730-1` from chart MRN-100231.
 
-On the live run, 7 of 8 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 8 of 8 planted cases came out as expected, Juniper Road with one callback item
+we didn't plant; [What came out](#what-came-out) has each one.
 
 ## How we'll solve it
 
@@ -315,8 +316,9 @@ referral order, clinic note), plus the two lookup seeds: `ehr_patients.csv` (6 c
 
 ### Every planted case
 
-On the live run on 4 Nov 2026 (UTC), 7 of 8 planted cases came out as expected. Juniper Road got
-the status we planted but one callback item more, so it doesn't count.
+On the live run on 4 Nov 2026 (UTC), 8 of 8 planted cases came out as expected. Juniper Road also
+got one callback item we didn't plant, "Reason for referral". It fails closed (the office is only
+asked for something already on the fax), so it's named here and doesn't fail the case.
 
 | Case | What we planted | Came out | Why |
 | --- | --- | --- | --- |
@@ -329,14 +331,15 @@ the status we planted but one callback item more, so it doesn't count.
 | Cobble Lane | The referral is for "Ann Lee"; the attached clinic note is for "Joann Lee" with a different date of birth | `review`: the pages disagree on the patient's name and date of birth; the EHR isn't searched | Similar names must not merge, and review wins over a callback |
 | Orchard Bend | Helena Marchetti, member ID blank; the EHR has her as Helena Voss, her maiden name, same date of birth and phone, with a member ID on file | `review`: EHR possible match to MRN-100689; nothing filled from that chart | A close match is someone's call, not the recipe's |
 
-These ran live on SIE Cloud on 4 Nov 2026 (UTC). Seven of the eight came out exactly as planned.
-Juniper Road came out `missing_info` as planned, but with one item more than we planted: GLiNER2
-returned no reason for referral for "New leg swelling, breathless lying flat, BNP 1,240 pg/mL.",
-so the callback list asks the office for a reason that's printed on page 2. We left it that way
-rather than shorten the planted reason; it's the long-free-text weakness from Picking the models,
-on a packet where the clinical reviewer would want the reason most. Treat all of this as a demo
-that the wiring works, not as a measure of accuracy: eight packets tell you the checks fire on
-the cases they were built for, not how often they're wrong on yours.
+These ran live on SIE Cloud on 4 Nov 2026 (UTC). All eight got their planted status, and seven came
+out exactly as planned. Juniper Road came out `missing_info` with the planted priority and member ID
+item, plus one item we didn't plant: GLiNER2 returned no reason for referral for "New leg swelling,
+breathless lying flat, BNP 1,240 pg/mL.", so the callback list asks the office for a reason that's
+printed on page 2. We left it that way rather than shorten the planted reason; it's the
+long-free-text weakness from Picking the models, on a packet where the clinical reviewer would want
+the reason most. Treat all of this as a demo that the wiring works, not as a measure of accuracy:
+eight packets tell you the checks fire on the cases they were built for, not how often they're wrong
+on yours.
 
 A few things worth noticing:
 

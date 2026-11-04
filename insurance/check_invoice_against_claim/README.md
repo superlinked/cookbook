@@ -109,7 +109,8 @@ Here are three of the inputs in `data/`, and what should happen to each.
   which would both pass, never get the chance.
 - **Expected outcome:** `review`, `claim_match`.
 
-On the live run, 9 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 9 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -311,10 +312,9 @@ The input is ten invoices waiting on ten open claims, in [`data/`](./data):
 | `clm-09` | Near miss: an invoice from the right shop, with the same total as the claim's estimate, billed to a different customer at a different address and with no claim number | `review`: claim match | `review`: `claim_match` | The invoice that would get paid on the wrong claim if you only compared shop and amount |
 | `clm-10` | Near miss: the total is 1,180.00 above the original estimate, and the claim record has an approved supplement for exactly that | `checks_passed` | `checks_passed` | Supplements are normal. The total is compared with what's authorized now, not with the first estimate |
 
-On our live runs on 2026-11-04 (UTC), nine of the ten came out as planned, the same on both
-runs. Treat that as a demo that the pipeline works, not as a
-measure of accuracy: ten invoices tell you each path through the checks runs, not how often a
-real scan gets misread. The tenth is the interesting one.
+Both runs gave the same results. Treat that as a demo that the pipeline works, not as a measure
+of accuracy: ten invoices tell you each path through the checks runs, not how often a real scan
+gets misread. The one that didn't, `clm-08`, is the interesting one.
 
 A few things worth noticing:
 

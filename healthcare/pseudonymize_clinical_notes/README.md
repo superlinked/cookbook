@@ -109,8 +109,9 @@ organization splits it) signs off on the extract, and only then does it go to th
 Here are three of the notes in `data/notes/`, and what should happen to each.
 
 **1. A clean discharge summary.** `01-discharge-summary.txt`, filed under Teodora Vance.
-- **Input:** "Patient: Teodora Vance MRN: 00482913 DOB: 04/22/1959 Address: 27 Quillfeather Lane,
-  Harrowgate, MA 02134 ... Admitted: 09/03/2026 Discharged: 09/08/2026"
+- **Input:** the header lines "Patient: Teodora Vance" / "MRN: 00482913" / "DOB: 04/22/1959" /
+  "Address: 27 Quillfeather Lane, Harrowgate, MA 02134" ... "Admitted: 09/03/2026" /
+  "Discharged: 09/08/2026"
 - **What should happen:** the name, MRN, address, phone, daughter and employer are replaced, the
   DOB removed, the dates shifted by her offset, ZIP cut to three digits; the attending stays.
 - **Expected outcome:** `checks_passed`, with admission and discharge still five days apart.
@@ -123,12 +124,14 @@ Here are three of the notes in `data/notes/`, and what should happen to each.
 - **Expected outcome:** `review`: a name that could be `[PATIENT_1]` or `[PERSON_1]`.
 
 **3. A fax filed under the wrong patient.** `04-lab-fax.txt`, filed under Teodora Vance.
-- **Input:** "Patient: Hollis Merriweather MRN: 00993021 DOB: 1971-11-02 Collected: 2026-10-01"
+- **Input:** the header lines "Patient: Hollis Merriweather" / "MRN: 00993021" /
+  "DOB: 1971-11-02" / "Collected: 2026-10-01"
 - **What should happen:** the identity check sees a patient field and an MRN that aren't
   Teodora's, so the dates are removed instead of shifted and the note is held out.
 - **Expected outcome:** `escalate`, held out of the extract.
 
-On the live run, 12 of 13 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 12 of 13 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -328,8 +331,8 @@ sweep inside brackets that we planted it for never ran (more below).
 | Two requests | The same cohort run under RS-2026-044 | Study IDs S-94XC3V and S-K88AMZ in the first extract, S-2Y44HQ and S-TQRZ7M in the second; offsets +11 and -26 days in the first, -39 and -32 in the second, so the discharge is `2026-09-19` in one manifest and `2026-07-31` in the other | Two extracts handed to different teams can't be joined on their pseudonyms |
 
 Every planted case came out with the output we planned, one of them for a different reason. They
-show the wiring works; they don't measure accuracy. Thirteen cases in four notes tell you each path through the flow does what it says, not how often
-a real note slips past it.
+show the wiring works; they don't measure accuracy. Thirteen cases in four notes tell you each path
+through the flow does what it says, not how often a real note slips past it.
 
 A few things worth noticing:
 

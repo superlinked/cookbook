@@ -127,7 +127,8 @@ Here are three of the NDAs in `data/`, and what should happen to each.
   of the two, so confidentiality lasts seven years, over the limit.
 - **Expected outcome:** term `deviates`, with the agreement term reported as two years.
 
-On the live run, 6 of 6 planted NDAs came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 6 of 6 planted NDAs came out as expected; [What came out](#what-came-out) has each
+one.
 
 ## How we'll solve it
 

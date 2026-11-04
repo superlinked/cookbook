@@ -111,7 +111,8 @@ of the things planted in them, and what should happen to each.
 
 **2. A bank account in an email.**
 - **Input:** `03-insured-email.txt` (D3): "For the direct deposit please use our joint account
-  at Cedar Ridge Credit Union, account number 0081 4472 9310."
+  at Cedar Ridge Credit Union, account number 0081 4472 9310." (The number is made up for this
+  example.)
 - **What should happen:** the account rule and the PII model mask it before the LLM reads the
   email, so it can't reach the summary; if it did, the final sweep would block the summary.
 - **Expected outcome:** masked to `XXXX XXXX 9310`, nowhere in the summary.

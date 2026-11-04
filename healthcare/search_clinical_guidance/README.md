@@ -102,7 +102,8 @@ Here are three of the searches in `data/searches.json`, and what should happen t
   `min_score`, and the search goes to the gap log.
 - **Expected outcome:** `no_good_match`, logged.
 
-On the live run, 9 of 9 planted searches came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 9 of 9 planted searches came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -258,8 +259,6 @@ The input is three files in [`data/`](./data):
 > clinic network (Larkspur). It is not real clinical guidance and is not copied from any
 > published guideline. No US-government text was used, so there is no license to record.
 
-Our live run on 4 Nov 2026 (UTC):
-
 ### The three examples
 
 - **Q-01** came out `results`: G01 (0.9998), then G02 (0.9968); G03 at 0.0571 stayed off. As
@@ -284,9 +283,8 @@ On the live run on 4 Nov 2026 (UTC), 9 of 9 planted cases came out as expected.
 | Q-08 potassium 6.4, how fast | Critical G20 and non-urgent G21 lab passages | `results`: G20 first, sentence on the phone call picked out | `results`: G20 (0.9999), then G21 (0.8948); the phone-call sentence picked (0.9983) | Two lab passages, one urgent |
 | Q-09 HbA1c when stable at target | G10, whose one passage gives two intervals | `results`: G10, with the sentence for stable patients picked out | `results`: G10 (0.9999); the six-month sentence picked (0.9997) | The sentence pick shows the right interval, not the first one |
 
-Every case came out as planned, and four searches (Q-04, Q-05, Q-06, Q-07) went to the gap log.
-Two things in the planted guidance were worded for the demo, and no rule or threshold was fitted
-to this data:
+Four searches (Q-04, Q-05, Q-06, Q-07) went to the gap log. Two things in the planted guidance were
+worded for the demo, and no rule or threshold was fitted to this data:
 
 - G04 and G05 were worded the way real editions tend to be. Current editions don't copy the
   clinician's phrasing and retired ones often use the old shorthand, so G04 says "aim to

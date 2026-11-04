@@ -313,7 +313,7 @@ The planted cases, from our live run on 4 Nov 2026 (UTC):
 | Words the catalog can't meet | Q12, the worn messenger bag photo plus "in brown leather"; the catalog has only the grey fabric one | `no_good_match`, logged with the words; P17 words score 0.041 | Showing the grey bag as a match ignores what the shopper asked; the buyer sees the request |
 | Exact match unavailable | Q13, another ABO photo of the P15 rug, which the PIM marks unavailable; P16 is the same pattern in grey | `results`: P16 (0.738); P15 never shown; logged as a close style | A shopper can't buy the closest match if it's out of stock |
 
-All 13 came out as planned, with the rules as committed. The thresholds were fitted to this
+That's with the rules as committed. The thresholds were fitted to this
 data (the comments in `rules.yaml` say from which numbers), so treat
 this as a demo that the wiring works, not as a measure of accuracy. Thirteen searches tell you
 the plumbing is connected, not how often a shopper gets the right lamp.

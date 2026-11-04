@@ -93,7 +93,7 @@ are three of the messages in `data/messages/`, and what should happen to each.
 **2. Card data typed into the chat.**
 
 - **Input:** `01-web-chat.txt`, 14:05: "Sorry, it's 4917 6620 5318 4421. Do you need the 3 numbers
-  on the back too? They're 731."
+  on the back too? They're 731." (The card number and CVV are made up for this example.)
 - **What should happen:** the masking rules and a PII model mask the card number, and a rule removes
   the three digits as a CVV, all before the summary model reads the chat.
 - **Expected outcome:** `XXXX XXXX XXXX 4421` and `[CVV removed]` in the masked text, and neither
@@ -106,7 +106,7 @@ are three of the messages in `data/messages/`, and what should happen to each.
   for this card, so it stays readable for the next agent to chase the dispute.
 - **Expected outcome:** kept readable in the masked note, and carried into the summary.
 
-On the live run, 5 of 7 planted cases came out as expected; [What came out](#what-came-out) has
+On the live run, 6 of 7 planted cases came out as expected; [What came out](#what-came-out) has
 each one.
 
 ## How we'll solve it
@@ -300,10 +300,10 @@ The case came out `summary_checked`.
 
 ### Every planted case
 
-On the live run on 4 Nov 2026 (UTC), 5 of 7 planted cases came out as expected; the dispute
-reference and "names stay" came out a little differently, as explained below the table. The
-table's eighth row, the wrong amount, is a stand-in reply in `selfcheck.py`, not part of the live
-run.
+On the live run on 4 Nov 2026 (UTC), 6 of 7 planted cases came out as expected. The one that
+didn't is the dispute reference, which stayed readable but didn't make it into the summary, as
+explained below the table. The table's eighth row, the wrong amount, is a stand-in reply in
+`selfcheck.py`, not part of the live run.
 
 The input is the case in [`data/`](./data):
 
@@ -335,12 +335,12 @@ came out `summary_checked`:
 | A promise made | The agent's note: "told her she'll have the refund within five working days" | Listed under what the bank told the customer, quoting the note (M3) | That's the line the next agent most needs |
 | Amount the case doesn't support | A stand-in reply (selfcheck only) that gives 98.99 for the Quillon payment | `needs_review`: "the card system has Quillon Electronics only for 8.99 GBP, 89.99 GBP", and the open dispute isn't listed | The summary is checked against the card system, not trusted |
 
-Two of these came out a little differently from the plan. The dispute reference stayed readable
-where it was written, but the model didn't put it in the summary, so the agent finds it in the
-case note the summary links to. And "names stay" holds for the masking (nothing took a name
-out) but the model chose which names to repeat: it wrote "the customer" for most lines, even with
-the prompt telling it to name people as the messages do, and the landlord didn't make the cut.
-No check looks for either, so neither changed the status.
+One of these came out differently from the plan. The dispute reference stayed readable where it was
+written, but the model didn't put it in the summary, so the agent finds it in the case note the
+summary links to. "Names stay" counts as expected: it holds for the masking (nothing took a name
+out), and the model chose which names to repeat: it wrote "the customer" for most lines, even with
+the prompt telling it to name people as the messages do, and the landlord didn't make the cut. No
+check looks for either, so neither changed the status.
 
 One thing the plan left open: the card system already shows the cafe dispute as withdrawn. That's
 how we built the seed, on the reading that the agent who processed the fifth message closed it

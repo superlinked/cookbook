@@ -306,7 +306,7 @@ Here's our live run on 4 Nov 2026 (UTC), with the settings as written:
 | TGT-3 why inventory changed | Other year-end balances, the inventory accounting estimate (P44, P55) | `draft_answer`: P30 | `draft_answer`: P54, with its two bullets | `both_years` | A "why" that only MD&A answers |
 | TGT-4 manufacturing purchase obligations | Only a general paragraph that points to the notes | `no_answer_found` (best P26, 0.06) | `no_answer_found` (best P50, 0.04) | `neither_year` | The next step is in the notes, and the brief shows P26 saying so |
 
-All eight came out as planted. No row came out `new_this_year` or `missing_this_year`:
+No row came out `new_this_year` or `missing_this_year`:
 Apple and Target answered the same standing questions in both years, which is what you'd hope
 from two consecutive 10-Ks and also why we couldn't plant one from real filings. The near miss
 the data can't hold, an answer that quotes the right sentence but says "$56.2 million", is in

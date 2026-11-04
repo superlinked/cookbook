@@ -105,7 +105,8 @@ Here are three of the questions in `data/questions.jsonl`, and what should happe
   must drop it before the shortlist, so only the revision C page is read.
 - **Expected outcome:** `quote_checked`, page 8 revision C, 20 N m.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 

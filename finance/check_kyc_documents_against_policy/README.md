@@ -331,10 +331,8 @@ later.
 | `kyc-11` | Occupation left blank, and the only address proof is the ID card itself | `review`: `form_occupation` and `address_document` missing; no OCR needed to say so | The policy, not the documents, is what's unmet |
 | `kyc-12` | Uploaded as a "utility bill", but it's a mobile phone bill | `review`: `address_type` not met | The customer's label isn't the document's type |
 
-On our live runs on 2026-11-04 (UTC), all 12 cases came out with the planted status and the
-planted requirement. `kyc-06` came out with one extra requirement not met, on every run. Treat
-that as a demo
-that the wiring works, not as a measure of accuracy: twelve cases tell you each path through the
+`kyc-06` came out with one extra requirement not met on every run. Treat that as a demo that the
+wiring works, not as a measure of accuracy: twelve cases tell you each path through the
 checks runs, not how often a real scan gets misread.
 
 A few things worth noticing:

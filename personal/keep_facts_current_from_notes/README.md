@@ -122,7 +122,8 @@ Here are three of the inputs in `data/`, and what should happen to each.
   plumber, so the fact can't honestly be `not_found`.
 - **Expected outcome:** `needs_review`, naming the memo as unread.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -374,11 +375,10 @@ empty.
 | Car registration cost | A note says it's due by November 30, not the cost | `not_found` | A near miss: the topic matches, the fact isn't there |
 | Plumber's visit | A memo that reads empty (wind noise), and the visit is in no other file | `needs_review`, naming the memo as unread | "Not found" would be a lie when a file was never read |
 
-On our live runs on 2026-11-04 (UTC), all ten came out as planned, with the settings as first
-written: once from scratch and once from the cache, with the same statuses and values both
-times. The second run's sheet says "Nothing changed since the build of 20261104T045112Z." Treat
-that as a demo that the pipeline works, not as a measure of accuracy: ten facts show each path
-through the checks runs, not how often a real memo gets misheard.
+We ran it twice with the settings as first written: once from scratch and once from the cache, with
+the same statuses and values both times. The second run's sheet says "Nothing changed since the
+build of 20261104T045112Z." Treat that as a demo that the pipeline works, not as a measure of
+accuracy: ten facts show each path through the checks runs, not how often a real memo gets misheard.
 
 A few things worth noticing:
 

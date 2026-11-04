@@ -103,7 +103,8 @@ Here are three of the returns in `data/returns.jsonl`, and what should happen to
   call the cracked screen major product damage.
 - **Expected outcome:** `refer`, product damage `major`.
 
-On the live run, 5 of 7 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 5 of 7 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
 
 ## How we'll solve it
 
@@ -284,16 +285,15 @@ called `minor` packaging damage, and R-01's shrink-wrapped pack was called `clos
 | R-06 | A Samsung Galaxy S2 with a shattered screen, no box | refer | Product damage `major`; also no packaging and nothing to read |
 | R-07 | A crumpled shipping carton with a FRAGILE sticker, against an online order for a stoneware dinner set | inspect | Nothing on the carton identifies the product |
 
-On our live run on 2 Nov 2026 (UTC) all 7 got their planned guidance level, with the settings
-as first written: the same 7 guidance levels as our runs before the two-barcode, other-model-number and
-opened-and-not-seen checks were added. Those checks added a reason to R-05 and R-06 and changed
-no level. Two planted details came out differently,
-and we left them that way. We planted R-07 as damaged packaging, and the condition model called
-it `minor` damage, so the `inspect` comes from the product check alone. And the condition model
-called R-01's shrink-wrapped box `closed`, not `sealed`; at a desk where sealed and closed lead
-to the same place, that changes nothing. Treat all of this as a demo that the pipeline works,
-not as a measure of accuracy: seven returns tell you the wiring is right, not how often it's
-wrong.
+On our live run on 2 Nov 2026 (UTC) all 7 got their planned guidance level, with the settings as
+first written: the same 7 guidance levels as our runs before the two-barcode, other-model-number and
+opened-and-not-seen checks were added. Those checks added a reason to R-05 and R-06 and changed no
+level. Two planted details came out differently, and we left them that way. We planted R-07 as
+damaged packaging, and the condition model called it `minor` damage, so the `inspect` comes from the
+product check alone. And the condition model called R-01's shrink-wrapped box `closed`, not
+`sealed`; at a desk where sealed and closed lead to the same place, that changes nothing. Treat all
+of this as a demo that the pipeline works, not as a measure of accuracy: seven returns tell you the
+wiring is right, not how often it's wrong.
 
 A few things worth noticing:
 

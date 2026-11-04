@@ -127,7 +127,8 @@ Here are three of the claims in `data/`, and what should happen to each.
   the mount, and that isn't enough to call it proof.
 - **Expected outcome:** `review`; TV stand `ambiguous`, nothing asked; the stools `matched`.
 
-On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
 
 ## How we'll solve it
 
@@ -366,8 +367,8 @@ The input is eight contents claims:
 | `CLM-26-1007` | The receipt for the stolen boots and jacket is dated six days after the loss | `review`: both items `after_loss`, nothing asked | Probably the replacement purchase. That's the handler's call, not the recipe's |
 | `CLM-26-1008` | Near miss, from the portal: "TV stand 39.99" against the receipt's "TV WALL MOUNT 39.99"; the two walnut bar stools (2 @ 64.00) on the same receipt | `review`: TV stand `ambiguous`, nothing asked; the stools `matched` | Same price, one shared word, different thing. Matching on price and one word would call it proof |
 
-On our live run on 2026-11-04 (UTC), all eight claims came out as planned. Treat that as a demo that the wiring works, not as a measure of accuracy: eight claims
-tell you each path through the matching runs, not how often a real phone photo gets misread.
+Treat this as a demo that the wiring works, not as a measure of accuracy: eight claims tell you
+each path through the matching runs, not how often a real phone photo gets misread.
 
 A few things worth noticing:
 

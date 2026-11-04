@@ -313,12 +313,11 @@ The input is four borrowers in [`data/`](./data):
 | Northfield Cold Storage, Inc. (`BRW-18820`), "in thousands", USD | "Total current liabilities" printed as 7,598; its lines add up to 7,538 | A `subtotal` exception and a broken tie-out | `subtotal`: "add up to 7538; the statement prints 7598"; `current_liabilities` breaks by 60; units `USD thousands` | The statement's own arithmetic is checked, not trusted |
 | Kestrel Valley Dairy Co. (`BRW-40562`), scanned, USD | Statements for the year ended June 30, 2026; the loan system expects December 31, 2025 | A `period` exception on both statements | Read with `docling:ocr`; both statements `period`, nothing else | The period is checked against the loan system, not assumed |
 
-On our live run on 2026-11-04 (UTC) every planted case came out as planned. Harbour Lane is
-`checks_passed`; the other three are `review`: Northfield with 4 exceptions, Mesa Verde with 7
-and Kestrel with 2. Of the 60 tie-outs, 38 tied, 6 broke and 16 were skipped (the total wasn't
-reported, or it was derived and there was nothing to check). Treat that as a demo that the
-pipeline works, not as a measure of accuracy: four borrowers tell you each path through the
-checks runs, not how often the reranker picks the row your analyst would.
+Harbour Lane is `checks_passed`; the other three are `review`: Northfield with 4 exceptions, Mesa
+Verde with 7 and Kestrel with 2. Of the 60 tie-outs, 38 tied, 6 broke and 16 were skipped (the total
+wasn't reported, or it was derived and there was nothing to check). Treat that as a demo that the
+pipeline works, not as a measure of accuracy: four borrowers tell you each path through the checks
+runs, not how often the reranker picks the row your analyst would.
 
 A few things worth noticing:
 

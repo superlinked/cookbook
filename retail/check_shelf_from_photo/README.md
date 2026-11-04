@@ -109,7 +109,8 @@ Here are three of the tags in the photos in `data/`, and what should happen to e
   package box in the slot.
 - **Expected outcome:** `out_of_stock`.
 
-On the live run, 3 of 4 planted cases came out as expected, and 14 of the 20 tags; [What came out](#what-came-out) has each one.
+On the live run, 3 of 4 planted cases came out as expected, and 14 of the 20 tags;
+[What came out](#what-came-out) has each one.
 
 ## How we'll solve it
 
@@ -351,22 +352,21 @@ tags came out as we expected in the table below.
 | beet-juice-141410 | T03 Lakewood Organic Super Beet Juice | Lakewood Organic Pure Beet bottles | `in_place` | `review` | `cant_tell`: the model read "Lakewood Organic Pure Beet" and said none of the listed names match (see below) |
 | beet-juice-141410 | T04 Lakewood Organic Beet Ginger Turmeric | Beet Ginger Turmeric bottle | `in_place` | `in_place` | Model read "Lakewood ORGANIC GINGER TURMERIC" |
 
-The planted empty slot didn't come out `out_of_stock`: the model
-still says Truwhip Original is there, from the edge of the neighbor's stack. Before the box rule
-that was a false `in_place`; now the detector's empty slot sends it to `review` with "check the
-slot". The model didn't say `none`. Three more tags got a false `wrong_product` (T03 and T05 in
-the freezer, and the Gluten Free Muesli); all three slots do hold a package box, just not the
-one the model named. Before the box rule we ran the recipe twice, a minute apart, and got the
-same 20 statuses and picks both times; after it, one run, in which only T06 changed. Then we
-added the prompt's line about text in the photo, the padded candidate list, the slot-width
-box rule and the name check, and ran once more. The new box rule took a box out of two slots
-(beet juice T03, freezer T03) that still hold others, so no status moved for it; the list,
-name and orientation changes don't touch these photos. One status did move: T05 went from
-`cant_tell` (`review`) to a false `wrong_product`, with the same slot picture and the same
-candidate list, so the prompt line is the only input that changed. We didn't tune anything to
-win it back. Treat this as a demo that
-the wiring works, not as a measure of accuracy: twenty tags on four photos tell you the
-pipeline is right, not how often the models get a shelf wrong.
+The planted empty slot didn't come out `out_of_stock`: the model still says Truwhip Original is
+there, from the edge of the neighbor's stack. Before the box rule that was a false `in_place`; now
+the detector's empty slot sends it to `review` with "check the slot". The model didn't say `none`.
+Three more tags got a false `wrong_product` (T03 and T05 in the freezer, and the Gluten Free
+Muesli); all three slots do hold a package box, just not the one the model named. Before the box
+rule we ran the recipe twice, a minute apart, and got the same 20 statuses and picks both times;
+after it, one run, in which only T06 changed. Then we added the prompt's line about text in the
+photo, the padded candidate list, the slot-width box rule and the name check, and ran once more. The
+new box rule took a box out of two slots (beet juice T03, freezer T03) that still hold others, so no
+status moved for it; the list, name and orientation changes don't touch these photos. One status did
+move: T05 went from `cant_tell` (`review`) to a false `wrong_product`, with the same slot picture
+and the same candidate list, so the prompt line is the only input that changed. We didn't tune
+anything to win it back. Treat this as a demo that the wiring works, not as a measure of accuracy:
+twenty tags on four photos tell you the pipeline is right, not how often the models get a shelf
+wrong.
 
 A few things worth noticing:
 

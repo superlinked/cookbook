@@ -121,7 +121,8 @@ Here are three of the inputs in `data/`, and what should happen to each.
   not the injury, so the flag goes up and says the sentence is ambiguous.
 - **Expected outcome:** `differs` on injuries, `injury_reported (ambiguous)`.
 
-On the live run, 7 of 7 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 7 of 7 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
 
 ## How we'll solve it
 
@@ -316,8 +317,8 @@ Here's what we planted and what the run on 2026-11-04 (UTC) gave:
 | Okafor | Near miss: "He was hurt but he didn't need an ambulance"; the claim says no injury | `differs`: injuries, `injury_reported`, marked ambiguous | `differs`: claim "No", call "Yes" at 00:36; `injury_reported (ambiguous)` | The negation is about the ambulance, not the injury |
 | Delacroix | Near miss: a complete call where the caller says rain is still coming through the ceiling and they're staying with family; the claim has every field | `checks_passed`, `urgent_assistance` | `checks_passed`, `urgent_assistance` | Every field filled in, and it still can't wait two business days |
 
-Every planted case came out as planned. Seven planted cases on five calls show the wiring works
-end to end; they don't measure accuracy, and your calls will find things these don't.
+Seven planted cases on five calls show the wiring works end to end; they don't measure accuracy, and
+your calls will find things these don't.
 
 - **The worklist reads the way a reviewer works.** Here are its first two rows, the two injury
   claims, ahead of everything else:

@@ -116,7 +116,8 @@ Here are three of the inputs in `data/`, and what should happen to each.
 - **Expected outcome:** `checks_passed`, a `change` removing the book-fair shift (`cal-06`), and
   no hold at 10 AM.
 
-On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -320,11 +321,11 @@ Power as paper-billed, no autopay, and Bayview Waste Collection as a near miss o
 | Pick up Leo (msg-11) | "Can you pick up Leo from school tomorrow at 3?" | `todo`, due Oct 30 3:00 PM, `checks_passed` | "Tomorrow" and a bare hour from the sent time |
 | Newsletter, delivery (msg-05, msg-12) | Neighborhood news, "Your package was delivered" | `no_action` | Nothing to do, and a delivery time is not an appointment |
 
-On our live run on 4 Nov 2026 (UTC) every case came out as planned: 8 `checks_passed`, 2
-`question`, 1 `matches_existing` and 2 `no_action`, from 15 messages. The vet memo was planted to
-come out as a to-do or a question, and it came out as the question. Two warm runs gave the
-same results. Treat this as a demo that the wiring works, not as a measure of accuracy: fifteen
-messages tell you the rules fire, not how often the models read your own inbox right.
+The run gave 8 `checks_passed`, 2 `question`, 1 `matches_existing` and 2 `no_action`, from 15
+messages. The vet memo was planted to come out as a to-do or a question, and it came out as the
+question. Two warm runs gave the same results. Treat this as a demo that the wiring works, not as a
+measure of accuracy: fifteen messages tell you the rules fire, not how often the models read your
+own inbox right.
 
 A few things worth noticing:
 

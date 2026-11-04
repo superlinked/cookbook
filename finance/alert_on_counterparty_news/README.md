@@ -286,11 +286,10 @@ domains) are synthetic, written for this recipe. No real company or person is na
 | N-09 | A competitor's administration in the same story as Ferncastle Dairy, which is "unaffected" | Ferncastle `filed`: none 0.93; no alert | The warning is about the competitor, not the borrower |
 | N-10 | "Halden" the town, in a story about a flood warning, with no company named | `not_a_borrower`: both mentions read as a place | A borrower's alias that's also a place name |
 
-On our live run on 4 Nov 2026 (UTC) all ten came out as planned: 3 `alert`, 3 `filed`, 2 `review`
-and 2 `not_a_borrower`, two alert messages (Saoirse Mallin with two stories, Teodor Brask with
-one) and three review rows. Treat this as a demo that the
-wiring works, not as a measure of accuracy: ten articles tell you the rules fire, not how often
-the models get a real news queue right.
+In all the run gave 3 `alert`, 3 `filed`, 2 `review` and 2 `not_a_borrower`, two alert messages
+(Saoirse Mallin with two stories, Teodor Brask with one) and three review rows. Treat this as a
+demo that the wiring works, not as a measure of accuracy: ten articles tell you the rules fire,
+not how often the models get a real news queue right.
 
 A few things worth noticing:
 
@@ -343,10 +342,10 @@ A few things worth noticing:
 
 ### What you do next
 
-Each credit officer reads their message in `alerts/` and decides what the story means for the
-loan; nothing on the loan file has changed. The stories in `filed.csv` are saved against the counterparty for the
-next annual review, and nobody is pinged about them. The credit analyst who used to read the whole
-queue now reads only `review.csv` (here three rows) and settles which borrower, if any, each
+Each credit officer reads their message in `alerts/` and decides what the story means for the loan;
+nothing on the loan file has changed. The stories in `filed.csv` are saved against the counterparty
+for the next annual review, and nobody is pinged about them. The credit analyst who used to read the
+whole queue now reads only `review.csv` (here three rows) and settles which borrower, if any, each
 unclear name means.
 
 ## Potential improvements

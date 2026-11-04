@@ -94,7 +94,7 @@ Here are three of the supplier records in `data/supplier_feed.csv`, and what sho
   state can't be treated as 1, so the attribute rule should stop it.
 - **Expected outcome:** `review`, pack count unknown.
 
-**3. A difference only the photo shows.** L30 against PIM product L29
+**3. Leather vs suede, same title.** L30 against PIM product L29
 - **Input:** "Amazon Brand - 206 Collective Women's Madison Ballet Flat, Black, 7 B US", a photo
   of a suede flat; L29 is the leather flat with the same color and size.
 - **What should happen:** the titles agree, so this must not become a confident link; the PIM

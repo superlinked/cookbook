@@ -144,7 +144,8 @@ Here are three of the twelve delivered lots in `data/`, and what should happen t
   can't pass on the rows that are left.
 - **Expected outcome:** `filled` and `review`, on `dimensions`.
 
-On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -369,8 +370,7 @@ check status.
 | `lot-11` | New near miss: a 14.38 mm T3 reading like `lot-07`'s, with the T3 row left off the form; T1, T2, T4, width and length all pass | `filled` | `review`: `dimensions` | Thickness T3 is on the inspection plan and wasn't read. Before this change, the lot passed |
 | `lot-12` | New near miss: S355J2+N with yield and tensile inside the limits, but no impact energy box on the certificate | `filled` | `review`: `impact_energy` | A J2 grade needs a Charpy result; strength alone isn't enough. Before this change, the lot passed |
 
-On our live runs on 2026-11-03 (UTC), all 12 lots came out as planned, both fill status and
-check status, with the settings as first written. Two warm reruns gave the same 12 results, the
+That's with the settings as first written. Two warm reruns gave the same 12 results, the
 last one after the delivery note table check went in; all four delivery notes added up (four,
 two, two and four lines read, matching the scan batches and each note's total).
 Treat that as a demo that the pipeline works, not as a measure of accuracy: twelve lots tell

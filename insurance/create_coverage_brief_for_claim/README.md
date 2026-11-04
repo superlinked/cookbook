@@ -122,7 +122,8 @@ Here are three of the claims in `data/claims.csv`, and what should happen to eac
 - **Expected outcome:** `quotes_checked`; EXC-03 `unclear`, with a fact to establish about the
   14 days.
 
-On the live run, 8 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 8 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -316,15 +317,14 @@ Our live run on 4 Nov 2026 (UTC), with the settings as committed:
 | CLM-09 | Near miss: a floor drain backs up into the basement; this policy carries a water backup endorsement | `quotes_checked`; EXC-02 and WB-01 shown together, WB-01 `applies` | Read on its own, the exclusion says no. The endorsement gives it back |
 | CLM-10 | Near miss: a leak behind the washing machine; the insured "noticed a stain about two weeks ago" | `quotes_checked`; EXC-03 `unclear`, with "Was the water leaking continuously or repeatedly for at least 14 days prior to the date of loss?" to establish | The exclusion starts at 14 days, and "about two weeks" doesn't settle it |
 
-Every claim got the status we planted, but two missed the detail they were planted for. On CLM-06 we expected
-the question "was heat maintained or the water shut off?". The model asked only the second half;
-the insured had already said they turned the heating off. And on CLM-09 the model didn't read
+Every claim got the status we planted, but two missed the detail they were planted for. On CLM-06 we
+expected the question "was heat maintained or the water shut off?". The model asked only the second
+half; the insured had already said they turned the heating off. And on CLM-09 the model didn't read
 EXC-02 as printed, as the prompt asks: it read it as `does_not_apply`, "deleted and replaced by
-endorsement WB-01". The briefing still puts the two side by side, which is what the adjuster
-needs, but if you wanted the "read on its own, the exclusion says no" line in the briefing, you
-won't get it from this model. Treat all of this as a demo that the wiring works, not as a
-measure of accuracy: ten planted claims tell you the pipeline does what it says, not how often
-the readings are right.
+endorsement WB-01". The briefing still puts the two side by side, which is what the adjuster needs,
+but if you wanted the "read on its own, the exclusion says no" line in the briefing, you won't get
+it from this model. Treat all of this as a demo that the wiring works, not as a measure of accuracy:
+ten planted claims tell you the pipeline does what it says, not how often the readings are right.
 
 A few things worth noticing:
 

@@ -125,7 +125,8 @@ Here are three of the contract packages in `data/`, and what should happen to ea
   later document naming clause 9.2 and hold the row for the lawyer.
 - **Expected outcome:** `termination_rights` `needs_review`, with both passages cited.
 
-On the live run, 5 of 5 planted contracts came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 5 of 5 planted contracts came out as expected; [What came out](#what-came-out) has
+each one.
 
 ## How we'll solve it
 
@@ -342,14 +343,11 @@ The input is five contract packages in [`data/`](./data) and the register that p
 | `EB-ICT-0076` Brindlecote (text layer, scanned amendment) | A compliant termination clause (9.2), then Amendment No. 1 in 2025 adding a termination fee | `termination_rights` `needs_review` with both passages cited; `incident_assistance` `needs_review` too (not planted, see below); the other six `found` | The original wording alone would read as `found` |
 | `EB-ICT-0051` Brackwater (scan) | The schedules page blurred past reading; the agreement pages hold every clause | All eight `needs_review`; the model said `found` on all eight | The lost page could hold a qualifier, so `found` is held back as well as `not_found` |
 
-On our live run on 2026-11-04 (UTC), every planted case came out as planned: 27 `found`, 11
-`needs_review`, 2 `not_found` across the 40 rows. One row went to review that we didn't plant:
-Brindlecote's `incident_assistance`, where the model shortened its quote with "...". The three
-critical-or-important contracts (Nimbusline, Tallowmere, Brindlecote) got the note that the
-Article 30(3) terms are unchecked.
-Treat that as a demo that the wiring works, not as a measure of accuracy: five synthetic
-contracts built from one template tell you each path through the checks runs, not how often a
-real supplier's drafting gets past it.
+The unplanted review row is Brindlecote's `incident_assistance`, where the model shortened its quote
+with "...". The three critical-or-important contracts (Nimbusline, Tallowmere, Brindlecote) got the
+note that the Article 30(3) terms are unchecked. Treat that as a demo that the wiring works, not as
+a measure of accuracy: five synthetic contracts built from one template tell you each path through
+the checks runs, not how often a real supplier's drafting gets past it.
 
 A few things worth noticing:
 

@@ -133,7 +133,8 @@ Here are three of the documents in `data/text/`, and what should happen to each.
   shape still readable and hands it to a person.
 - **Expected outcome:** `needs_review` for line 10, with the account shown as "account ending 0321".
 
-On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each one.
+On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
 
 ## How we'll solve it
 
@@ -307,7 +308,7 @@ Hollis & Crane LLP for Pellham:
 > **All of it is synthetic.** Every person, company, firm, bank, number and address is invented.
 > Emails use reserved `.example` domains; the SSN starts with 666, which is never issued.
 
-On our live run on 4 Nov 2026 (UTC), every planted case came out as planned:
+Case by case:
 
 | Case | What we planted | Came out | Why |
 | --- | --- | --- | --- |
