@@ -1,0 +1,293 @@
+# What may leave the company in a vendor's support case, and every threshold the recipe uses.
+# The security team usually owns this list. Thresholds are starting points, not tuned values:
+# check them against your own logs and notes.
+
+models:
+  # SIE Cloud's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # server (spans scoring 0.6 or more, the two models' spans unioned, person names propagated).
+  pii: superlinked/pii-redact
+
+# What the PII model looks for: its 36 default personal-data types plus `organization`.
+# Every span it returns is redacted unless the allowlist or an identifier rule decides otherwise.
+labels:
+  - person
+  - organization
+  - street address
+  - city
+  - county
+  - postal code
+  - gps coordinates
+  - date of birth
+  - phone number
+  - fax number
+  - email address
+  - url
+  - ip address
+  - mac address
+  - social security number
+  - national id number
+  - tax id number
+  - medical record number
+  - health plan beneficiary number
+  - account number
+  - credit card number
+  - cvv
+  - pin
+  - password
+  - api key
+  - http cookie
+  - username
+  - customer id
+  - employee id
+  - certificate or license number
+  - license plate
+  - vehicle identification number
+  - device identifier
+  - biometric identifier
+  - unique identifier
+  - passport number
+  - driver's license number
+
+thresholds:
+  # The PII model reads about 384 words per request, so longer files are sent as windows of
+  # this many words, each sharing `window_overlap_words` with the last. Logs are token-dense (a
+  # UUID or a token is a dozen or more model tokens where an English word is one or two), so the
+  # windows are kept well under that limit. Each call asks SIE to fail rather than cut a window
+  # short; a window that still doesn't fit blocks its file as not read. In our test SIE Cloud
+  # read a 600-word, UUID-dense text to its end, so this is a margin, not a measured limit.
+  window_words: 150
+  window_overlap_words: 30
+  # A name the model found is also redacted wherever else it appears, if it has at least this
+  # many letters.
+  propagate_min_letters: 3
+  # A phone or other number found anywhere in the incident is also redacted where it is written
+  # another way ("406-555-0131" and "+14065550131"), if it has at least this many digits.
+  second_spelling_min_digits: 7
+  # Where a model span overlaps a rule's span, the rule decides its part and the rest of the
+  # model span is still redacted, unless what is left is one word such as a field name
+  # ("request_id=") or "Bearer". A single word stays redacted if it has a digit and at least
+  # this many characters (it looks like a value, not a name).
+  leftover_value_min_chars: 8
+
+# Log identifiers, found with regex and decided here, whatever the PII model tagged inside them.
+# Most of them are the fields your log platform already parses (`user_id=`, `client_ip=`,
+# `host=`, the Authorization header), so they need no model. Rules run in this order; a later
+# rule skips text an earlier rule already matched (a request ID is kept before the customer-ID
+# rule looks at it; a host IP is kept before the IP rule).
+#   pattern:   the identifier as your services log it. A `value` group, if present, is the part
+#              acted on ("user_id=<uuid>" keeps "user_id=" readable).
+#   check:     luhn (card check digit) or ipv4 (four octets of 0 to 255); optional.
+#   if_check_fails:
+#              ignore: not this identifier (a 16-digit order ID is not a card number, a build
+#                      number like 4.18.302.7 is not an IP); the PII model and the other rules
+#                      decide. With `unless_near`, a value that fails the check but has that word
+#                      within `near_chars` characters before it is still acted on, and the file
+#                      goes to review.
+#   review:    optional. Act on it, and send the file to a person with this reason anyway.
+#   keep_values_from:
+#              optional. A value that the named `keep` rule kept anywhere in the bundle is kept
+#              here too (an IP logged as `host=` in one file stays readable in the notes).
+#   loose:     anything that looks like the same kind of value. A loose match that no rule so
+#              far has matched is in an unexpected format: the rules can't decide it, so the
+#              file is blocked (with `loose_reason`, if given).
+#   action:    placeholder ([EMAIL_1]), mask (every digit but the last `show_last` becomes X)
+#              or keep (left as written: the vendor needs it and it isn't customer data)
+identifiers:
+  api token:
+    # Corvane's own API keys (fictional format). Values in data/ are fake; only the shape is real.
+    pattern: '\bcvn_(?:live|test)_[A-Za-z0-9]{32}\b'
+    loose: '\bcvn_[A-Za-z0-9_]{4,}'
+    action: placeholder
+    review: an API key in a log; taken out here, rotate it and fix the logging at the source
+  bearer token:
+    # A token a terminal wrapped onto an indented next line is still one token.
+    pattern: '(?i)\bbearer\s+(?P<value>[A-Za-z0-9._~+/-]{16,}(?:\n[ \t]+[A-Za-z0-9._~+/-]+)*=*)'
+    # Any other Authorization value (Proxy-Authorization too): another scheme (Basic, Digest)
+    # or a bare key with no scheme at all.
+    loose: '(?i)\bauthorization"?\s*[:=]\s*"?(?:[A-Za-z]+\s+)?[^\s",]+'
+    loose_reason: an Authorization header that is not a bearer token; the rules can't decide it
+    action: placeholder
+    review: a bearer token in a log; taken out here, revoke it and fix the logging at the source
+  authorization header:
+    # Whatever an Authorization (or Proxy-Authorization) header holds is a credential, so its
+    # value is always taken out, scheme and all ("Basic dXNl...", or a key with no scheme). A
+    # bearer token is already taken out above, which keeps the word "Bearer" readable; for any
+    # other value the bearer rule's `loose` pattern also blocks the file.
+    pattern: '(?i)\bauthorization"?\s*[:=]\s*"?(?P<value>(?:[A-Za-z]+[ \t]+)?[^\s",;]+)'
+    action: placeholder
+    review: a credential in an Authorization header; taken out here, revoke it and fix the logging at the source
+  connection password:
+    # The password in a connection string (scheme://user:password@host). User, host, port and
+    # database name stay: the vendor may need to know which database it was. The password may
+    # hold "/" or "@" ("p@ss@db"): it runs to the last "@" before the host. A port followed by a
+    # path ("host:8443/a@b") is not a password.
+    pattern: '(?i)\b[a-z][a-z0-9+.-]*://[^\s:@/]+:(?!\d+/)(?P<value>[^\s"'']+?)@(?=[^\s@/"''?#]*(?:[/\s"''?#]|$))'
+    action: placeholder
+    review: a database password in a log; taken out here, rotate it and fix the logging at the source
+  session id:
+    # A session cookie or field. The cookie's name stays, its value goes.
+    pattern: '(?i)\bsession_?id=(?P<value>[A-Za-z0-9._~-]{8,})'
+    action: placeholder
+  email address:
+    # Also URL-encoded, as it sits in a query string ("jane.doe%40example.com").
+    pattern: '[\w.+-]+(?:@|%40)[\w-]+(?:\.[\w-]+)+'
+    action: placeholder
+  request id:
+    # Request, trace, span and deploy IDs identify a call, not a person: keep them to debug.
+    pattern: '(?i)\b(?:request|trace|span|correlation|deploy)[_-]?id"?\s*[=:]\s*"?(?P<value>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'
+    action: keep
+  customer id:
+    # Whatever the value's shape: a UUID, a number, a slug.
+    pattern: '(?i)\b(?:user|customer|account|tenant)[_ -]?id"?\s*[=:]\s*"?(?P<value>[0-9A-Za-z][\w.-]*)'
+    # Any other UUID: the rules don't say whose it is (a charge ID the vendor needs, or a
+    # customer's ID they don't).
+    loose: '(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
+    loose_reason: a UUID no rule names; the rules can't tell a customer's ID from a call's
+    action: placeholder
+  host ip:
+    # An IP in a host field is one of your own machines: keep it, the vendor wants to know which.
+    pattern: '(?i)\b(?:host|upstream|server|node)=(?P<value>\d{1,3}(?:\.\d{1,3}){3})(?![\d.])'
+    check: ipv4
+    if_check_fails: ignore
+    action: keep
+  client ip:
+    # An IP in a client field is a customer's, even in a private range (a customer on a VPN).
+    pattern: '(?i)\b(?:client_ip|remote_addr|x-forwarded-for)"?\s*[=:]\s*"?(?P<value>\d{1,3}(?:\.\d{1,3}){3})(?![\d.])'
+    # A client field holding anything else (an IPv6 address, a hostname) is one the rules
+    # can't decide.
+    loose: '(?i)\b(?:client_ip|remote_addr|x-forwarded-for)"?\s*[=:]\s*"?[^\s",;\[]+'
+    loose_reason: a client address in a format the rules don't read; the rules can't decide it
+    check: ipv4
+    if_check_fails: ignore
+    action: placeholder
+  ip address:
+    # Any other IP is redacted, unless a host field named it somewhere in the bundle.
+    pattern: '(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?!\.?\d)'
+    check: ipv4
+    if_check_fails: ignore
+    keep_values_from: host ip
+    action: placeholder
+  credit card number:
+    # 13 to 19 digits, with up to two spaces, dots or dashes between any two of them.
+    pattern: '(?<!\d)\d(?:[ .-]{0,2}\d){12,18}(?!\d)'
+    check: luhn
+    if_check_fails: ignore
+    unless_near: card
+    near_chars: 30
+    action: mask
+    show_last: 4
+    review: a card number in a log; masked here, fix the logging at the source
+  ticket reference:
+    pattern: '\b(?:SUP|INC)-\d{4,5}\b'
+    action: keep
+
+# Kept as written: never redacted, and never counted as a residual leak. Matched as whole
+# terms, case-insensitive, honorifics ignored. A term that only shares a word with an
+# allowlisted one is redacted, so list every form a name is written in. A known customer from
+# the support desk wins over this list when the names collide.
+allowlist:
+  own_company: [Corvane, Corvane Support, Corvane Payments]
+  own_people: [Felix Oduya, Felix, Imogen Tarrant, Imogen]
+  own_services: [checkout-api, payment-worker, payment_worker, ledger-db, status.corvane.example,
+                 /v2/checkout]
+  # The card processor Corvane calls, and the vendor this bundle goes to.
+  vendors: [cardvault, api.cardvault.example, 'https://api.cardvault.example/v1/charges']
+  # The status-page prober's public address: Corvane's own, not a customer's.
+  own_addresses: [203.0.113.10]
+
+# Words that may follow an allowlisted name inside one model span and still keep it readable
+# ("Felix Oduya, Jr.").
+allowlist_suffixes: [jr, sr, ii, iii]
+
+# A name with one of these words is a company, not a person: no "SURNAME, FIRST" or
+# surname-only matching for it.
+company_words: [llc, inc, ltd, llp, corp, corporation, co, company, holdings, group, partners,
+                trust, bank, plc]
+
+# Placeholder prefix per label: [EMAIL_1], [IP_2], [USER_ID_1]. A label not listed here gets
+# `default`.
+placeholders:
+  person: PERSON
+  organization: ORG
+  street address: ADDRESS
+  city: ADDRESS
+  county: ADDRESS
+  postal code: ADDRESS
+  date of birth: DOB
+  phone number: PHONE
+  fax number: PHONE
+  email address: EMAIL
+  url: URL
+  ip address: IP
+  api key: TOKEN
+  password: TOKEN
+  api token: TOKEN
+  bearer token: TOKEN
+  authorization header: TOKEN
+  customer id: USER_ID
+  username: USER_ID
+  connection password: PASSWORD
+  session id: SESSION
+  http cookie: SESSION
+  client ip: IP
+  credit card number: CARD
+  default: PII
+
+# Labels whose values are names. A shorter mention ("Delphine") is the same entity as the one
+# full name it is part of ("Delphine Marchetti"); a mention that fits two or more is ambiguous
+# and sends the file to review.
+name_labels: [person, organization]
+# Labels compared by their digits only, so "+1 (415) 555-0142" and "415 555 0142" differ only if
+# their digits do.
+digit_labels: [phone number, fax number, social security number, tax id number, account number,
+               credit card number, national id number, passport number, driver's license number]
+# Labels whose values are also redacted, as written, wherever else they appear in the bundle
+# (numbers, customer IDs and emails always are, in any spelling). Other labels are not spread,
+# so a model's misread in one file stays in that file.
+propagate_labels: [street address, city, county, postal code, gps coordinates]
+# Phone labels: their numbers are compared without a +1 or +44 country code.
+phone_labels: [phone number, fax number]
+# Labels compared by letters and digits, case-insensitive, punctuation dropped.
+alnum_labels: [customer id]
+# Words dropped from the front of a name before comparing it.
+honorifics: [mr, mrs, ms, miss, mx, dr]
+
+# Final sweep: run on the cleaned text with every [placeholder] blanked out. Any hit means
+# customer data or a secret is still readable, so the file is blocked. Hits inside allowlisted
+# terms or kept identifiers (request IDs, host IPs) are ignored. Card numbers are checked in code:
+# a 13 to 19 digit run (spaces, dots or dashes between) that passes the Luhn check is a card number.
+residual_patterns:
+  email: '[\w.+-]+(?:@|%40)[\w-]+(?:\.[\w-]+)+'
+  ip_address: '(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?!\.?\d)'
+  uuid: '(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
+  jwt: '\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}'
+  bearer_token: '(?i)\bbearer\s+[A-Za-z0-9._~+/-]{16,}'
+  api_token: '\bcvn_\w{8,}'
+  # With separators, or as +1 and ten digits with none ("sms_to=+14065550131").
+  phone: '(?<!\d)(?:\+1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?!\d)|\+1\d{10}(?!\d)'
+  # A loan, member or plan number after its label ("Loan No. 3001 8822 741").
+  labelled_number: '(?i)\b(?:loan|member|plan)\s+(?:id|no\.?|number|#)\s*[:#]?\s*[A-Z0-9-]*\d'
+  # The rest of a token a terminal wrapped onto an indented line of its own.
+  wrapped_token: '(?m)^[ \t]+[A-Za-z0-9._~+/-]{20,}=*[ \t]*$'
+  # A password still in a connection string (scheme://user:password@host).
+  connection_password: '(?i)\b[a-z][a-z0-9+.-]*://[^\s:@/]+:(?!\d+/)[^\s"'']+?@(?=[^\s@/"''?#]*(?:[/\s"''?#]|$))'
+  # An Authorization header (Proxy-Authorization too) whose value is still readable (a scheme
+  # alone, "Bearer" before a placeholder, is not a hit).
+  authorization: '(?i)\bauthorization"?\s*[:=]\s*"?(?:[A-Za-z]+[ \t]+)?+[^\s",;]{6,}'
+  # A secret field still readable ("client_secret=...", "stripe_key=...", "password: ...").
+  labelled_secret: '(?i)\b\w*(?:key|secret|password|passwd|pwd|token)"?[ \t]*[=:][ \t]*"?[^\s",\[&]{8,}'
+  # A session cookie, or a token, code or signature in a URL's query string.
+  session_id: '(?i)\bsession_?id=[A-Za-z0-9._~-]{8,}'
+  url_secret: '(?i)[?&](?:token|reset_token|code|sig|signature|key|password)=[A-Za-z0-9._~%-]{6,}'
+  # Well-known secret shapes: AWS access keys, PEM private keys, GitHub and Slack tokens, and
+  # sk_live_/rk_test_ style payment keys.
+  aws_access_key: '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
+  private_key: '-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----'
+  github_token: '\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})'
+  slack_token: '\bxox[abposr]-[A-Za-z0-9-]{10,}'
+  payment_key: '\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}'
+  # A cookie a server set, or a framework's session cookie under its own name.
+  set_cookie: '(?i)\bset-cookie"?\s*:\s*"?[^=\s;"]+=[^\s;",]{8,}'
+  session_cookie: '(?i)\b(?:jsessionid|phpsessid|asp\.net_sessionid|connect\.sid|sid)=[A-Za-z0-9._~%-]{8,}'
+card_number:
+  pattern: '(?<!\d)\d(?:[ .-]{0,2}\d){12,18}(?!\d)'

@@ -1,0 +1,34 @@
+# Lookup rules, the model ID and every threshold the recipe uses.
+# The teams and services live in the service catalog (data/catalog_*.csv), the hosts and
+# namespaces in the inventory (data/inventory_*.csv). This file says how to use them.
+# Thresholds are starting points, not tuned values. Check them against your own alerts.
+
+models:
+  team: fastino/GLiNER2.5-Decide   # suggests a team only when no record names an owner
+
+# Alert labels that can name an owner, and where each one is looked up:
+#   catalog    a service name or alias in the service catalog
+#   host       a host in the inventory (the port in `address:port` is dropped)
+#   namespace  a Kubernetes namespace in the inventory
+# Every label listed here is checked. An unknown value doesn't stop the search, and two labels
+# that lead to different owners are a conflict, never settled by order. Matching ignores case.
+owner_labels:
+  service: catalog
+  app: catalog
+  job: catalog
+  instance: host
+  namespace: namespace
+
+# Labels left out of the text the model reads: they say nothing a team description could match.
+# The alert name, summary and description are always in it, and so is an unknown service name.
+hidden_labels: [alertname, instance, severity]
+
+# The question GLiNER2.5-Decide answers. Each catalog team becomes one option (team id plus
+# its description). The question, the options and the alert share the model's window of about
+# 512 tokens, so keep team descriptions to one short line. An alert too long for the window
+# comes out no_clear_owner with the reason; nothing is cut.
+question: Which team owns the system this alert is about?
+
+thresholds:
+  min_team_score: 0.50        # top team probability below this: no_clear_owner
+  min_team_margin: 0.20       # top team minus runner-up below this: no_clear_owner

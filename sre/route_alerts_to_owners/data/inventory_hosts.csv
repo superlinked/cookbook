@@ -1,0 +1,9 @@
+address,hostname,service
+10.0.4.16,pg-orders-1,orders-db
+10.0.4.17,pg-orders-2,orders-db
+10.0.5.21,redis-sessions-1,session-cache
+10.0.6.11,kafka-1,order-events
+10.0.6.12,kafka-2,order-events
+10.0.6.13,kafka-3,order-events
+10.0.7.31,es-data-1,search-es
+10.0.7.32,es-data-2,search-es

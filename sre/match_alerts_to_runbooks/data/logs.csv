@@ -1,0 +1,30 @@
+time,env,service,level,message
+2026-10-14T08:41:12Z,production,cart,warn,GetCart took 702 ms; valkey-cart slow to answer
+2026-10-14T08:51:40Z,production,cart,info,valkey-cart latency back to normal
+2026-10-14T08:59:58Z,production,flagd,info,"flag configuration updated; flags on: paymentFailure, adHighCpu, recommendationCacheFailure, productCatalogFailure, kafkaQueueProblems"
+2026-10-14T09:01:44Z,production,payment,error,Payment request failed. Invalid token. app.loyalty.level=gold
+2026-10-14T09:01:52Z,production,checkout,error,failed to charge card: could not charge the card: rpc error: code = Unknown desc = Payment request failed. Invalid token. app.loyalty.level=gold
+2026-10-14T09:02:03Z,production,frontend,error,POST /api/checkout 500: failed to place order: failed to charge card
+2026-10-14T09:02:18Z,production,ad,info,High CPU-Load problempattern enabled by feature flag adHighCpu
+2026-10-14T09:02:31Z,production,recommendation,info,Cache miss for product ids; app.cache_size=1048576 app.products.count=10
+2026-10-14T09:02:47Z,production,product-catalog,error,Error: Product Catalog Fail Feature Flag Enabled product_id=OLJCESPC7Z
+2026-10-14T09:03:09Z,production,accounting,warn,Consumed order with delay; consumer lag on topic orders growing
+2026-10-14T09:03:21Z,production,kafka,warn,Producer request on topic orders throttled; request queue time 3104 ms
+2026-10-14T09:03:40Z,production,payment,error,Payment request failed. Invalid token. app.loyalty.level=gold
+2026-10-14T09:04:02Z,production,frontend,error,GET /api/products/OLJCESPC7Z 500: 13 INTERNAL: Error: Product Catalog Fail Feature Flag Enabled
+2026-10-14T09:04:26Z,production,ad,warn,GetAds took 2381 ms
+2026-10-14T09:04:30Z,staging,argocd,info,sync payment to v1.9.0 in staging: card-processor client upgraded
+2026-10-14T09:04:58Z,production,fraud-detection,warn,Consumer poll returned 500 records; lag on topic orders 47500
+2026-10-14T09:05:15Z,production,recommendation,info,Cache miss for product ids; app.cache_size=33554432 app.products.count=10
+2026-10-14T09:06:40Z,production,checkout,error,failed to prepare order: failed to get product OLJCESPC7Z: rpc error: code = Internal desc = Error: Product Catalog Fail Feature Flag Enabled
+2026-10-14T09:07:02Z,production,ad,warn,GetAds took 2655 ms
+2026-10-14T09:08:44Z,production,recommendation,info,Cache miss for product ids; app.cache_size=268435456 app.products.count=10
+2026-10-14T09:09:18Z,production,recommendation,error,container recommendation exited with code 137 (OOMKilled); restarting
+2026-10-14T09:09:51Z,production,accounting,warn,Consumed order 25m after it was produced
+2026-10-14T09:10:12Z,production,frontend,error,POST /api/checkout 500: failed to place order: failed to charge card
+2026-10-14T09:11:03Z,production,ad,error,GetAds failed: DEADLINE_EXCEEDED
+2026-10-14T09:11:29Z,production,recommendation,error,ListRecommendations failed: connection reset during restart
+2026-10-14T09:12:20Z,production,kafka,warn,Producer send to topic orders took 4810 ms
+2026-10-14T09:14:02Z,staging,payment,error,Payment request failed. Invalid token. card processor sandbox rejected the API key
+2026-10-14T09:14:31Z,staging,checkout,error,failed to charge card: rpc error: code = Unknown desc = Payment request failed. Invalid token.
+2026-10-14T09:14:58Z,staging,payment,error,Payment request failed. Invalid token. card processor sandbox rejected the API key

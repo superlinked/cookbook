@@ -23,18 +23,23 @@ for every model it calls. Grouped:
 
 | Images | Recipes |
 | --- | --- |
-| `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging) |
-| `cuda12-transformers5` | [check_parts_in_assembly_photos](manufacturing/check_parts_in_assembly_photos) |
+| `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging), [redact_logs_before_sharing](sre/redact_logs_before_sharing) |
+| `cuda12-transformers5` | [check_parts_in_assembly_photos](manufacturing/check_parts_in_assembly_photos), [route_alerts_to_owners](sre/route_alerts_to_owners) |
+| `cuda13-sglang-cu130` | [draft_postmortem_from_incident_data](sre/draft_postmortem_from_incident_data) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` | [check_delivery_against_po](manufacturing/check_delivery_against_po) |
 | `cuda12-sglang` + `cuda12-sglang-vision-extract` | [screen_assistant_prompts](security/screen_assistant_prompts) |
 | `cuda12-default` + `cuda12-transformers5` | [fill_work_order_from_notes](manufacturing/fill_work_order_from_notes), [route_customer_emails](retail/route_customer_emails), [triage_reported_phishing](security/triage_reported_phishing) |
-| `cuda12-default` + `cuda13-sglang-cu130` | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual) |
+| `cuda12-default` + `cuda13-sglang-cu130` | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual), [match_alerts_to_runbooks](sre/match_alerts_to_runbooks) |
 | `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_returned_item_against_sale](retail/check_returned_item_against_sale) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_shelf_from_photo](retail/check_shelf_from_photo) |
 
 Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB), except where a
 note below says otherwise.
 
+- **`Qwen/Qwen3-Embedding-4B` has no published image in v0.10.1.** Its default profile needs the
+  `sglang-embedding` bundle, which SIE does not publish. Where a recipe uses it, set
+  `Qwen/Qwen3-Embedding-8B` in `rules.yaml` instead; it runs on `cuda12-default`. The two models
+  have different vectors, so similarity thresholds may need a new check.
 - **`Qwen/Qwen3.8-27B-FP8` needs a big GPU.** SIE smoke-tested it on an H100 80GB, an H200 and an
   RTX PRO 6000. The `cuda13` image also needs NVIDIA driver 580 or newer.
 

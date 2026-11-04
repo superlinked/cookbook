@@ -43,9 +43,9 @@ All the data in these recipes is synthetic or comes from public datasets named i
 
 ## Recipes
 
-Run time is a warm live run on SIE Cloud (31 Oct 2026, or 2 Nov 2026 for the security and retail
-recipes). A run that has to start a cold model can take several minutes longer. Calls counts the recipe's SIE
-requests (one request can carry many items).
+Run time is a warm live run on SIE Cloud, on the date in each recipe's README (2 to 4 Nov 2026
+for most). A run that has to start a cold model can take several minutes longer. Calls counts the
+recipe's SIE requests (one request can carry many items).
 
 ### Retail
 
@@ -63,6 +63,15 @@ requests (one request can carry many items).
 | [Check a delivery against its purchase order and certificates](manufacturing/check_delivery_against_po) | LightOnOCR-3-4B, gliner2-large-v1 | 52 | 3 min |
 | [Answer maintenance questions from the equipment manual, with the page](manufacturing/answer_from_equipment_manual) | tomoro-colqwen3-embed-4b:compact, Qwen3.8-27B-FP8 | 31 | 50 s |
 | [Check no part is missing in assembly photos](manufacturing/check_parts_in_assembly_photos) | sam3 | 9 | 6 s |
+
+### SRE
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Match a burst of alerts to the runbooks that fix them](sre/match_alerts_to_runbooks) | Qwen3-Embedding-4B, Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 12 | 18 s |
+| [Route alerts to the team that owns them](sre/route_alerts_to_owners) | GLiNER2.5-Decide | 5 | 2 s |
+| [Draft a postmortem from the incident channel, alerts and deploys, with a source for every claim](sre/draft_postmortem_from_incident_data) | Qwen3.8-27B-FP8 | 7 | 40 s |
+| [Redact secrets and customer data from logs before you share them](sre/redact_logs_before_sharing) | pii-redact | 3 | 2 s |
 
 ### Security
 

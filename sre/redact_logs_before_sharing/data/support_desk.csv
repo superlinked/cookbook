@@ -1,0 +1,3 @@
+ticket_id,incident_id,status,requester_name,requester_email,organization,assignee
+SUP-48190,INC-2199,solved,Rowan Achterberg,rowan@lindqvist-bikes.example,Lindqvist Bikes,Felix Oduya
+SUP-48213,INC-2207,open,Delphine Marchetti,delphine.m@quarrymail.example,Brightwater Ceramics,Felix Oduya

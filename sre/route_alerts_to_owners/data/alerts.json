@@ -1,0 +1,60 @@
+{
+  "source": "Synthetic alerts for Larkspur Supply (a fictional shop), written for this recipe and shaped like the alerts in a Prometheus Alertmanager webhook: labels plus annotations. These are the alerts no Alertmanager route matched, so they reached the fallback receiver.",
+  "alerts": [
+    {
+      "id": "AL-01",
+      "labels": {"alertname": "PaymentChargeErrorRateHigh", "service": "payments-api", "severity": "critical"},
+      "annotations": {"summary": "Charge error rate 12% over 5m (threshold 2%)", "description": "POST /v1/charges returns 502 from the card provider."}
+    },
+    {
+      "id": "AL-02",
+      "labels": {"alertname": "HighLatencyP99", "app": "Frontend", "severity": "warning"},
+      "annotations": {"summary": "p99 page latency 4.1s over 10m (threshold 2s)", "description": "Product pages slow for all regions."}
+    },
+    {
+      "id": "AL-03",
+      "labels": {"alertname": "PostgresReplicationLagHigh", "severity": "critical", "instance": "10.0.4.17:9187"},
+      "annotations": {"summary": "PostgreSQL replica is 340s behind the primary", "description": "Streaming replication lag on the read replica keeps growing; WAL replay is stalled."}
+    },
+    {
+      "id": "AL-04",
+      "labels": {"alertname": "ConsumerGroupLagHigh", "service": "loyalty-points", "severity": "warning"},
+      "annotations": {"summary": "Kafka consumer group loyalty-points is 85,000 messages behind on topic order-events", "description": "Consumer lag has grown for 20 minutes; partitions 3 and 7 have no active consumer."}
+    },
+    {
+      "id": "AL-05",
+      "labels": {"alertname": "CertificateExpiringSoon", "severity": "warning", "namespace": "edge"},
+      "annotations": {"summary": "TLS certificate for shop.larkspur.example expires in 6 days", "description": "cert-manager failed to renew the ingress certificate: ACME challenge timed out."}
+    },
+    {
+      "id": "AL-06",
+      "labels": {"alertname": "SyntheticCheckFailed", "severity": "warning"},
+      "annotations": {"summary": "Synthetic check 'smoke-7' failed 3 times in a row", "description": "Step 4 returned an unexpected result."}
+    },
+    {
+      "id": "AL-07",
+      "labels": {"alertname": "ElasticsearchDiskWatermarkHigh", "service": "search-es", "severity": "warning"},
+      "annotations": {"summary": "Disk usage 91% on data node es-data-2 (high watermark 90%)", "description": "Shards can no longer be allocated to this node; the database disk keeps filling."}
+    },
+    {
+      "id": "AL-08",
+      "labels": {"alertname": "NightlyReportJobFailed", "service": "legacy-reports", "severity": "warning"},
+      "annotations": {"summary": "Nightly sales report job failed", "description": "Job exited with code 137 after 41 minutes."}
+    },
+    {
+      "id": "AL-09",
+      "labels": {"alertname": "LoginFailureSpike", "service": "auth-v2", "severity": "critical"},
+      "annotations": {"summary": "Failed logins at 9x the usual rate over 15m", "description": "Most failures are 'invalid OAuth token' on the sign-in endpoint; password resets are also up."}
+    },
+    {
+      "id": "AL-10",
+      "labels": {"alertname": "CheckoutErrorRateHigh", "service": "checkout-v3", "app": "checkout-ui", "severity": "critical"},
+      "annotations": {"summary": "Checkout page errors at 6% over 10m (threshold 1%)", "description": "The checkout-v3 build returns HTTP 500 on the order review step for some carts."}
+    },
+    {
+      "id": "AL-11",
+      "labels": {"alertname": "KafkaUnderReplicatedPartitions", "instance": "10.0.6.14:9308", "cluster": "kafka-main", "severity": "critical"},
+      "annotations": {"summary": "Kafka broker kafka-4 has 38 under-replicated partitions", "description": "Follower replicas on broker kafka-4 keep dropping out of the in-sync replica set; the broker's disk is slow."}
+    }
+  ]
+}

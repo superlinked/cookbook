@@ -1,0 +1,9 @@
+team,description
+payments,"card charges, refunds, payment provider calls and invoices"
+storefront,"web frontend, product pages, cart and checkout pages, CDN"
+identity,"login, sign-up, sessions, OAuth tokens and password resets"
+loyalty,"loyalty points, rewards and coupons, and the services that award them"
+data-platform,"PostgreSQL and Redis databases, replication, backups and disk space on them"
+streaming,"Kafka brokers, topics, partitions and their replication"
+platform,"Kubernetes clusters and nodes, ingress, DNS, load balancers and TLS certificates"
+search,product search API and its Elasticsearch cluster

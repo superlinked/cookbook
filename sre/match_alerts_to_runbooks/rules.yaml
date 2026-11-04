@@ -1,0 +1,54 @@
+# The NOC team's rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own alerts and runbooks.
+
+models:
+  embed: Qwen/Qwen3-Embedding-4B        # one vector per alert without a usable runbook link
+  rerank: Qwen/Qwen3-Reranker-4B        # ranks every runbook against each group
+  note: Qwen/Qwen3.8-27B-FP8            # one first-look note per matched group (chat, JSON schema)
+
+# Each monitoring stack names its labels its own way. For each field, the label (or, for
+# summary and runbook_url, the annotation) names to try, in order; the first one present wins.
+alert_labels:
+  service: [service, job, app]
+  env: [env, environment]
+  severity: [severity, priority]
+  summary: [summary, description]
+  runbook_url: [runbook_url, runbook]
+
+grouping:
+  # Alerts in different environments never share a group, and neither do alerts that started
+  # more than this many minutes after the previous alert in the same environment.
+  max_gap_minutes: 30
+  # Inside those boundaries, alerts join a group when their average cosine similarity to it is
+  # at least this value (average-linkage clustering, done in Python on the returned vectors).
+  # On the production alerts here, only values from about 0.635 to 0.675 separate the five
+  # planted causes: lower merges ad with recommendation, higher splits one payment alert off.
+  min_cosine_similarity: 0.65
+
+runbooks:
+  # Below this rerank score no runbook is a confident match: the group is reported as
+  # no_confident_match and gets no note, because there's no runbook for the note to point to.
+  min_rerank_score: 0.50
+  # When the second-best runbook scores within this margin of the best, both are shown and
+  # no note picks one (runbooks_close).
+  close_margin: 0.10
+
+logs:
+  # Services whose lines are configuration, flag or deploy changes rather than errors.
+  change_sources: [flagd, argocd]
+  # A group's log window: from this many minutes before its first alert started to this many
+  # minutes after its last one.
+  minutes_before: 5
+  minutes_after: 5
+  # Changes are looked for further back, since a bad flag or deploy comes before the alerts.
+  change_lookback_minutes: 30
+  max_lines: 8                          # log lines shown to the note model, changes first
+
+note:
+  max_lines: 5                          # the first-look note is at most this many lines
+  max_line_chars: 240                   # and each line at most this many characters
+  max_completion_tokens: 500            # note JSON cap
+  # How the checks find citations in the note. Any number of digits, so "A-011" or "RB-1"
+  # counts as a citation (of an alert or runbook that wasn't given) instead of slipping past.
+  alert_id_pattern: '\bA-\d+\b'
+  runbook_id_pattern: '\bRB-\d+\b'

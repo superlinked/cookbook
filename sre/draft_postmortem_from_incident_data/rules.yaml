@@ -1,0 +1,71 @@
+# The SRE team's rules, its postmortem template and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them on your own incidents.
+
+models:
+  report: Qwen/Qwen3.8-27B-FP8   # fills in the template with cited line IDs (chat, JSON schema)
+
+sources:
+  # Alerts and changes aren't tagged with an incident. The recipe asks the alert history, the
+  # deploy log and the flag audit for the incident's services, from this many minutes before
+  # the channel's first message to its last message.
+  alerts_lookback_min: 60
+  changes_lookback_min: 360
+  # Line ID prefixes, numbered per incident in time order: S01 (Slack), A01 (alert event),
+  # D01 (deploy, flag flip or config change).
+  prefixes:
+    slack: S
+    alert: A
+    change: D
+
+alert_window:
+  # The alert window is computed in Python, never by the model: from the first startsAt of an
+  # alert with one of these severities to its last endsAt. It is an alert window, not customer
+  # impact. One of these still firing, none at all, or any alert whose firing event fell before
+  # the record starts sends the draft to review.
+  paging_severities: [critical]
+  # A change cited as the root cause must have happened at or before the time the alerts
+  # started plus this many minutes. A change made after the alerts started didn't cause them.
+  change_after_start_min: 0
+
+# The team's postmortem template: one entry per section, in order, with the one-line
+# instruction the model gets. `kind` says what the section holds and which checks run on it:
+#   claim         one cited claim
+#   list          a list of cited claims (may be empty)
+#   root_cause    a cited claim with status identified or unknown (exactly one section)
+#   action_items  a list of cited claims, each with an owner (exactly one section)
+template:
+  - section: summary
+    kind: claim
+    instruction: what happened, in one or two sentences.
+  - section: impact
+    kind: claim
+    instruction: who or what was affected and how.
+  - section: root_cause
+    kind: root_cause
+    instruction: what caused the incident.
+  - section: contributing_factors
+    kind: list
+    instruction: things that made it worse or let it happen.
+  - section: action_items
+    kind: action_items
+    instruction: follow-ups agreed in the record.
+
+checks:
+  # A quote counts when, after collapsing whitespace and straightening quote marks, it appears
+  # verbatim in one of the lines the claim cites and is at least this long.
+  min_quote_chars: 12
+  # An `identified` root cause whose cited lines say any of these goes to review.
+  unknown_cause_phrases:
+    - "don't know"
+    - "do not know"
+    - "still open"
+    - "not sure"
+    - "no idea"
+    - "unknown"
+  # A Slack message matching this hands out action items; everyone it names (or its author,
+  # when it says "I'll") must own at least one action item in the draft.
+  action_line_pattern: '(?i)\b(?:action items?|follow-ups?)\b'
+  self_assign_pattern: "\\bI(?:'ll| will)\\b"
+
+report:
+  max_completion_tokens: 4000   # includes any reasoning the model does first

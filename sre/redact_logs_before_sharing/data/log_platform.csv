@@ -1,0 +1,16 @@
+timestamp,level,service,message
+2026-10-27T08:41:10.552Z,INFO,checkout-api,request_id=0c4f7d2e-9a13-4b6e-8d05-3e7a1f9c2b40 user_id=8f2b6c1d-4e7a-49d3-b5c0-7a9e3d1f6b28 client_ip=198.51.100.77 email=noor.h@pinemail.example path=/v2/checkout status=200 ms=188
+2026-10-27T09:14:02.118Z,INFO,checkout-api,"build=4.18.302.7 host=10.0.4.17 msg=""service started"""
+2026-10-27T09:16:02.004Z,INFO,payment-worker,"build=4.18.302.7 host=10.0.7.31 msg=""worker starting"" DATABASE_URL=postgres://payments:Lg8vQ2mZt5Rx@ledger-db:5432/ledger"
+2026-10-27T09:16:41.502Z,INFO,checkout-api,request_id=9f1c2a7e-4b3d-4e8a-9c21-5d7f0b6e3a14 user_id=3c8e5f2a-71d4-4b9e-a6c3-0f2d8b7e1a95 client_ip=198.51.100.23 email=delphine.m@quarrymail.example path=/v2/checkout status=200 ms=212
+2026-10-27T09:16:41.733Z,INFO,payment-worker,job=charge request_id=9f1c2a7e-4b3d-4e8a-9c21-5d7f0b6e3a14 attempt=1 host=10.0.7.31
+2026-10-27T09:16:41.735Z,DEBUG,payment-worker,outbound POST https://api.cardvault.example/v1/charges api_key=cvn_live_7Qm2Xc9LpT4vR8sN1bW6yK3dF5hJ0gZa
+2026-10-27T09:16:41.736Z,DEBUG,payment-worker,"payload={""amount"": 4210, ""currency"": ""USD"", ""card"": ""4111 1111 1111 1111"", ""exp"": ""09/29"", ""name"": ""Delphine Marchetti"", ""user_id"": ""3c8e5f2a-71d4-4b9e-a6c3-0f2d8b7e1a95""}"
+2026-10-27T09:16:58.020Z,INFO,search-api,request_id=5e8a1c3f-2d7b-4f90-a6e4-8b1d0c7f3a52 query_ms=41 hits=12 host=10.0.9.12
+2026-10-27T09:17:05.870Z,WARN,payment-worker,"job=charge request_id=2b7e4d19-c03a-4f6b-8e15-a9d2c7f04b61 attempt=2 msg=""cardvault latency 4.6 s"""
+2026-10-27T09:17:05.877Z,WARN,checkout-api,"request_id=2b7e4d19-c03a-4f6b-8e15-a9d2c7f04b61 user_id=3c8e5f2a-71d4-4b9e-a6c3-0f2d8b7e1a95 client_ip=198.51.100.23 upstream=10.0.7.31:8443 ms=4870 msg=""payment authorisation slow"""
+2026-10-27T09:17:06.010Z,DEBUG,checkout-api,"request_id=2b7e4d19-c03a-4f6b-8e15-a9d2c7f04b61 headers={""Authorization"": ""Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZW1vLXVzZXItMDAwMSIsIm5vdGUiOiJmYWtlIHRva2VuIGZvciBhIHJlY2lwZSJ9.bm90LWEtcmVhbC1zaWduYXR1cmUtZGVtby1vbmx5"", ""Cookie"": ""session_id=k2Vq8sLx41TzRb7mWc0nYe5H; lang=en"", ""X-Forwarded-For"": ""198.51.100.23""}"
+2026-10-27T09:18:22.330Z,ERROR,payment-worker,"job=charge request_id=71c0e8a3-5d2f-4b94-a7e6-3f1b9c0d2e58 msg=""timed out after 4.5 s; giving up"""
+2026-10-27T09:18:22.341Z,ERROR,checkout-api,"request_id=71c0e8a3-5d2f-4b94-a7e6-3f1b9c0d2e58 user_id=6a0d4e91-2c7b-4f38-9e5a-b18d3c7f6a02 client_ip=10.20.3.4 host=10.0.4.17 email=t.okonkwo@fernmail.example order_id=7300018842915562 status=504 msg=""upstream timeout from payment-worker"""
+2026-10-27T09:18:30.004Z,INFO,checkout-api,health check from 203.0.113.10 (status page) ok
+2026-10-27T09:19:12.640Z,INFO,checkout-api,"request_id=4d2a8e61-7b3c-4f05-9a1e-c6d8b2f4e917 user_id=6a0d4e91-2c7b-4f38-9e5a-b18d3c7f6a02 msg=""password reset sent"" link=https://shop.corvane.example/account/reset?email=t.okonkwo@fernmail.example&token=Rk7pQ2vX9mL4sT8wZ1cB6nH3"

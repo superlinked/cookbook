@@ -1,0 +1,10 @@
+at,kind,service,version,actor,note
+2026-10-02T11:20:00Z,deploy,search,v5.2.1,ci-pipeline-8790,synonym list update
+2026-10-02T13:52:04Z,deploy,checkout,v2.14.0,ci-pipeline-8812,move payment client to async pool
+2026-10-02T14:21:55Z,rollback,checkout,v2.13.4,dev.patel,roll back v2.14.0
+2026-10-12T09:12:30Z,deploy,api-gateway,v3.8.1,ci-pipeline-9031,scheduled release: header normalization
+2026-10-12T09:41:15Z,cert_renewal,api-gateway,,sam.okafor,"api.larkspur.example renewed, valid until 2027-01-10T09:41:00Z"
+2026-10-15T13:00:00Z,deploy,checkout,v2.14.1,ci-pipeline-9120,"async payment pool, max 64"
+2026-10-19T07:40:00Z,deploy,payments-webhooks,v1.9.0,ci-pipeline-9188,raise retry backoff ceiling
+2026-10-22T10:15:00Z,deploy,media-upload,v4.2.0,ci-pipeline-9240,switch image library to libvips 8.16
+2026-10-22T12:04:40Z,rollback,media-upload,v4.1.3,dev.patel,roll back v4.2.0
