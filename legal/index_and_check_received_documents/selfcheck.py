@@ -527,7 +527,7 @@ def check_adversarial() -> None:
     print(f"adversarial: {len(bad) + 2} bad replies never give a confident status ok")
 
 
-# SIE Cloud's answer to a gliner2 output_schema call that finds nothing; a failed call here.
+# SIE Serverless's answer to a gliner2 output_schema call that finds nothing; a failed call here.
 EMPTY_RESULT = "Inference completed without a valid conserved billing settlement"
 TRANSIENT: list[SIEError] = [
     SIEConnectionError("connection refused"),
@@ -579,7 +579,7 @@ def check_sie_failure() -> None:
         assert memo.status == "possible_privilege", type(error).__name__
         assert memo.qc_reasons[0].startswith("scans.pdf p1 was not read: the SIE call failed: ")
         assert "scans.pdf p1 not read" in memo.privilege_reasons[0], memo.privilege_reasons
-    # A transient error on a field window, SIE Cloud's empty-result 500 included: QC exception.
+    # A transient error on a field window, SIE Serverless's empty-result 500 included: QC exception.
     empty = ServerError(EMPTY_RESULT, status_code=500)
     memo = by_location(run(errors={"fields/scans-p1": [empty]}))["scans.pdf p1"]
     assert memo.status == "qc_exception"

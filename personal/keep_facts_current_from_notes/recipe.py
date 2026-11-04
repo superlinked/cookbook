@@ -28,7 +28,7 @@ SIE pipeline:
                                                  fact sends it to review
 Output:    facts.md (the to-sort-out list first, then the sheet), facts.json (every line with
            its full source passages), and what changed since the last build.
-Runs on:   SIE Cloud.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
     uv run recipe.py --ask "When is the plumber coming?"   # one question, same checks
@@ -192,7 +192,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

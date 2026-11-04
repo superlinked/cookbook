@@ -232,8 +232,10 @@ with hand-written alerts and stand-in model replies.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -243,7 +245,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`; `--output DIR` changes that. The first call can wait a few minutes
-while SIE Cloud starts the GLiNER2.5-Decide model. A warm run makes 5 SIE calls, one per alert
+while SIE Serverless starts the GLiNER2.5-Decide model. A warm run makes 5 SIE calls, one per alert
 the records can't place, and takes about 2 seconds.
 
 ## What came out
@@ -362,17 +364,18 @@ alert routes itself: the missing alias or a route on `app`, `edge` in the namesp
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we tried
-`fastino/gliner2-large-v1`, the other GLiNER2 model on SIE Cloud, with nothing else changed. SIE
+`fastino/gliner2-large-v1`, the other GLiNER2 model on SIE Serverless, with nothing else changed. SIE
 refused the first call with HTTP 400 (`INVALID_INPUT`: "GLiNER2 output_schema root type must be
 object"), so the run stopped with that message and wrote nothing, which is the refusal rule
 doing its job. It takes a different schema shape, so it isn't a drop-in swap, and
-GLiNER2.5-Decide is the only model on SIE Cloud that answers this choice question as written.
+GLiNER2.5-Decide is the only model on SIE Serverless that answers this choice question as written.
 See [MODELS.md](../../MODELS.md) for every model these recipes use and for models you can
 self-host.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

@@ -190,7 +190,7 @@ writes nothing.
 There's one model here, `superlinked/pii-redact`, called once per window of at most 300 words. 300
 words of clinical prose is about 400 model tokens, under the model's limit of about 512, and every
 call asks SIE to fail rather than cut a window short. Each of the four notes fits in one window,
-so a run makes 4 calls. It's SIE Cloud's PII model: two span extractors,
+so a run makes 4 calls. It's SIE's PII model: two span extractors,
 `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero`, composed on the server, with spans scoring
 0.6 or more kept, the two models' spans unioned and person names propagated. You hand it a list of
 labels (its 36 default personal-data types plus `organization`, because a relative's employer
@@ -270,8 +270,10 @@ over-long window, a reply missing its key, refusal, every call failed). It never
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -281,7 +283,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts the
 PII model. A warm run takes about a second.
 
 ## What came out
@@ -434,7 +436,7 @@ requester gets `extract/` without `private/key.json`.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe using SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -446,9 +448,10 @@ Python, so the single model was a drop-in here; on these 4 notes the second mode
 the recipe needed.
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

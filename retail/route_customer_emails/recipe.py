@@ -27,8 +27,8 @@ Output:    escalations.csv (written first), then routes.csv and routes.json: one
 Why SIE:   Two small encoder models; no generative model makes the decision. The team list is
            the routing catalog itself: add a team with a description and the next run can
            route to it, with no training. Each model is called once per batch of windows;
-           nothing to host.
-Runs on:   SIE Cloud.
+           nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -274,7 +274,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

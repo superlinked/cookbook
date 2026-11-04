@@ -40,10 +40,10 @@ Output:    handover_summary.json, handover_summary.md and masking_report.csv in
            (never the value). A status says what the checks found; the new adjuster reads the
            summary as a reading aid and decides what happens, and a blocked summary goes to the
            claims supervisor and is never saved.
-Why SIE:   Two models on SIE Cloud: one finds account, card and ID numbers in free text, one
+Why SIE:   Two models on SIE: one finds account, card and ID numbers in free text, one
            writes. The masking rules, the checks against the claims system and the status are
            plain Python reading rules.yaml, so no generative model makes the decision.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -362,7 +362,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

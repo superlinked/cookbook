@@ -272,8 +272,10 @@ the SIE error rule, offline, with hand-written records and stand-in model replie
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -283,7 +285,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. The first calls can wait a few minutes while SIE
-Cloud starts the image, text and vision-language models. A warm run makes 15 SIE calls (one
+Serverless starts the image, text and vision-language models. A warm run makes 15 SIE calls (one
 photo `encode`, one title `encode` and 13 judge calls) and took 16 seconds on our last run. To
 rebuild the data from ABO, run `uv run make_data.py`.
 
@@ -464,7 +466,7 @@ Then the steward runs the import, and the existing catalog record is always the 
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud. These swaps ran before the
+at a time, changed nothing else, and ran the recipe using SIE Serverless. These swaps ran before the
 material rule, so records not named came out as in the first main run (L24, L28 and L30 linked);
 with the rule, those three go to review before any judge sees them, whatever the judge model.
 
@@ -475,16 +477,17 @@ with the rule, those three go to review before any judge sees them, whatever the
 | `text` | `Snowflake/snowflake-arctic-embed-l-v2.0` | The same two changes as R3: L01 `different`, L43 `likely_variant`. 12 judge calls |
 | `judge` | `Qwen/Qwen3.5-4B` | Same proposals except L01: it called L01 vs L04 a variant with high confidence instead of being unsure, so L01 linked to L02 as `likely_same_product`, which is probably right. It also called L08 the same as both hammers and L30 the same as L29, like the 27B model. 16 judge calls, 64 seconds |
 
-The `judge` swap to `google/gemma-4-31B-it` didn't run on 31 Oct 2026: SIE Cloud answered
+The `judge` swap to `google/gemma-4-31B-it` didn't run on 31 Oct 2026: SIE Serverless answered
 "Generation route is unavailable for this deployment" to every call. The embedding swaps are the
 ones to watch: the thresholds in `rules.yaml` are cosine values set on the default models, and a
 different model puts the same pairs at different numbers.
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -494,7 +497,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `text` | `Qwen/Qwen3-Embedding-4B` has no published image in v0.10.1: set `Qwen/Qwen3-Embedding-8B` instead | `cuda12-default` | L4 |
 | `judge` | `Qwen/Qwen3.8-27B-FP8` | `cuda13-sglang-cu130` | H100 80GB |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

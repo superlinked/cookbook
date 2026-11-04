@@ -23,8 +23,8 @@ Output:    tags.csv (one row per listing and field), review.csv (the listings to
            specialist decides what goes into the catalog.
 Why SIE:   The model reads the photo and the text together, and the lists are data, so a new
            type or color is a line in rules.yaml. No generative model makes the decision: plain
-           Python checks the model's evidence and routes. Nothing to host.
-Runs on:   SIE Cloud.
+           Python checks the model's evidence and routes. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -145,7 +145,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

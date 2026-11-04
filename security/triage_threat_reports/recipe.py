@@ -32,8 +32,8 @@ Output:    In runs/<timestamp>/: tickets/<team>.md (a ticket draft per owning te
            the system owner decide what happens next.
 Why SIE:   One small zero-shot NER model, no training: the labels are plain words in
            rules.yaml. No generative model makes any decision; the alias merges, lookups and
-           statuses are code you can read. Nothing to host.
-Runs on:   SIE Cloud.
+           statuses are code you can read. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -126,7 +126,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

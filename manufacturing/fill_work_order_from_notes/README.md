@@ -182,7 +182,7 @@ you give each field a name, a type (one string or a list) and a description, and
 spans of the text. Spans are what you want for a form a person has to confirm, since every
 value points at the words it came from. It doesn't do arithmetic or know your catalog, so the
 quantities, hours and part numbers are parsed and checked in Python. Both are small encoder
-models; SIE Cloud hosts them, so there's nothing for you to run.
+models; SIE Serverless hosts them, so there's nothing for you to run.
 
 ## The flow
 
@@ -223,7 +223,7 @@ offline, with hand-written stand-in replies.
 | Load | `load_orders`, `load_catalog`, `load_rules` | | Reads the CMMS export, the storeroom list and the rules |
 | Split | `windows`, `window_items` | | Notes over 120 words become windows with ids `<wo_id>#<n>` |
 | Codes | `ask_codes`, `code_schema` | `extract` + `output_schema` (one choice question) on `fastino/GLiNER2.5-Decide` | One call per picklist per batch of 25 windows |
-| Fields | `ask_fields`, `field_schema` | `extract` + `output_schema` on `fastino/gliner2-large-v1` | One call per window; SIE Cloud's empty-result HTTP 500 counts as "nothing found" |
+| Fields | `ask_fields`, `field_schema` | `extract` + `output_schema` on `fastino/gliner2-large-v1` | One call per window; SIE Serverless's empty-result HTTP 500 counts as "nothing found" |
 | SIE errors | `call_sie`, `has_probabilities`, `has_data`, `check_calls`, `is_fatal`, `stop_message`, `stop_on_refusal` | | Transient failures and bad replies (`BadReply`: wrong length, missing key) flag fields; refusals and all-failed stop the run |
 | Codes check | `code_probabilities`, `merge_probabilities`, `code_field` | | Missing key or off-picklist label is a failed reply; score and margin limits; "not stated" is blank |
 | Fields check | `field_values`, `parse_part`, `parts_field`, `parse_hours`, `with_crew`, `hours_field`, `asset_field` | | Spans in the notes, one component, exact catalog match, one part number per span, quantities, durations, other asset tags |
@@ -233,8 +233,10 @@ offline, with hand-written stand-in replies.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-fill-work-order-from-notes)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -244,7 +246,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`; `--output DIR` changes that. The first calls can wait a few minutes
-while SIE Cloud starts the two models. With both models warm, our run of the 10 orders made 14
+while SIE Serverless starts the two models. With both models warm, our run of the 10 orders made 14
 SIE calls (3 to GLiNER2.5-Decide, 11 to gliner2-large-v1) and took about 4 seconds.
 
 ## What came out
@@ -372,19 +374,20 @@ the parts and the planner can raise the follow-up.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-03 (UTC).
+nothing else, and ran the recipe using SIE Serverless on 2026-11-03 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `fields` | `fastino/gliner2-base-v1` | 0 of 10 `checks_passed` instead of 2. Actions came back empty on 5 orders (WO-26102, 26103, 26104, 26108, 26109). It missed the parts on WO-26101 (flagged by the replace-needs-a-part rule) and the impeller on WO-26104, so the 44-0918 near miss wasn't flagged. On WO-26107 window 1 the reply had no `data` key: 1 of 11 calls counted as failed, and all six span fields were flagged. Codes unchanged |
 
-SIE Cloud has no other model with GLiNER2.5-Decide's API for `codes` yet. SIE's catalog has
+SIE Serverless has no other model with GLiNER2.5-Decide's API for `codes` yet. SIE's catalog has
 `fastino/GLiNER2.5-Decide-1B` and `fastino/GLiNER2.5-multi-Decide` to self-host; we have not run
 them here. See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -393,7 +396,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `codes` | `fastino/GLiNER2.5-Decide` | `cuda12-transformers5` | L4 |
 | `fields` | `fastino/gliner2-large-v1` | `cuda12-default` | L4 |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

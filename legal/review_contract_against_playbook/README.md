@@ -180,7 +180,7 @@ If SIE refuses a call outright (a bad key, an unknown model, no credits), the ru
 SIE's message and writes nothing. If a call fails for a reason that may pass (a timeout, a busy
 server, an over-long input, or a reply without its `data`), the positions it should have read
 are `unclear` with the reason and the run carries on; if every call fails the run stops. GLiNER2
-on SIE Cloud says "found nothing" in two ways (an HTTP 500 with a fixed message, or a reply
+on SIE Serverless says "found nothing" in two ways (an HTTP 500 with a fixed message, or a reply
 holding only empty result lists), and both read as nothing found. The 500 is the common case:
 106 of the 135 GLiNER2 calls on our run got it, so treating it as a failure would make every
 position `unclear`. Nothing found is not proof, though. A field the extractor missed looks the
@@ -277,8 +277,10 @@ stand-in SIE client: every check above, the near misses, the SIE error rule, and
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -288,7 +290,7 @@ uv run make_data.py    # optional: rebuild data/ byte for byte
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts the
 document and GLiNER2 models; a warm run makes 141 SIE calls (6 to docling, 135 to GLiNER2) and
 took 34 s on ours.
 
@@ -423,7 +425,7 @@ anything passes. The marked-up draft then goes back to the counterparty.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 4 Nov 2026 (UTC).
+nothing else, and ran the recipe using SIE Serverless on 4 Nov 2026 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -432,9 +434,10 @@ nothing else, and ran the recipe on SIE Cloud on 4 Nov 2026 (UTC).
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

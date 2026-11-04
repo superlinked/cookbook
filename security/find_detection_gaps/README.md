@@ -123,7 +123,7 @@ returns two lists per paragraph: entities (text, label and offsets) and relation
 relation, tail text and a score). One model reads the entities and the relations between them.
 Without it you'd run an NER model (named entity recognition) plus a relation classifier, or an
 LLM per sentence. The labels and relation types are plain words in `rules.yaml`, so you change
-what it looks for without touching code. The 12 paragraphs of the six reports go to SIE Cloud in
+what it looks for without touching code. The 12 paragraphs of the six reports go to SIE Serverless in
 one batched call (`batch_size` is 16), and you host nothing.
 
 The score it gives each relation is extraction confidence: how sure it is the sentence says
@@ -223,8 +223,10 @@ Change `rules.yaml` and it tells you right away if you broke something.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -234,7 +236,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder; pass `--output DIR` to write somewhere else. The first
-call can wait a few minutes while SIE Cloud starts the relation extraction model. A warm run makes
+call can wait a few minutes while SIE Serverless starts the relation extraction model. A warm run makes
 one SIE call and took under 3 seconds on our machine, uv start included.
 
 ## What came out
@@ -391,13 +393,14 @@ telemetry and how recent the activity is.
 
 ## Try another model
 
-Each model is one line under `models:` in `rules.yaml`. As of 31 Oct 2026, SIE Cloud has no
+Each model is one line under `models:` in `rules.yaml`. As of 31 Oct 2026, SIE Serverless has no
 other relation extraction model for `relations`, so there's nothing to swap in here yet.
 [MODELS.md](../../MODELS.md) lists every model these recipes use and links SIE's full catalog.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`, and the API
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`, and the API
 key becomes optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

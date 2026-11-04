@@ -26,9 +26,9 @@ Output:    brief.json, brief.csv and one brief_<ticker>_FY<year>.md per filing i
            no_answer_found or needs_review), answer, quotes, passages and EDGAR links, and a
            comparison (both_years, new_this_year, missing_this_year, neither_year or
            not_compared). The analyst decides what goes into the model and the note.
-Why SIE:   Both models run on SIE; nothing to host yourself. No generative model decides a status:
-           the checks are plain Python.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Why SIE:   Both models run on SIE; nothing to host on SIE Serverless. No generative model decides a
+           status: the checks are plain Python.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -179,7 +179,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

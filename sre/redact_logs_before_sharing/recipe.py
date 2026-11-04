@@ -24,10 +24,10 @@ Output:    runs/<timestamp>/: the cleaned files under ready_for_approval/, revie
            report.csv (status and reasons per file), redactions.csv (what was taken out, by line,
            never the value) and private/ (the mapping back to real values and the exported
            originals; never attached).
-Why SIE:   The PII model runs on SIE Cloud and finds what no log field labels: a customer named
+Why SIE:   The PII model runs on SIE and finds what no log field labels: a customer named
            in the notes, a first name on its own. No generative model makes the decision; the
-           rules are plain Python you can read below. Nothing to host.
-Runs on:   SIE Cloud.
+           rules are plain Python you can read below. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -420,7 +420,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

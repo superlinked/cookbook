@@ -29,10 +29,10 @@ Output:    decisions.json, decisions.csv and decisions.md: per prompt the decisi
            are masked in every output, and a screenshot that shows one has its text withheld.
            "allow" means no check objected, not that the prompt is safe. screen() only decides:
            the caller holds a "review" prompt, stops a "block" one, and never forwards on error.
-Why SIE:   The guard model is one SIE Cloud chat call per prompt, and reading a screenshot is one
-           extract call. The rules are plain Python and data in rules.yaml, so the team can read
+Why SIE:   The guard model is one SIE chat call per prompt, and reading a screenshot is
+           one extract call. The rules are plain Python and data in rules.yaml, so the team can read
            them and change them.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL set.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -186,7 +186,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

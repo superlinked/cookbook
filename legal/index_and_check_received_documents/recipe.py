@@ -31,7 +31,7 @@ Output:    index.csv (one load-file-style row per document with its status and r
            deficiency.
 Why SIE:   Four models, and no generative model makes a decision. Bates numbering, document
            breaks, custodians, dates, the lawyer list and every status rule are plain Python.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -170,7 +170,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 
@@ -217,7 +217,7 @@ class Calls:
         """Run one SIE call and return its reply, which must carry `key`.
 
         A refusal (see `is_fatal`) stops the run with SIEStopped. Any other SIE error, SIE
-        Cloud's empty-result HTTP 500 included, and a reply without `key`, is recorded and
+        Serverless's empty-result HTTP 500 included, and a reply without `key`, is recorded and
         raised as CallFailed, so the caller sends its document to review and the run goes on.
         An error that isn't an SIE error is a bug in this code and is raised as is.
         """

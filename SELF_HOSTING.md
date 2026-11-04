@@ -1,7 +1,9 @@
-# Run the recipes on your own SIE
+# Run the recipes using SIE Cluster or SIE Local
 
-Every recipe calls SIE through `SIEClient`, so the same code runs against SIE Cloud or an SIE you
-host. Set `SIE_BASE_URL` in `.env` to your server and run the recipe as usual. The API key is
+Every recipe calls SIE through `SIEClient`, so the code stays on your machine and you choose where
+the models run: SIE Serverless, [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=self-hosting)
+in your own cloud, or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=self-hosting) on your
+own machine. Set `SIE_BASE_URL` in `.env` to your server and run the recipe as usual. The API key is
 optional then; set `SIE_API_KEY` only if your gateway checks a token.
 
 ```bash
@@ -10,15 +12,36 @@ SIE_BASE_URL=http://localhost:8080
 ```
 
 [SIE](https://github.com/superlinked/sie) is open source (Apache 2.0). The model names in each
-`rules.yaml` are SIE model ids, the same on SIE Cloud and on your own server. The image tags below
+`rules.yaml` are SIE model ids, the same on SIE Serverless, SIE Cluster and SIE Local. The image tags below
 are from SIE v0.10.1. SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md) is the
 source for which image serves which model and on which GPU it was smoke-tested.
 
+## SIE Local
+
+SIE Local runs the models on your own machine, with no Docker or cluster. It needs Python 3.12,
+and it installs the latest SIE, while the image tags below are from v0.10.1.
+
+```bash
+pip install "sie-server[local]" && sie-server serve                # Apple Silicon
+pip install "sie-server[local]" && sie-server serve --device cuda  # NVIDIA GPU
+# both serve on http://localhost:8080
+```
+
+Then set `SIE_BASE_URL=http://localhost:8080` in `.env` and run the recipe. A recipe has one
+`SIE_BASE_URL`, and that is the limit to plan around. The
+[SIE quickstart](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=self-hosting)
+says that on Apple Silicon this command serves embeddings and reranking, with generation in a
+separate process on another port. A recipe that needs an LLM, or models from several of the images
+below, may not run on one SIE Local server as it stands.
+
+We haven't run these recipes using SIE Local yet: the results in each README came from SIE
+Serverless.
+
 ## Which images a recipe needs
 
 Each SIE image serves one bundle: a set of model families whose dependencies fit together. One
-SIE server runs one image. Each recipe README has a "Run it on your own SIE" table with the image
+SIE server runs one image. Each recipe README has a "Run it using SIE Cluster or SIE Local" table with the image
 for every model it calls. Grouped:
 
 | Images | Recipes |
@@ -47,7 +70,7 @@ note below says otherwise.
 
 ## One image: one container
 
-A recipe whose models all share one image runs against a single container. You need Docker, the
+A recipe whose models all share one image can use a single SIE container. You need Docker, the
 NVIDIA Container Toolkit and a GPU that runs your models (see above).
 
 ```bash
@@ -68,7 +91,7 @@ The `cuda12-default` lane also has a CPU image, `v0.10.1-cpu-default`. SIE decla
 for it but has not smoke-tested them there. It works for trying a small recipe on a laptop, but it
 is slow.
 
-## Several images: a cluster
+## Several images: SIE Cluster
 
 A recipe that calls models from two or more images needs one SIE endpoint that routes each model
 to a server running the right image. That is what the

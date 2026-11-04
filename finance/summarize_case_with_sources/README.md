@@ -173,7 +173,7 @@ if SIE refuses the call or every call fails, the run stops with SIE's message an
 
 There are two models, and each does the part it's good at.
 
-`superlinked/pii-redact` is SIE Cloud's PII model: `urchade/gliner_multi_pii-v1` and
+`superlinked/pii-redact` is SIE's PII model: `urchade/gliner_multi_pii-v1` and
 `numind/NuNER_Zero` composed on the server, spans scoring 0.6 or more, the two models' spans
 unioned. It takes the labels you ask for, and here that's only five of its defaults: `credit card
 number`, `cvv`, `pin`, `password` and the extra `one-time passcode`. Leaving out `person`,
@@ -271,8 +271,10 @@ rule, offline, with hand-written strings and stand-in model replies.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-summarize-case-with-sources)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-summarize-case-with-sources), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-summarize-case-with-sources) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-summarize-case-with-sources).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-summarize-case-with-sources) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-summarize-case-with-sources). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-summarize-case-with-sources)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -281,7 +283,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts the
 models. A warm run makes 6 SIE calls (5 to `superlinked/pii-redact`, one per message, and 1 to
 `Qwen/Qwen3.8-27B-FP8`) and took 8 seconds on our run.
 
@@ -435,7 +437,7 @@ lead. The agent still talks to the customer and decides what happens.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud.
+at a time, changed nothing else, and ran the recipe using SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -445,9 +447,10 @@ at a time, changed nothing else, and ran the recipe on SIE Cloud.
 `urchade/gliner_multi_pii-v1` is one of the two models `superlinked/pii-redact` combines, used
 here alone. See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -456,7 +459,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `pii` | `superlinked/pii-redact` | `cuda12-default` | L4 |
 | `summary` | `Qwen/Qwen3.8-27B-FP8` | `cuda13-sglang-cu130` | H100 80GB |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

@@ -149,14 +149,14 @@ cheap ranking says is worth reading, and only pages from the right revision.
 
 ## Picking the models
 
-Two models, both on SIE Cloud. The embedder is called once per page (9 pages) and once per
+Two models, both on SIE Serverless. The embedder is called once per page (9 pages) and once per
 question; the answer model is called once per page it reads, at most twice per question.
 
 The page search uses `TomoroAI/tomoro-colqwen3-embed-4b`, a visual document retrieval model. It
 returns one 320-dim vector per patch of a page image and one per question
 token, and you score a page with MaxSim. That's why a tag printed in a corner of a drawing can win
 a page its rank: it has its own vectors. We run its `:compact` profile (the same weights, capped at
-768 patch vectors per page) because the default profile wasn't billed on SIE Cloud when this
+768 patch vectors per page) because the default profile wasn't billed on SIE Serverless when this
 recipe was built (see What came out). It's a retriever and nothing more: it says which pages look
 related, never whether a page answers the question.
 
@@ -223,8 +223,10 @@ cells. `make_data.py` draws the manual.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -233,7 +235,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Serverless starts the
 embedding and answer models.
 
 ## What came out
@@ -417,7 +419,7 @@ the machine; the technician does, from the page.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 31 Oct 2026. That was the earlier version of this
+nothing else, and ran the recipe using SIE Serverless on 31 Oct 2026. That was the earlier version of this
 recipe (8 pages, no revision B page, no number check, statuses `answered` and
 `not in the manual`), so read these as history, not as a rerun of this version.
 
@@ -430,9 +432,10 @@ recipe (8 pages, no revision B page, no number check, statuses `answered` and
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -441,7 +444,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `embed` | `TomoroAI/tomoro-colqwen3-embed-4b:compact` | `cuda12-default` | L4 |
 | `answer` | `Qwen/Qwen3.8-27B-FP8` | `cuda13-sglang-cu130` | H100 80GB |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

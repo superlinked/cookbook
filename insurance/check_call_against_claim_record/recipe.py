@@ -19,7 +19,7 @@ Output:    worklist.csv, one row per call with its check status, flags and callb
 Why SIE:   Two specialist models on SIE: one for speech, one for structured extraction. No
            generative model makes a decision. Checking values, comparing them with the saved
            claim and the injury and urgency rules are plain Python.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -66,9 +66,9 @@ WAIT_S = 900
 ERROR_CHARS = 200
 # Ask Parakeet for sentence segments with start and end times: they are the transcript lines.
 TRANSCRIBE_OPTIONS = {"timestamp_granularities": ["segment"]}
-# When GLiNER2 finds nothing in a window, SIE Cloud answers the output_schema call with HTTP 500
-# and this message. We record it as "no fields found" in that window, with a note. A field that
-# is then missing can only become a callback question; it never passes a check.
+# When GLiNER2 finds nothing in a window, SIE Serverless answers the output_schema call with
+# HTTP 500 and this message. We record it as "no fields found" in that window, with a note. A
+# field that is then missing can only become a callback question; it never passes a check.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"
 # A cell starting with one of these runs as a formula in a spreadsheet.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -254,7 +254,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 
@@ -298,7 +298,7 @@ class Calls:
         A refusal (see `is_fatal`) stops the run with SIEStopped. Any other SIE error, and a
         reply without `key`, is recorded and raised as CallFailed, so the caller sends its
         recording to review and the run goes on. With `empty_result_ok` (the GLiNER2 calls),
-        SIE Cloud's empty-result HTTP 500 is a reply with nothing in it, not a failure. An
+        SIE Serverless's empty-result HTTP 500 is a reply with nothing in it, not a failure. An
         error that isn't an SIE error is a bug in this code and is raised as is.
         """
         self.count[model] = self.count.get(model, 0) + 1
@@ -504,8 +504,7 @@ def extract_candidates(
             continue
         if reply.get("empty_result_error"):
             check.notes.append(
-                f"Window {index}: no fields found (SIE Cloud answered HTTP 500 for the empty "
-                "result)"
+                f"Window {index}: no fields found (SIE answered HTTP 500 for the empty result)"
             )
         for name, value in reply["data"].items():
             if name in rules["fields"] and isinstance(value, str) and value.strip():

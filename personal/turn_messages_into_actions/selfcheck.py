@@ -729,7 +729,7 @@ def check_sie_failure() -> None:
     script = {"a": {"type": probs("reply"), "fields": {"raw": {"result": {}}}}, "b": ok}
     assert by_message(sweep(records, script)[0])["a"].status == recipe.QUESTION
     # An empty list of fields is a real "nothing found" (a question for a reply), and SIE
-    # Cloud's empty-result 500 is the same, not a failed call.
+    # Serverless's empty-result 500 is the same, not a failed call.
     empties: list[Any] = [{}, EMPTY]
     for empty in empties:
         result, _ = sweep(records[:1], {"a": {"type": probs("reply"), "fields": empty}})

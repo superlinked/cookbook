@@ -616,7 +616,7 @@ def check_sie_failure() -> None:
     results, _, _ = run(*two, replies={"extract/CLM-1/receipt": {"data": {}}})
     assert not any("SIE call failed" in r for r in results[0].reasons), results[0].reasons
     assert "receipt 1: purchase date not read" in results[0].reasons
-    # SIE Cloud's empty-result 500 reads as "no fields", not a failed call.
+    # SIE Serverless's empty-result 500 reads as "no fields", not a failed call.
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     results, _, _ = run(*two, errors={"extract/CLM-1/receipt": [empty]})
     assert not any("SIE call failed" in r for r in results[0].reasons), results[0].reasons

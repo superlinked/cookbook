@@ -5,7 +5,7 @@
 # and by which route, is the privacy office's call, not this file's.
 
 models:
-  # SIE Cloud's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # SIE's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
   # server (spans scoring 0.6 or more, the two models' spans unioned, person names propagated).
   pii: superlinked/pii-redact
 

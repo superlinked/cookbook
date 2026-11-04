@@ -4,7 +4,7 @@
 models:
   # One vector per patch of each page image, and one per query token. We use the model's
   # `:compact` profile (same weights, at most 768 patch vectors per page instead of 1,280)
-  # because on 29 Oct 2026 SIE Cloud answered every encode on the default profile with
+  # because on 29 Oct 2026 SIE Serverless answered every encode on the default profile with
   # HTTP 503 'missing rate for model=..., profile="default"'.
   embed: TomoroAI/tomoro-colqwen3-embed-4b:compact
   answer: Qwen/Qwen3.8-27B-FP8               # reads the best page image and answers with a page cite

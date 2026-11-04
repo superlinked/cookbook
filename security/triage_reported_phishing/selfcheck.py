@@ -342,7 +342,7 @@ REPLIES: dict[str, tuple[dict[str, float], list[tuple[str, str]]]] = {
 class StandIn:
     """Stands in for SIEClient: answers `extract` from `replies`, keyed by email name.
 
-    An email with no spans gets SIE Cloud's empty-result 500, for its batch and on its own.
+    An email with no spans gets SIE Serverless's empty-result 500, for its batch and on its own.
     `drop` leaves the last result off each verdict batch. `fail` names the models whose calls
     raise `error` (a timeout by default, the way the SDK reports one); `skip` lets that many
     of a failing model's calls through first. `odd` names window ids whose verdict reply has

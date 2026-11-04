@@ -306,8 +306,10 @@ counted as "nothing found" only from the extraction model.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -319,7 +321,7 @@ uv run make_data.py    # optional: rewrite data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. A run makes 52 SIE calls on this data: 28 to the OCR
 model (one per page) and 24 to the extraction model (one per window). The first calls can wait
-a few minutes while SIE Cloud starts the OCR and extraction models; our first run on
+a few minutes while SIE Serverless starts the OCR and extraction models; our first run on
 2026-11-03 (UTC) took 341 s, and warm runs took 188 to 190 s.
 
 ## What came out
@@ -435,7 +437,7 @@ A few things worth noticing:
   assuming the ordered size. On 2026-11-03 it read "10.00 mm" on `lot-06`. On that earlier run,
   the grade span on one certificate ran over a line break into the next box's label
   ("S235JR\nStandard"), which is why Python cuts every span at its first line break. None of the runs
-  on 2026-11-03 hit SIE Cloud's empty-result error or dropped a span.
+  on 2026-11-03 hit SIE Serverless's empty-result error or dropped a span.
 
 ### What you do next
 
@@ -471,7 +473,7 @@ and the inspector still checks the stamp on the plate itself.
   receipt, accept a concession or judge the mill's test method. It reads the documents, checks
   them against the order and the limits, and puts the exceptions in front of quality and the
   buyer with the reason.
-- **Known SIE Cloud issue.** When GLiNER2 finds no field in a window, SIE Cloud currently answers
+- **Known SIE Serverless issue.** When GLiNER2 finds no field in a window, SIE Serverless currently answers
   the `output_schema` call with HTTP 500 "Inference completed without a valid conserved billing
   settlement". The recipe sends one window per call, so the error only hits that window, and
   records the answer as "no fields found" in the lot's notes. A field that is never found sends
@@ -488,7 +490,7 @@ and the inspector still checks the stamp on the plate itself.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 31 Oct 2026, on the earlier 9-lot version of
+nothing else, and ran the recipe using SIE Serverless on 31 Oct 2026, on the earlier 9-lot version of
 this data (before the delivery notes, the inspection plan and the impact check). We haven't
 rerun the swaps on the 12 lots.
 
@@ -500,9 +502,10 @@ rerun the swaps on the 12 lots.
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -511,7 +514,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `ocr` | `lightonai/LightOnOCR-3-4B` | `cuda12-sglang-vision-extract` | L4 |
 | `extract` | `fastino/gliner2-large-v1` | `cuda12-default` | L4 |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

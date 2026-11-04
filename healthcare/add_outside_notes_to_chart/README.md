@@ -259,7 +259,7 @@ loading, or a reply missing the key we asked for, `data` or `scores`) sends that
 `clinical_review` with a short reason, and the run carries on. A refusal every call would repeat
 (a bad key, no credits, a model name SIE doesn't know) stops the run with SIE's full message and
 writes no outputs. If every call failed, the run stops too. GLiNER2's empty-result HTTP 500 is
-SIE Cloud's way of saying it found nothing: for a list window that goes to the clinician, and for
+SIE Serverless's way of saying it found nothing: for a list window that goes to the clinician, and for
 a drug's details it leaves the dose missing, which goes to the clinician anyway.
 
 [`selfcheck.py`](./selfcheck.py) runs all ten notes through the real decision functions with
@@ -274,8 +274,10 @@ can change `rules.yaml` and know right away if you broke something.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-add-outside-notes-to-chart)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-add-outside-notes-to-chart), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-add-outside-notes-to-chart) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-add-outside-notes-to-chart).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-add-outside-notes-to-chart) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-add-outside-notes-to-chart). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-add-outside-notes-to-chart)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -284,7 +286,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Serverless starts the
 extraction and reranker models. A warm run makes 48 SIE calls (33 to GLiNER2: two per note plus
 one per active drug, and 15 to the reranker, one per problem) and took 16 seconds warm.
 
@@ -413,7 +415,7 @@ Nothing goes into the chart's structured lists without that reconciliation.
 - **Measure it.** Ten sample notes prove the wiring. Before you trust it, run it on a few weeks
   of your own outside records and compare the drafts with what your staff abstracted by hand.
 
-**Known SIE Cloud issue.** When gliner2-large-v1 finds no field in an item, SIE Cloud currently
+**Known SIE Serverless issue.** When gliner2-large-v1 finds no field in an item, SIE Serverless currently
 answers the `output_schema` call with HTTP 500 "Inference completed without a valid conserved
 billing settlement" (and fails a whole batch if any item is empty, so items are sent one by one).
 The recipe treats that as "nothing found", and a list window with nothing found goes to the
@@ -423,7 +425,7 @@ for wheeze" has no dose to find), which is noted in the draft.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud.
+at a time, changed nothing else, and ran the recipe using SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -433,9 +435,10 @@ at a time, changed nothing else, and ran the recipe on SIE Cloud.
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

@@ -24,8 +24,9 @@ SIE pipeline (one model, up to two calls per search):
 Output:    One search prints its page. With no question, the sample run writes runs/<timestamp>/:
            a results page per search (pages/), results.json, summary.md and gap_log.csv for the
            clinical policy coordinator.
-Why SIE:   The reranker runs on SIE Cloud; the filters and notices are plain Python below, and
+Why SIE:   The reranker runs on SIE; the filters and notices are plain Python below, and
            no generative model writes anything: the clinician reads the clinic's own words.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py                                                   # the sample searches
     uv run recipe.py "asthma action plan how often" --population pediatric   # one search
@@ -164,7 +165,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

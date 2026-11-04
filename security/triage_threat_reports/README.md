@@ -153,7 +153,7 @@ guessing; the inventory knows.
 
 **Why NuNER Zero and not gliner2-large-v1.** The job is plain span tagging with three labels.
 There's no structure to fill, so `output_schema` adds nothing. When NuNER Zero finds nothing, it
-returns `entities: []`. When a GLiNER2 model finds no spans, SIE Cloud answers with an HTTP 500
+returns `entities: []`. When a GLiNER2 model finds no spans, SIE Serverless answers with an HTTP 500
 instead of an empty list, with or without `output_schema`, and that fails the whole batch. That's
 our inference from how SIE behaves: `security/triage_reported_phishing` hits the same 500 on a
 plain `labels` call.
@@ -230,7 +230,7 @@ and goes to review.
 | Status | `report_status`, `hunt_indicators` | none | `affects_us` if any ticket, else `review` if any reason, else `hunt` if any well-formed `hunt_types` indicator, else `filed` |
 | Write | `write_outputs`, `ticket_drafts` | none | `tickets/<team>.md`, `hunt.csv` (refanged), `tags.json`, `entities.csv` and `iocs.csv` (defanged) |
 
-`tag_reports()` runs those steps for every report. All windows go to SIE Cloud in one batched call
+`tag_reports()` runs those steps for every report. All windows go to SIE Serverless in one batched call
 (each demo report fits in one window, and 11 windows are under the `batch_size` of 16), and you
 host nothing. With one call, a transient failure on the demo data is also a run where every call
 failed, so it stops the run rather than sending all eleven reports to review.
@@ -255,8 +255,10 @@ run. It runs offline with hand-written strings and stand-in model replies, so yo
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -266,7 +268,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. If you'd rather write somewhere else, pass
-`--output DIR`. The first call can wait a few minutes while SIE Cloud starts the NuNER Zero
+`--output DIR`. The first call can wait a few minutes while SIE Serverless starts the NuNER Zero
 model. A warm run makes one SIE call and took about a second on our machine, uv start included.
 
 ## What came out
@@ -481,7 +483,7 @@ Everything below lives in `rules.yaml` or a seed unless it says otherwise.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 4 Nov 2026 (UTC) on the eleven reports above.
+nothing else, and ran the recipe using SIE Serverless on 4 Nov 2026 (UTC) on the eleven reports above.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -493,9 +495,10 @@ what changed is how many reports a spurious name sends to review.
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`, and the API
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`, and the API
 key becomes optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

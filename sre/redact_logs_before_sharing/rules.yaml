@@ -3,7 +3,7 @@
 # check them against your own logs and notes.
 
 models:
-  # SIE Cloud's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # SIE's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
   # server (spans scoring 0.6 or more, the two models' spans unioned, person names propagated).
   pii: superlinked/pii-redact
 
@@ -53,7 +53,7 @@ thresholds:
   # this many words, each sharing `window_overlap_words` with the last. Logs are token-dense (a
   # UUID or a token is a dozen or more model tokens where an English word is one or two), so the
   # windows are kept well under that limit. Each call asks SIE to fail rather than cut a window
-  # short; a window that still doesn't fit blocks its file as not read. In our test SIE Cloud
+  # short; a window that still doesn't fit blocks its file as not read. In our test SIE Serverless
   # read a 600-word, UUID-dense text to its end, so this is a margin, not a measured limit.
   window_words: 150
   window_overlap_words: 30

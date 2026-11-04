@@ -24,7 +24,7 @@ Output:    drafts/<note>.json and drafts/<note>.md (the draft filed with the out
 Why SIE:   No generative model writes the draft. Two specialist models on SIE; every value is
            checked against the note in Python, and the chart comparison, dose units, vital
            ranges, allergy classes and code thresholds are plain rules in rules.yaml.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -70,7 +70,7 @@ WAIT_S = 900
 ERROR_CHARS = 200
 # A cell starting with one of these runs as a formula when a spreadsheet opens the CSV.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
-# When GLiNER2 finds nothing, SIE Cloud answers the output_schema call with HTTP 500 and this
+# When GLiNER2 finds nothing, SIE Serverless answers the output_schema call with HTTP 500 and this
 # message. For a list window that is a review reason (a note with no problems or medications
 # read is not a clean draft); for a vitals window or a drug's details it means "nothing found",
 # and the checks that need the value send the note to review.
@@ -227,7 +227,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 
@@ -270,7 +270,7 @@ class Calls:
 
         A refusal (see `is_fatal`) stops the run with SIEStopped. Any other SIE error, and a
         reply without `key`, is recorded and raised as CallFailed, so the caller sends its note
-        to review and the run goes on. With `empty_result_ok` (the GLiNER2 calls), SIE Cloud's
+        to review and the run goes on. With `empty_result_ok` (the GLiNER2 calls), SIE Serverless's
         empty-result HTTP 500 is a reply with nothing in it, marked `empty_result_error`, not a
         failure. An error that isn't an SIE error is a bug in this code and is raised as is.
         """

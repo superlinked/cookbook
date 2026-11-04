@@ -577,7 +577,7 @@ def check_sie_failure() -> None:
     results = run(two, replies={"extract/clm-01-w1-entities": {"entities": []}})
     assert "readable" not in flagged(results[0]), results[0].checks
     assert "no service address read" in detail(results[0], "claim_match")
-    # SIE Cloud's empty-result 500 reads as "none found" from the extraction model only.
+    # SIE Serverless's empty-result 500 reads as "none found" from the extraction model only.
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     results = run(two, errors={"extract/clm-01-w1-fields": [empty]})
     assert "readable" not in flagged(results[0])

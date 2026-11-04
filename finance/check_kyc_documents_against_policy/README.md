@@ -265,8 +265,10 @@ model. [`make_data.py`](./make_data.py) draws the scans and writes the onboardin
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -278,7 +280,7 @@ uv run make_data.py    # optional: rewrite data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. A run makes 48 SIE calls on this data: 24 to
 the OCR model (one per page) and 24 to the extraction model (one window per page). `kyc-11`'s ID
-is read once, though it's listed twice. The first calls can wait a few minutes while SIE Cloud
+is read once, though it's listed twice. The first calls can wait a few minutes while SIE Serverless
 starts the models; on 2026-11-04 (UTC) a run that found them still starting took 281 s, and a
 run with both warm took 89 s.
 
@@ -391,7 +393,7 @@ A few things worth noticing:
 - **The label check earned its keep on two bills.** On `kyc-09` and `kyc-12` GLiNER2 offered
   "Eastbrook" as the service address city. It came from the customer service line ("PO Box 812,
   Eastbrook"), not the address, so Python dropped it with a note in the case file and used the
-  labelled address line instead. Neither run hit SIE Cloud's empty-result error, and no field
+  labelled address line instead. Neither run hit SIE Serverless's empty-result error, and no field
   was read two ways.
 
 ### What you do next
@@ -428,7 +430,7 @@ list.
 - **Plug in your onboarding system.** `onboarding.py` reads two CSV seeds; swap its lookups for
   your case API. If an identity-verification vendor already returns the ID fields and MRZ result,
   take those as input and read only the address document.
-- **Known SIE Cloud issue.** When GLiNER2 finds no field in a window, SIE Cloud currently answers
+- **Known SIE Serverless issue.** When GLiNER2 finds no field in a window, SIE Serverless currently answers
   the `output_schema` call with HTTP 500 "Inference completed without a valid conserved billing
   settlement". The recipe sends one window per call and records that answer as "no fields
   found" in the document's notes. A field that is never found leaves its requirement `not_met`,
@@ -440,7 +442,7 @@ list.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on the twelve cases above on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe on the twelve cases above using SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -450,9 +452,10 @@ nothing else, and ran the recipe on the twelve cases above on SIE Cloud on 2026-
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -461,7 +464,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `ocr` | `lightonai/LightOnOCR-3-4B` | `cuda12-sglang-vision-extract` | L4 |
 | `extract` | `fastino/gliner2-large-v1` | `cuda12-default` | L4 |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

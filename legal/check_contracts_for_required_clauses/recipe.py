@@ -30,7 +30,7 @@ Output:    runs/<timestamp>/report.csv (one row per contract and clause) and
            decides whether the contract meets Article 30 and what to ask the supplier for.
 Why SIE:   Four models behind one client: two readers, a reranker and an LLM. The reranker
            picks three passages per clause, so the LLM never reads a whole package.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -139,7 +139,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

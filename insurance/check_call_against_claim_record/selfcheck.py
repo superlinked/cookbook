@@ -599,7 +599,7 @@ def _() -> None:
     assert not result.review
 
 
-@check("SIE Cloud's empty-result 500 reads as nothing found, with a note, not a failure")
+@check("SIE Serverless's empty-result 500 reads as nothing found, with a note, not a failure")
 def _() -> None:
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     (result,) = run_offline(

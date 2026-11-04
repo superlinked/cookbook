@@ -183,7 +183,7 @@ bore comes back as a `hole` at 0.93 to 0.96, which the size limit throws out. Th
 call exist because the raw boxes need that cleaning.
 
 It is released under the SAM License, which is not an OSI license; read it at
-<https://huggingface.co/facebook/sam3> before you rely on it. Two other detectors on SIE Cloud
+<https://huggingface.co/facebook/sam3> before you rely on it. Two other detectors on SIE Serverless
 take the same call and return the same shape; neither came close on these photos (see Try
 another model).
 
@@ -236,8 +236,10 @@ photos.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -247,7 +249,7 @@ uv run make_data.py    # optional: redraw data/
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts SAM 3.
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts SAM 3.
 Once it's warm, the 10 photos take a few seconds.
 
 The run writes:
@@ -398,7 +400,7 @@ since the recipe says nothing about torque.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 2026-11-03 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud on all 10 photos.
+at a time, changed nothing else, and ran the recipe using SIE Serverless on all 10 photos.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -410,9 +412,10 @@ without a code change. The score thresholds were set on SAM 3's scores, and thes
 much lower; they would need their own thresholds and prompts.
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

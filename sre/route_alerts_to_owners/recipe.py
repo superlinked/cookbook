@@ -22,8 +22,9 @@ Output:    routes.csv and routes.json in runs/<timestamp>/: per alert, the statu
            reassigns nothing: the responder decides every reassignment.
 Why SIE:   One small encoder model, called only for the alerts no record places. The team list
            is the catalog itself: add a team with a description and the next run can suggest
-           it, with no training. No generative model makes the decision. Nothing to host.
-Runs on:   SIE Cloud.
+           it, with no training. No generative model makes the decision.
+           Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -135,7 +136,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

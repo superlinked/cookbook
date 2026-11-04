@@ -27,7 +27,7 @@ Output:    decisions.csv, one row per NDA and position: matches_position | devia
            to the approver, and when the NDA can be signed.
 Why SIE:   Two models, and no generative model makes a decision: a schema extractor returns
            fields, and plain Python reading rules.yaml compares them with the playbook.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -74,7 +74,7 @@ WAIT_S = 900
 ERROR_CHARS = 200
 # A cell starting with one of these runs as a formula when a spreadsheet opens the CSV.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
-# When GLiNER2 finds none of the fields (most NDA sections), SIE Cloud answers the
+# When GLiNER2 finds none of the fields (most NDA sections), SIE Serverless answers the
 # output_schema call with HTTP 500 and this message. We record it as "no fields found". That is
 # not proof the window holds nothing: a field the extractor missed reads the same way, and it
 # can let a position pass (a governing law naming a second place, a carve-out with a condition).
@@ -182,7 +182,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 
@@ -253,7 +253,7 @@ class Calls:
         A refusal (see `is_fatal`) stops the run with SIEStopped. Any other SIE error, and a
         reply without `key`, is recorded and raised as CallFailed, so the caller marks the
         positions that call was for unclear and the run goes on. With `empty_result_ok` (the
-        GLiNER2 calls), SIE Cloud's empty-result HTTP 500, and a reply whose only results are
+        GLiNER2 calls), SIE Serverless's empty-result HTTP 500, and a reply whose only results are
         empty lists (see `is_empty_result`), are a reply with nothing in it, not a failure. An
         error that isn't an SIE error is a bug in this code and is raised as is.
         """

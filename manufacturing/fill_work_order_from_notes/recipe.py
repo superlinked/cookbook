@@ -24,8 +24,9 @@ Output:    completion_forms.csv (one draft per order) and drafts.json (every fie
            checks_passed (nothing flagged) or review. A person confirms every draft before the
            CMMS record is saved; nothing is written to the CMMS.
 Why SIE:   Two small encoder models; no generative model fills or decides anything. The
-           picklists and schema are data you edit in rules.yaml, and there is nothing to host.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+           picklists and schema are data you edit in rules.yaml, and there is
+           nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -66,7 +67,7 @@ RUNS_DIR = ROOT / "runs"
 WAIT_S = 900
 # How much of an SIE error message goes into a per-field reason or the summary line.
 ERROR_CHARS = 200
-# When GLiNER2 finds nothing at all, SIE Cloud can answer an output_schema call with HTTP 500
+# When GLiNER2 finds nothing at all, SIE Serverless can answer an output_schema call with HTTP 500
 # and this message. We record it as "nothing found"; a missing field can only leave a field
 # blank or flag a required one, never fill it.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"
@@ -215,7 +216,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

@@ -305,8 +305,10 @@ the extraction model. Break any one of those rules and a check fails.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -318,7 +320,7 @@ uv run --group data make_data.py   # optional: rewrite data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. A run makes 33 SIE calls on this data: 17 to the OCR
 model (one per photo) and 16 to the extraction model (one per window; the unreadable photo gets
-none). The first calls can wait a few minutes while SIE Cloud starts the OCR and extraction
+none). The first calls can wait a few minutes while SIE Serverless starts the OCR and extraction
 models; our run on 2026-11-04 (UTC) took 45 s with the models
 already warm.
 
@@ -428,7 +430,7 @@ A few things worth noticing:
   the photo.
 - **The safety nets didn't fire on this run, and that's fine.** Every handwritten line with a
   price on it was read as an item, no receipt read two different totals or dates, and GLiNER2
-  never hit SIE Cloud's empty-result error. Every handwritten inventory's items, plus its sales
+  never hit SIE Serverless's empty-result error. Every handwritten inventory's items, plus its sales
   tax, made its written total. If GLiNER2 skipped a line like "Mixing bowls (2)", the inventory
   line check would name that line and the total check would show the gap, so the claim couldn't
   come out clean on the items that were read.
@@ -464,7 +466,7 @@ and `after_loss` items are theirs to judge, and valuation under the policy comes
   actual cash value, and it does not decide what the policy covers. It doesn't check that the
   claim number written on the inventory is this claim's. It reads the photos, matches the items
   and lists the gaps, so the handler starts from the exceptions.
-- **Known SIE Cloud issue.** When GLiNER2 finds no field in a window, SIE Cloud currently answers
+- **Known SIE Serverless issue.** When GLiNER2 finds no field in a window, SIE Serverless currently answers
   the `output_schema` call with HTTP 500 "Inference completed without a valid conserved billing
   settlement". The recipe sends one window per call and records that answer as "no fields found"
   in the claim's notes. A field that is never found sends the claim to review, never past it.
@@ -478,7 +480,7 @@ and `after_loss` items are theirs to judge, and valuation under the policy comes
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on this data on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe on this data using SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -492,9 +494,10 @@ returns nothing for that photo, which is why it's the default.
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -503,7 +506,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `ocr` | `lightonai/LightOnOCR-3-4B` | `cuda12-sglang-vision-extract` | L4 |
 | `extract` | `fastino/gliner2-large-v1` | `cuda12-default` | L4 |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

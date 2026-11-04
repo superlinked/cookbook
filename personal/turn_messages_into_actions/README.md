@@ -191,7 +191,7 @@ fill a typed schema, and the decisions after that are Python.
   that below).
 - **`fastino/gliner2-large-v1`** fills what, who, when, where, amount and due date, once per
   window of about 512 tokens of each message that needs an action. It returns spans of the
-  message, so every value can be checked against the text. When it finds nothing, SIE Cloud
+  message, so every value can be checked against the text. When it finds nothing, SIE Serverless
   answers HTTP 500 "Inference completed without a valid conserved billing settlement"; the recipe
   reads that as "no fields found".
 
@@ -265,8 +265,10 @@ memos and the bill.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-turn-messages-into-actions)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-turn-messages-into-actions), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-turn-messages-into-actions) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-turn-messages-into-actions).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-turn-messages-into-actions) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-turn-messages-into-actions). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-turn-messages-into-actions)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -277,7 +279,7 @@ uv run make_data.py    # optional: rewrite data/ (memos need macOS)
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`; `--output DIR` changes that. The first call can wait a few minutes
-while SIE Cloud starts the speech, OCR and GLiNER models. A warm run makes 30 SIE calls (15 to
+while SIE Serverless starts the speech, OCR and GLiNER models. A warm run makes 30 SIE calls (15 to
 GLiNER2.5-Decide, 13 to gliner2-large-v1, one each to parakeet and LightOnOCR) and takes about
 11 seconds.
 
@@ -373,7 +375,7 @@ A few things worth noticing:
   ```json
   {"id": "act-msg-15", "type": "change", "status": "checks_passed",
    "title": "Cancel 'Book fair volunteer shift'", "fields": {},
-   "notes": ["Window 1: no fields found (SIE Cloud answered HTTP 500)",
+   "notes": ["Window 1: no fields found (SIE answered HTTP 500)",
              "Quoted history below the new text was not read for actions.",
              "No time from the model; read from the sentence: Sorry, Saturday's book-fair shift is cancelled."],
    "sources": [{"message": "msg-15", "from": "Hillcrest PTA", "sent": "2026-11-01T10:20:00-08:00",
@@ -446,7 +448,7 @@ inputs of our live run.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 4 Nov 2026 (UTC). Every swap gave the same 13
+nothing else, and ran the recipe using SIE Serverless on 4 Nov 2026 (UTC). Every swap gave the same 13
 items with the same statuses (8 `checks_passed`, 2 `question`, 1 `matches_existing`, 2
 `no_action`).
 
@@ -457,13 +459,14 @@ items with the same statuses (8 `checks_passed`, 2 `question`, 1 `matches_existi
 | `ocr` | `lightonai/LightOnOCR-2-1B` | Same results. Its Markdown table left stray `|` characters around the amounts, which the amount parser ignores; `pay` 0.80, summary check passed |
 | `fields` | `fastino/gliner2-base-v1` | Same statuses and dates. Some values were worse: `where` "Theo Marsh" for the coffee message (msg-07), so its title became "community garden plot at Theo Marsh", and a shorter "vet appointment" for msg-09 |
 
-SIE Cloud has no other model for `action_type` (GLiNER2.5-Decide) yet. SIE's catalog has
+SIE Serverless has no other model for `action_type` (GLiNER2.5-Decide) yet. SIE's catalog has
 `fastino/GLiNER2.5-Decide-1B` and `fastino/GLiNER2.5-multi-Decide` to self-host; we have not run
 them here. See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -474,7 +477,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `action_type` | `fastino/GLiNER2.5-Decide` | `cuda12-transformers5` | L4 |
 | `fields` | `fastino/gliner2-large-v1` | `cuda12-default` | L4 |
 
-One SIE server runs one image, so these 3 images need a cluster: the
+One SIE server runs one image, so these 3 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

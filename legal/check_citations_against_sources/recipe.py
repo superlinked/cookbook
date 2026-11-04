@@ -33,8 +33,8 @@ Output:    cite-check.md and cite-check.csv: one row per citation in the draft's
            status (support_found, check_citation, not_in_folder) and every finding. The status
            names what the checks found; the associate who wrote the brief decides each fix.
 Why SIE:   Two models: the reranker reads every paragraph of the cited document, so the language
-           model only reads the few closest passages. Nothing to host.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+           model only reads the few closest passages. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -657,7 +657,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

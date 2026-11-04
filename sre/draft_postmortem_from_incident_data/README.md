@@ -251,8 +251,10 @@ stand-in model replies.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -262,7 +264,7 @@ uv run make_data.py    # optional: rewrite data/ (deterministic)
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts the
 report model. A warm run makes 7 SIE calls (one per incident, all to `Qwen/Qwen3.8-27B-FP8`) and
 took 37 seconds on our run.
 
@@ -414,19 +416,20 @@ the tickets and taking the draft to the review meeting.
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
 nothing else, and ran an earlier version of this recipe (before the lookups, the number check
-and the action-item checks) on SIE Cloud on 31 Oct 2026.
+and the action-item checks) using SIE Serverless on 31 Oct 2026.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `report` | `Qwen/Qwen3.5-4B` | Same decision for all 7 incidents (4 drafts ready, 3 to review, same durations). INC-0103's root cause cited the certificate (S04) and not the deploy. Shorter text, and action items differed in two incidents: one fewer in INC-0103, a different owner set in INC-0105. |
-| `report` | `google/gemma-4-31B-it` | Did not run: SIE Cloud answered "Generation route is unavailable for this deployment" on both tries. |
+| `report` | `google/gemma-4-31B-it` | Did not run: SIE Serverless answered "Generation route is unavailable for this deployment" on both tries. |
 
 "Drafts ready" is that version's name for `checks_passed`. See [MODELS.md](../../MODELS.md) for
 every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

@@ -254,8 +254,10 @@ four PDFs and the two loan-system seeds.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -267,7 +269,7 @@ uv run --group data make_data.py   # optional: rebuild data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`. A run makes 98 SIE calls on this data: 3 to docling, 1 to
 docling:ocr and 94 to the reranker (one per label the loan system didn't know). Our last warm
-run on 2026-11-04 (UTC) took 30 s. The first calls can wait a few minutes while SIE Cloud starts
+run on 2026-11-04 (UTC) took 30 s. The first calls can wait a few minutes while SIE Serverless starts
 docling and the reranker.
 
 ## What came out
@@ -418,7 +420,7 @@ the same kind swapped on the same side, which no tie-out can see.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC) on this data.
+nothing else, and ran the recipe using SIE Serverless on 2026-11-04 (UTC) on this data.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -427,9 +429,10 @@ nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC) on this data.
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

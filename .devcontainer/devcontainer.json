@@ -4,8 +4,8 @@
   "postCreateCommand": "curl -LsSf https://astral.sh/uv/0.13.1/install.sh | sh && ~/.local/bin/uvx pre-commit install",
   "secrets": {
     "SIE_API_KEY": {
-      "description": "Your SIE Cloud API key. The recipes read it from the environment, so no .env is needed.",
-      "documentationUrl": "https://console.superlinked.com/console/api-keys"
+      "description": "Your SIE Serverless API key. The recipes read it from the environment, so no .env is needed.",
+      "documentationUrl": "https://console.superlinked.com/console/keys"
     }
   },
   "customizations": {

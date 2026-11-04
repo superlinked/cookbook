@@ -778,7 +778,7 @@ def check_sie_failure() -> None:
     assert "replied without 'data'" in results[0].unmet[0].detail, results[0].unmet
     results, _ = run("kyc-01", replies={"extract/kyc-01/kyc-01-poa": {"data": {}}})
     assert results[0].unmet[0].detail == "issuer not read", results[0].unmet
-    # SIE Cloud's empty-result 500 reads as "no fields", not a failed call.
+    # SIE Serverless's empty-result 500 reads as "no fields", not a failed call.
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     results, _ = run("kyc-01", errors={"extract/kyc-01/kyc-01-poa": [empty]})
     assert results[0].unmet[0].detail == "issuer not read", results[0].unmet

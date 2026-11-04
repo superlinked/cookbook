@@ -233,8 +233,10 @@ hand-written files.
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -245,7 +247,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. The
 sample run writes `runs/<timestamp>/`; one search only prints its page. The first call can wait a
-few minutes while SIE Cloud starts the reranker. A warm sample run makes 16 SIE calls (9 passage
+few minutes while SIE Serverless starts the reranker. A warm sample run makes 16 SIE calls (9 passage
 calls and 7 sentence calls; the two searches with nothing to show skip the second) and took about
 6 seconds.
 
@@ -388,7 +390,7 @@ guidance to write or update. Nobody else sees the gap log.
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped it,
-changed nothing else, and ran the 9 sample searches on SIE Cloud.
+changed nothing else, and ran the 9 sample searches using SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -397,9 +399,10 @@ changed nothing else, and ran the 9 sample searches on SIE Cloud.
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

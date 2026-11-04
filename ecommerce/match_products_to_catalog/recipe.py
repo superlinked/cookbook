@@ -39,7 +39,7 @@ Output:    proposals.csv (one row per incoming record: status, the PIM action it
            found; the data steward approves or changes every action in the PIM.
 Why SIE:   Three models behind one endpoint; the vision-language model sees only the pairs the
            identifiers, embeddings and attribute rules leave unsure.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py   # calls SIE, writes runs/<timestamp>/
 """
@@ -282,7 +282,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 INDUSTRIES = (
@@ -46,7 +47,7 @@ README_SECTIONS = (
     "### Results",
     "### What you do next",
     "## Try another model",
-    "## Run it on your own SIE",
+    "## Run it using SIE Cluster or SIE Local",
 )
 # What came out names the examples again, under "### The two examples" or "### The three examples".
 RESULTS_SECTION = "## What came out"
@@ -55,8 +56,24 @@ EXAMPLES_RESULT = re.compile(r"### The (?:two|three) examples")
 RESULT_LABELS = ("**Where it works:**", "**Where it fails:**")
 VERDICT = re.compile(r"^- \*\*Verdict:\*\* (?:Pass|Miss)\.", re.M)
 MIN_VERDICTS = 2
+# "## Run it" opens with the line naming the three ways to run it, with the keys, docs and repo.
+RUN_SECTION = "## Run it"
+RUN_LINE_START = "**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?"
+RUN_LINE_LINKS = (
+    "[SIE Cluster](https://superlinked.com/docs/deployment?",
+    "[SIE Local](https://superlinked.com/docs/quickstart?",
+    "(https://console.superlinked.com/console/keys?",
+    "(https://superlinked.com/docs/reference/api?",
+    "(https://github.com/superlinked/sie)",
+)
+LINK_URL = re.compile(r"\]\((https://[^)]+)\)")
 PYTHON = "3.12"
-FORBIDDEN = (b"sie-" + b"internal", b"sie_cloud" + b"_research", b"verified-" + b"run/")
+FORBIDDEN = (
+    b"sie-" + b"internal",
+    b"sie_cloud" + b"_research",
+    b"sie-cloud" + b"-research",
+    b"verified-" + b"run/",
+)
 
 
 def recipes() -> list[Path]:
@@ -71,15 +88,21 @@ def recipes() -> list[Path]:
     return sorted(folder for folder in found if not folder.parts[-2].startswith("."))
 
 
-def readme_problems(text: str) -> list[str]:
-    """Missing headings in a recipe README, matched as whole lines outside fenced code blocks."""
-    headings: list[str] = []
+def lines_outside_fences(text: str) -> list[str]:
+    """The lines of a README outside fenced code blocks, without trailing spaces."""
+    lines: list[str] = []
     fenced = False
     for line in text.splitlines():
         if line.lstrip().startswith(("```", "~~~")):
             fenced = not fenced
-        elif not fenced and line.startswith("#"):
-            headings.append(line.rstrip())
+        elif not fenced:
+            lines.append(line.rstrip())
+    return lines
+
+
+def readme_problems(text: str) -> list[str]:
+    """Missing headings in a recipe README, matched as whole lines outside fenced code blocks."""
+    headings = [line for line in lines_outside_fences(text) if line.startswith("#")]
     found = [f"README.md needs '{h}'" for h in README_SECTIONS if h not in headings]
     found += [f"README.md needs '{label}'" for label in RESULT_LABELS if label not in text]
     if len(VERDICT.findall(text)) < MIN_VERDICTS:
@@ -94,6 +117,27 @@ def readme_problems(text: str) -> list[str]:
             found.append(f"README.md needs '### The three examples' under '{RESULTS_SECTION}'")
     else:
         found.append(f"README.md needs '{RESULTS_SECTION}'")
+    return found
+
+
+def run_line_problems(text: str, rel: str) -> list[str]:
+    """Check the first line of '## Run it': its opening, its links and their utm_content."""
+    lines = lines_outside_fences(text)
+    if RUN_SECTION not in lines:
+        return [f"README.md needs '{RUN_SECTION}'"]
+    after = lines[lines.index(RUN_SECTION) + 1 :]
+    first = next((line for line in after if line.strip()), "")
+    if not first.startswith(RUN_LINE_START):
+        return [f"README.md: '{RUN_SECTION}' must open with the SIE Serverless line"]
+    found = [
+        f"README.md: the SIE Serverless line needs {link}"
+        for link in RUN_LINE_LINKS
+        if link not in first
+    ]
+    slug = rel.replace("/", "-").replace("_", "-")
+    for url in LINK_URL.findall(first):
+        if "?" in url and parse_qs(urlsplit(url).query).get("utm_content") != [slug]:
+            found.append(f"README.md: {url} needs utm_content={slug}")
     return found
 
 
@@ -125,6 +169,7 @@ def problems() -> list[str]:
         if recipe_readme.is_file():
             text = recipe_readme.read_text(encoding="utf-8")
             found += [f"{rel}: {problem}" for problem in readme_problems(text)]
+            found += [f"{rel}: {problem}" for problem in run_line_problems(text, rel)]
         version = recipe / ".python-version"
         if version.is_file() and version.read_text(encoding="utf-8").strip() != PYTHON:
             found.append(f"{rel}: .python-version must be {PYTHON}, the oldest Python we support")

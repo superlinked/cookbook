@@ -20,10 +20,10 @@ Output:    guidance.json, guidance.csv and guidance.md in runs/<timestamp>/: per
            guidance (accept, inspect or refer) with every reason, the product check, the
            condition answers and the packaging text. It is guidance for the associate, not a
            decision: a person decides every return, and a manager decides every `refer`.
-Why SIE:   Both models run on SIE Cloud. The model answers questions; plain Python you can read
+Why SIE:   Both models run on SIE. The model answers questions; plain Python you can read
            line by line turns the answers and the policy into guidance, and no generative model
-           makes the decision. Nothing to host.
-Runs on:   SIE Cloud.
+           makes the decision. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -193,7 +193,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

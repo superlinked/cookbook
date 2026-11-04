@@ -148,7 +148,7 @@ Then we combine the answers. The most severe one wins: block beats review, revie
 The guard is `Qwen/Qwen3Guard-Gen-4B`. It's a small moderation model that reads a prompt and
 answers in two lines, `Safety: Safe|Controversial|Unsafe` and `Categories: ...`. Its chat
 template wraps the prompt in its own moderation policy, so we send the prompt as the only user
-message and parse the answer. At 4B parameters it runs on a single L4, and on SIE Cloud it's one
+message and parse the answer. At 4B parameters it runs on a single L4, and on SIE Serverless it's one
 chat call per prompt with nothing for you to host.
 
 SIE's [guardrails page](https://superlinked.com/guardrails?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts) is where this model comes from: on
@@ -244,8 +244,10 @@ key, and ones with escaped or bold Markdown), so you can change `rules.yaml` and
 
 ## Run it
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts)).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -254,7 +256,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Cloud
+writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Serverless
 starts the models, which is a good moment to get a coffee. A warm run takes about 10 seconds.
 
 ## What came out
@@ -407,7 +409,7 @@ that's the cost of mapping Controversial to review.
   copilot fetched as from one an analyst pasted.
 - **Know what the screenshot step can't do.** The OCR call sends the screenshot to SIE before
   any rule has seen its text, so a key in a screenshot does reach the OCR model. If that's not
-  acceptable, run the OCR model on your own SIE (below). A key the OCR model misreads, or one in a
+  acceptable, run the OCR model on SIE Cluster or SIE Local (below). A key the OCR model misreads, or one in a
   format `secrets.patterns` doesn't know (like the secret access key on P-10), gets through.
   The recipe sends each image as it is; LightOnOCR works best with a longest edge of about 2048
   pixels, so shrink large captures first.
@@ -428,16 +430,17 @@ that's the cost of mapping Controversial to review.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 2026-10-31 (UTC) we checked the one
-alternative SIE Cloud offers for `guard`, and didn't run it, because it isn't a drop-in.
+alternative SIE Serverless offers for `guard`, and didn't run it, because it isn't a drop-in.
 `ibm-granite/granite-guardian-3.0-2b` answers Yes or No, while `recipe.py` reads a
 "Safety: Safe|Unsafe|Controversial" line, so every prompt the guard sees would land in review as
 "no readable verdict". To use it, change `parse_guard` and the `verdicts` map. We haven't tried
 any other OCR model on these screenshots; `lightonai/LightOnOCR-3-4B` is the only one this
 recipe has run.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`, and the API
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`, and the API
 key becomes optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -446,7 +449,7 @@ key becomes optional. The table gives the SIE v0.10.1 image each model runs on, 
 | `guard` | `Qwen/Qwen3Guard-Gen-4B` | `cuda12-sglang` | L4 |
 | `ocr` | `lightonai/LightOnOCR-3-4B` | `cuda12-sglang-vision-extract` | L4 |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.
