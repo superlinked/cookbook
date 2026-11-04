@@ -74,6 +74,9 @@ team descriptions and the sample emails.
 
 Here are three of the emails in `data/emails.json`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the retailer, its stores, customers and orders
+are invented.
+
 **1. A routine question.** E-01.
 - **Input:** "Hi, my order LK-204517 was supposed to arrive on Tuesday and the tracking page still
   says label created. Can you tell me where it is?"

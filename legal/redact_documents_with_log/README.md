@@ -108,6 +108,8 @@ side: it checks the volume the other side sends you.
 
 Here are three of the documents in `data/text/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. No real person, company, firm or account appears.
+
 **1. A crew member's personal data in an insurance email.**
 - **Input:** `PMS0000002.txt`: "Tomas (date of birth 3 March 1991) has been with us since April.
   ..." and then "SSN: 666-52-1187" and "Home address: 9 Gull Lane, Marshfield, MA 02050".

@@ -96,6 +96,9 @@ the claim, approves the callback, or hands the flagged claim to an adjuster.
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. The calls are scripts spoken by macOS `say`, and
+no real person, policy or claim is in them.
+
 **1. A complete call.** Quintero.
 - **Input:** `fnol-1021-quintero.wav`, a call where the caller gives every field ("It's H M 4 4 7 1
   2 0 9 3.", "On Tuesday night, October 20th, around nine o'clock.", "No, nobody was hurt."), and

@@ -95,6 +95,9 @@ tell the exact product from a lookalike in the same color, and an embedding does
 
 Here are three of the searches in `data/queries.csv`, and what should happen to each.
 
+The catalog and the shopper photos are real listings from Amazon Berkeley Objects (CC BY 4.0). The
+words searches were written for this recipe, and the `available` flag is made up.
+
 **1. A photo cropped to the lamp.** Q07, department LAMP
 - **Input:** a room shot from `query-photos.jpg` with the P11 lamp in the corner, cropped by the
   shopper to the lamp.

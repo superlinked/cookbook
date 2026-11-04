@@ -98,6 +98,9 @@ important gets a note saying those are unchecked.
 
 Here are three of the contract packages in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the bank, the suppliers and every person are
+invented.
+
 **1. A clean contract.**
 - **Input:** `nimbusline-cloud-hosting.pdf` (`EB-ICT-0117`, text layer), with all eight clauses
   plainly worded, for example "6.1 When an ICT incident related to the Services occurs, the Supplier

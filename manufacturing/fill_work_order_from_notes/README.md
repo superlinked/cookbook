@@ -93,6 +93,9 @@ later counts that incident more than once.
 
 Here are three of the work orders in `data/work_orders.csv`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the assets, part numbers, dates and text are
+invented.
+
 **1. Parts and hours, all in the note.** WO-26102, conveyor CV-203.
 - **Input:** "CV-203 tail pulley bearing worn, excessive play. Replaced 2 x bearing 6205-2RS and
   1 x lip seal LS-35. Labor 3.5 h."

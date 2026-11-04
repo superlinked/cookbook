@@ -96,6 +96,9 @@ calendar or calls whoever is needed, and decides what to share. A one-off questi
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: one fictional household, with every name and
+number invented.
+
 **1. The furnace filter, written down once.**
 
 - **Input:** `notes.md`: "Furnace filter size is 16x25x1, MERV 11. Change it every three months..."

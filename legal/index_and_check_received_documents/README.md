@@ -97,6 +97,9 @@ platform already does this job, and the recipe would be rebuilding what you were
 
 Here are three of the documents in `data/TFL-VOL001/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the matter, both companies and every person are
+invented.
+
 **1. A plain business memo.**
 - **Input:** `scans.pdf` page 1, a scanned memo stamped TFL0000001: "From Monday 10 March, Kestrel
   Supply Co. loads move to the 06:00 slot at Bay 4."

@@ -81,6 +81,8 @@ marked as generated, with a link from each line to the message it came from.
 The data is one case, CASE-2026-04417, and it should come out `summary_checked` as a whole. Here
 are three of the messages in `data/messages/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. No real person, customer, card or bank is in it.
+
 **1. A dispute withdrawn.**
 
 - **Input:** `05-secure-message.txt`: "I've checked my receipts and the 23.40 at the cafe was me,

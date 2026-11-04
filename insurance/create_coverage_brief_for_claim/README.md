@@ -97,6 +97,9 @@ says covered either.
 
 Here are three of the claims in `data/claims.csv`, and what should happen to each.
 
+All of this is synthetic, written for this recipe, including the insurer and its policy wording. No
+public dataset is used.
+
 **1. A sudden leak.** CLM-01.
 - **Input:** CLM-01, `WATER`: "On Sunday morning the braided supply hose to our dishwasher split
   while it was running. Water sprayed across the kitchen for about twenty minutes before we shut

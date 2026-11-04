@@ -98,6 +98,9 @@ make up a step, which is why the responder reads it against the runbook before d
 
 Here are three of the alerts in `data/alertmanager-webhooks.jsonl`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. The service names and fault flags follow the
+OpenTelemetry demo (Apache-2.0), and the runbooks and the incident are invented.
+
 **1. Payment charges failing in production.**
 - **Input:** "oteldemo.PaymentService/Charge error rate 48% over 5m (threshold 5%)", one of 7 alerts
   across payment, checkout and frontend with no runbook link.
@@ -115,12 +118,14 @@ Here are three of the alerts in `data/alertmanager-webhooks.jsonl`, and what sho
 **3. Recommendation alerts, and a note that only has to cite them.**
 - **Input:** "frontend calls to recommendation ListRecommendations p95 2.1s" (A-27), one of 6 alerts
   on recommendation and frontend.
-- **What should happen:** the six should land in one group under RB-03, and the note gets written.
-  Its checks prove every ID it cites is in the group, not that what it says is true, so a wrong
-  claim with a real citation gets through and the responder has to catch it.
-- **Expected outcome:** `runbook_suggested`, RB-03.
+- **What should happen:** the six should land in one group under RB-03, and the note should say
+  only what the group shows. Its checks prove every ID it cites is in the group, not that what it
+  says is true, so a wrong claim with a real citation gets through and the responder has to catch
+  it.
+- **Expected outcome:** `runbook_suggested`, RB-03, with a note that says only what the group
+  shows.
 
-On the live run, 8 of 8 cases came out as expected. [What came out](#what-came-out) has the results.
+On the live run, 7 of 8 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -289,20 +294,23 @@ first calls can wait a few minutes while SIE Cloud starts the three models; our 
 - **Verdict:** Pass.
 
 **3. Recommendation alerts, and a note that only has to cite them.**
-- **Expected outcome:** `runbook_suggested`, RB-03.
+- **Expected outcome:** `runbook_suggested`, RB-03, with a note that says only what the group
+  shows.
 - **What came back:** `runbook_suggested` RB-03 at 0.9998, and the note passed its checks. Its
   second line in the latest run says "impacting frontend checkout and product views
   [A-14][A-23][A-27]".
-- **Verdict:** Pass. But nothing in the group mentions checkout. Every citation is in the group, so
+- **Verdict:** Miss. The status and the runbook are right, but nothing in the group mentions
+  checkout. Every citation is in the group, so
   the checks can't see it, and only the responder reading the note can.
 
 ### Results
 
-On the two live runs on 2026-11-04, 8 of 8 cases came out as expected.
+On the two live runs on 2026-11-04, 7 of 8 cases came out as expected. The miss is the
+recommendation group (G3), for what its note says.
 
 **Where it works:** each cause's alerts land in their own group under the right runbook:
-`paymentFailure` (RB-01), `adHighCpu` (RB-02), `recommendationCacheFailure` (RB-03) and
-`productCatalogFailure` (RB-04). `kafkaQueueProblems` goes on the gap list with no improvised note,
+`paymentFailure` (RB-01), `adHighCpu` (RB-02) and `productCatalogFailure` (RB-04), and
+`recommendationCacheFailure` gets that far too (RB-03). `kafkaQueueProblems` goes on the gap list with no improvised note,
 since no runbook covers Kafka. The runbooks for services that are fine are never chosen (RB-05 to
 RB-10), links that already exist get used as they are (A-29, A-30), and staging's charge errors stay
 out of production's group (A-31, A-32).

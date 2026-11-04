@@ -90,6 +90,9 @@ nothing back.
 
 Here are three of the listings in `data/`, and what should happen to each.
 
+These are real listings from Amazon Berkeley Objects (CC BY 4.0), with their own fields left as ABO
+has them.
+
 **1. A listing that's already right.** P01
 - **Input:** "AmazonBasics Carry-On Travel Backpack - Black", type BACKPACK, color Black, material
   polyester; bullet 1 says "...made of durable polyester"; photo `P01.jpg`.

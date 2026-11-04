@@ -80,6 +80,10 @@ and the existing catalog record is always the one that stays.
 
 Here are three of the supplier records in `data/supplier_feed.csv`, and what should happen to each.
 
+The titles and photos are real listings from Amazon Berkeley Objects (CC BY 4.0). The identifiers
+and attributes we added are synthetic, and [Data and licenses](#data-and-licenses) lists the few
+records we assembled.
+
 **1. A size variant.** L03 against PIM product L02
 - **Input:** "AmazonBasics MFi-Certified Lightning to USB A Cable for Apple iPhone and iPad - 10
   Feet (3 Meters) - Black", no GTIN or model number; L02 is the same cable at "6 Feet".
@@ -356,8 +360,8 @@ One thing worth saying up front. The color variant is L05 against L02, not L04 a
 case needs L02 and L04 on the same side (both in the PIM), and records on one side are never
 compared.
 
-None of these 14 records trips the checks on identifiers, sizes in no shared unit or fields
-that can't be read: L42's color and size agree with L41's, and every size in the data shares a
+None of these 14 records goes to review over a clashing identifier, sizes in no shared unit or
+fields that can't be read: L42's color and size agree with L41's, and every size in the data shares a
 unit with the size it's compared with. One rule did change the outcome, and you should know
 which. The first live run linked L30 to L29 as `likely_same_product`: a confident wrong link.
 After seeing it we added material to the attribute rules (the PIM's material from ABO, the

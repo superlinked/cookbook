@@ -79,6 +79,10 @@ manager decides every `refer`.
 
 Here are three of the returns in `data/returns.jsonl`, and what should happen to each.
 
+The photos are real, from Wikimedia Commons and Open Products Facts under CC BY and CC BY-SA
+licenses, with each one credited in [Data and licenses](#data-and-licenses). The transactions are
+synthetic, written to match them.
+
 **1. A clean return.** R-02.
 - **Input:** two photos of the HP S500 Wireless Mouse box (`opf_1944412406274_1.jpg`, front, and
   `opf_1944412406274_5.jpg`, barcode side), against the sale line for that same mouse: UPC

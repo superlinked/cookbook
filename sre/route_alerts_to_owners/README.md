@@ -88,6 +88,9 @@ it only sees the ones that already fell through.
 
 Here are three of the alerts in `data/alerts.json`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the catalog, the inventory, the alerts and the
+shop are invented.
+
 **1. A label the route didn't know (AL-02).**
 - **Input:** `"app": "Frontend"`, "p99 page latency 4.1s over 10m (threshold 2s)".
 - **What should happen:** the route wanted `service=web-frontend`, but the catalog lookup checks

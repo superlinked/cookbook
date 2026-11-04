@@ -95,6 +95,8 @@ The model never closes a ticket on its own.
 
 Here are three of the ten photos in `data/inspection-photos.jpg`, and what should happen to each.
 
+These photos are synthetic, drawn by `make_data.py`. There is no real part, site or company in them.
+
 **1. A complete flange.** FL-101.
 - **Input:** a drawn photo of an 8-bolt flange (`pipe_flange_8`, work order WO-4101) with all 8
   bolts fitted.
@@ -400,7 +402,7 @@ at a time, changed nothing else, and ran the recipe on SIE Cloud on all 10 photo
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `detect` | `IDEA-Research/grounding-dino-base` | Every photo went to the inspector: 0 `all_bolts_seen`, 0 `defect`, so all 4 photos we drew with bolts missing (FL-102, FL-103, FL-107, CV-202) were missed. It found no `flange` box on 7 of the 8 flange photos it read (one at 0.32 on FL-106) and gave bolts 0.25 to 0.41, under `bolt_sure` 0.60. It did find the `metal plate` (0.76 and 0.73) |
+| `detect` | `IDEA-Research/grounding-dino-base` | Every photo went to the inspector: 0 `all_bolts_seen`, 0 `defect`, so all 4 photos we drew with bolts missing (FL-102, FL-103, FL-107, CV-202) were missed. It found no `flange` box on 7 of the 8 flange photos (one at 0.32 on FL-106) and gave bolts 0.25 to 0.41, under `bolt_sure` 0.60. It did find the `metal plate` (0.76 and 0.73) |
 | `detect` | `google/owlv2-base-patch16-ensemble` | Returned almost nothing: no part box in any photo and at most 2 hole boxes, so all 9 photos it read went to the inspector |
 
 The output shape is the same (`objects` with label, score and `[x, y, w, h]` box), so both run

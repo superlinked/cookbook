@@ -63,7 +63,8 @@ The first call can wait minutes while SIE Cloud starts a cold model.
 - Write READMEs in plain words, like a blog post from an engineer to a peer,
   in this order: background (who does this job and why it matters to the
   company), the problem (ending with `### Examples`: two or three inputs from
-  `data/` and what should happen to each), how the flow solves it, why each
+  `data/`, a line saying whether they're synthetic or from a public dataset and under which
+  license, and what should happen to each), how the flow solves it, why each
   model, the flow as a Mermaid chart, how it's built (rules vs code, a step
   table naming the functions), how to run it, what came out (`### The three
   examples` in the same shape as `### Examples`, ending each one with a `Pass.`

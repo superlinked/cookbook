@@ -70,6 +70,8 @@ is, and those matter for what to build first.
 
 Here are three of the sentences in `data/reports.jsonl`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: no real groups, malware, vendors or CVEs.
+
 **1. A tool nobody wrote a rule for.**
 - **Input:** "Saltmarsh Kettle used the Quillstep loader to gain a foothold on harbour networks.
   Saltmarsh Kettle targeted port operators along the northern coast." (R-03, Northfold CERT)

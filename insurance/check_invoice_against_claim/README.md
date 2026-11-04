@@ -85,6 +85,9 @@ recipe doesn't decide coverage, set reserves or judge whether a repair price is 
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the insurer, the insureds, the shops and every
+number are invented.
+
 **1. A clean roofing invoice.** `clm-01`.
 - **Input:** page 1 of `repair-invoices.pdf`, a Brightwater Roofing & Gutters Ltd invoice for
   claim `CLM-26-104817`: Dana Whitcombe's homeowners claim on policy HO-2026-004817, loss on
@@ -358,7 +361,7 @@ A few things worth noticing:
 - **`clm-10` and `clm-07` are the same question with different answers.** Both totals are above
   the first estimate. `clm-10` has an approved 1,180.00 supplement on the claim, so its 3,959.00
   is exactly what's authorized now; `clm-07` has no supplement, so its 6,800.00 is 537.52 over.
-- **The payment queue is ready to key in.** The four invoices that passed (`clm-08` among them,
+- **A row in the payment queue can still be wrong.** The four invoices that passed (`clm-08` among them,
   with the OCR's invented tax) land there with the invoice number, the date as an ISO date and
   the amounts as plain numbers (from `payment-queue.csv`):
 
@@ -381,7 +384,8 @@ A few things worth noticing:
 
 The claim handler works two files. `payment-queue.csv` has the invoices that passed, with the
 invoice number, date and total ready to key into the payment screen; they still approve each
-one. `exceptions-queue.csv` has one row per failed check with the reason, and from there they
+one against the invoice itself, because a row can pass with a misread value, as `clm-08`'s
+invented tax did. `exceptions-queue.csv` has one row per failed check with the reason, and from there they
 ask the shop for a corrected invoice or take a closer look at the vendor or the amount.
 
 ## Potential improvements

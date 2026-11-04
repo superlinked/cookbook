@@ -94,6 +94,9 @@ investment advice.
 Here are three of the standing questions in `data/questions.yaml`, the passages in `data/` they
 meet, and what should happen to each.
 
+The passages are real paragraphs from Apple's and Target's 10-K filings on SEC EDGAR ([Data and
+licenses](#data-and-licenses) says what the SEC allows). The questions were written for this recipe.
+
 **1. Apple's manufacturing purchase obligations (AAPL-1).**
 
 - **Input:** passage P06 in the FY2025 10-K: "As of September 27, 2025, the Company had
@@ -443,7 +446,10 @@ Four 10-K filings from [SEC EDGAR](https://www.sec.gov/edgar), listed in
 The CSV also lists each company's FY2023 10-K (no passages), so a date like "February 3, 2024"
 maps to Target's fiscal 2023.
 
-**License.** EDGAR filings are US government records in the public domain. Each passage is one
+**License.** The SEC says information on sec.gov "may be copied or further distributed by users
+of the web site without the SEC's permission" ([its policy](https://www.sec.gov/privacy)). The
+companies wrote these filings, and the SEC's statement doesn't speak for any copyright they hold,
+so we keep short passages and cite the filing for each. Each passage is one
 paragraph of the filing's HTML with only whitespace collapsed and a leading bullet removed; P54
 also takes in the two bullet paragraphs that finish its sentence. `fetch_data.py` lists the
 phrase that picks each one. The standing questions are neutral research questions written for

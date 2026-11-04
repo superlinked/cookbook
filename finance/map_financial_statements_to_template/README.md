@@ -78,6 +78,8 @@ line is in the row the analyst would pick. Two lines of the same kind swapped on
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. No real company, person or loan is in it.
+
 **1. A new current loan for a returning borrower (Harbour Lane, `BRW-20417.pdf`).**
 
 - **Input:** the balance sheet's "Creditors: amounts falling due within one year" lists "Bank

@@ -94,6 +94,9 @@ through it.
 
 Here are three of the outside notes in `data/`, and what should happen to each.
 
+The notes and patients are synthetic, written for this recipe. The diagnosis codes are real, cut
+from the public CMS ICD-10-CM list.
+
 **1. A clean follow-up.** `note-01.txt`, filed in Marisol Quenby's chart.
 - **Input:** "Medications: - Metformin 500 mg PO twice daily - Lisinopril 10 mg PO once daily ...
   1. Type 2 diabetes mellitus without complications. ... 2. Essential hypertension, controlled."

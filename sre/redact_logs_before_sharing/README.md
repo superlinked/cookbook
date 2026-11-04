@@ -107,6 +107,9 @@ The recipe never uploads anything to the vendor. The engineer does that, after a
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: every person, company and value is invented, and
+the secrets are fake.
+
 **1. A version number that looks like an IP.**
 - **Input:** `build=4.18.302.7 host=10.0.4.17 msg="service started"` (checkout log).
 - **What should happen:** `4.18.302.7` can't be an IP (302 is too big for any part of one), and

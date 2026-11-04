@@ -81,6 +81,9 @@ makes a decision: the statuses come from plain Python reading `rules.yaml`.
 
 Here are three of the rows in `data/supplier-products.csv`, and what should happen to each.
 
+The supplier rows are synthetic, written for this recipe, from a fictional supplier. The taxonomy
+they get sorted into is real: Shopify's public one (MIT license).
+
 **1. A clear row.** TT-A02, "Womens High Rise Skinny Jean INDIGO 28"
 - **Input:** "High-rise skinny jeans with five pockets. Material: stretch denim (98% cotton, 2%
   elastane). Color: indigo. Size: 28."

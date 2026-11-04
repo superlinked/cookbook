@@ -133,6 +133,9 @@ IPs), white text on a dark background counts as hidden, and it only knows the co
 
 Here are three of the reported emails in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the people and the company are invented, and
+every domain and IP is reserved for examples.
+
 **1. A real password notice from our own IT (`06-genuine-password-notice.eml`).**
 - **Input:** "Your Larkfield account password expires on Tuesday, 3 November." and, a paragraph
   later, "IT will never ask for your password by email or phone, and there is nothing to fill in

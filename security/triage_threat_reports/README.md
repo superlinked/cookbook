@@ -75,6 +75,9 @@ anything.
 
 Here are three of the reports in `data/reports.jsonl`, and what should happen to each.
 
+The reports are synthetic, written for this recipe, with invented actors, malware and CVE IDs. The
+technique names are real, copied from MITRE ATT&CK under MITRE's terms of use.
+
 **1. A CVE that's open on our VPN gateway (R-01).**
 - **Input:** "Ashen Heron gained access to a Fenwick Freight file server through CVE-2099-41077 in
   the Corvane VPN gateway."
@@ -520,10 +523,13 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
   version: the file has only the three columns `technique_id`, `name` and `tactic`, with no
   version, `modified` date or source bundle, and there is no fetch script, so nothing in the
   repository records which release the rows came from. It was first committed on 31 Oct 2026 (UTC).
-  Check the rows against the current release before you rely on them. © The MITRE Corporation.
-  This work is reproduced and distributed with the permission of The MITRE Corporation, under the
-  [ATT&CK terms of use](https://attack.mitre.org/resources/legal-and-branding/terms-of-use/),
-  which allow reuse with this attribution.
+  Check the rows against the current release before you rely on them. © 2026 The MITRE
+  Corporation. This work is reproduced and distributed with the permission of The MITRE
+  Corporation. Under the
+  [ATT&CK terms of use](https://attack.mitre.org/resources/legal-and-branding/terms-of-use/):
+  "The MITRE Corporation (MITRE) hereby grants you a non-exclusive, royalty-free license to use
+  ATT&CK® for research, development, and commercial purposes. Any copy you make for such purposes is authorized provided
+  that you reproduce MITRE's copyright designation and this license in any such copy."
 
 ## Files
 

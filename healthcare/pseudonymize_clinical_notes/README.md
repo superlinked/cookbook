@@ -108,6 +108,8 @@ organization splits it) signs off on the extract, and only then does it go to th
 
 Here are three of the notes in `data/notes/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. No real patient is in these notes.
+
 **1. A clean discharge summary.** `01-discharge-summary.txt`, filed under Teodora Vance.
 - **Input:** the header lines "Patient: Teodora Vance" / "MRN: 00482913" / "DOB: 04/22/1959" /
   "Address: 27 Quillfeather Lane, Harrowgate, MA 02134" ... "Admitted: 09/03/2026" /
@@ -345,8 +347,7 @@ ran (more below). The thing to worry about is what stays readable. The recipe ca
 and first names in the text, like that "W.", and four notes don't tell you how often a real note
 slips past it.
 
-Every case came out with the output we planned, one of them for a different reason. They
-show the wiring works; they don't measure accuracy. Thirteen cases in four notes tell you each path
+These cases show the wiring works; they don't measure accuracy. Thirteen cases in four notes tell you each path
 through the flow does what it says, not how often a real note slips past it.
 
 A few things worth noticing:

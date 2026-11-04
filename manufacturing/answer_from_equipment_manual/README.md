@@ -87,6 +87,9 @@ The recipe never decides what to do with the machine. The technician does, from 
 
 Here are three of the questions in `data/questions.jsonl`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the manual, the chiller and every value in it are
+invented, so it isn't service advice.
+
 **1. An answer that's only on a drawing.** Q2, unit CH-03, revision C.
 - **Input:** "Which valve do I open to drain the coolant reservoir?"
 - **What should happen:** a search over the manual's pages finds the piping diagram, a model reads

@@ -101,6 +101,9 @@ approved for claim data.
 The committed claim, CLM-2026-004417, has five documents in `data/documents/`. Here are three
 of the things we wrote into them, and what should happen to each.
 
+All of this is synthetic, written for this recipe. No real person, customer, account or insurer is
+in it.
+
 **1. A bank account in an email.** D3.
 - **Input:** `03-insured-email.txt` (D3): "For the direct deposit please use our joint account
   at Cedar Ridge Credit Union, account number 0081 4472 9310." (The number is made up for this

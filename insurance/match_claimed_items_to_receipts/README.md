@@ -103,6 +103,9 @@ or denied automatically.
 
 Here are three of the claims in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. The handwriting is drawn with the Caveat font
+(SIL Open Font License).
+
 **1. A mixed receipt.** `CLM-26-1001`.
 - **Input:** `CLM-26-1001`, a handwritten inventory (page 1 of `inventories.pdf`) that writes
   "Nimbus 55in TV", and two receipt photos (pages 1 and 2 of `receipt-photos.pdf`), one with

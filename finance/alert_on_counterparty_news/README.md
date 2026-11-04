@@ -85,6 +85,8 @@ contact anyone outside the bank.
 
 Here are three of the articles in `data/news.jsonl`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the articles, the counterparties and every name.
+
 **1. A borrower misses a payment.**
 
 - **Input:** N-01: "Pellridge Foods Ltd missed a scheduled interest payment on its term loan at

@@ -82,6 +82,9 @@ relevance engineer and the merchandiser decide whether to switch the reranker on
 
 Here are three of the searches in `data/queries.json`, and what should happen to each.
 
+The product text and seven of the eight queries are real, from Amazon's Shopping Queries dataset
+(ESCI, Apache-2.0). The filters, the stock feed, the sizes and Q-08 are made up.
+
 **1. A wordy query.** Q-02
 - **Input:** "i want a warm jacket with a hood and that is waterproof and black or dark coloured
   like navy", filters black or navy, in stock.
@@ -364,8 +367,9 @@ A few things worth noticing:
   ```
 
   The sock is not in the feed, so every black search that reads it as a hit holds it (Q-01,
-  Q-03, Q-06, Q-07 and Q-08), but only Q-03 lists it, because only there would it have made the
-  first five. Three DREAM PAIRS toddler sneakers have
+  Q-03, Q-06, Q-07 and Q-08), but only Q-03 lists it: the list needs a score of at least 0.50 and a
+  place in the first five, and only Q-03 gave it both (on Q-08 it would rank 2, but it scored
+  0.0115). Three DREAM PAIRS toddler sneakers have
   no PIM color either and were held from Q-06, but they scored 0.0507 or less, so they're not on
   the list. In ESCI they have no color; in a real PIM someone would want to know.
 - **Sizing systems matter.** One search with `--size 8` and no sizing system lets a toddler 8

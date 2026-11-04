@@ -90,6 +90,9 @@ question when the two are close.
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: every person, business, address and number is
+invented.
+
 **1. The paper water bill.**
 
 - **Input:** `bill-1028-bayview-water-power.png`, a photo of a Bayview Water & Power bill: amount

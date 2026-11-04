@@ -90,6 +90,8 @@ their action item before the tickets are filed.
 
 Here are three of the incident channels in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: no real incident, company or person is in it.
+
 **1. A bad deploy, rolled back (INC-0101).**
 - **Input:** "checkout v2.14.0 went out at 13:52, a few minutes before the errors started." then
   "Decision: roll back checkout to v2.13.4. Dev, go ahead." and, next morning, "Final count from
@@ -112,10 +114,12 @@ Here are three of the incident channels in `data/`, and what should happen to ea
   certificate for api.larkspur.example expired at 09:00:00 UTC."
 - **What should happen:** the deploy sits right next to the outage, but it started after the alerts
   did, so it can't be the cause. The root cause should cite the certificate message; citing the
-  deploy or the question about it sends the root cause to review.
-- **Expected outcome:** `checks_passed`, root cause on the expired certificate.
+  deploy or the question about it sends the root cause to review. The draft should claim only what
+  the record says.
+- **Expected outcome:** `checks_passed`, root cause on the expired certificate, and nothing the
+  record doesn't say.
 
-On the live run, 9 of 9 cases came out as expected. [What came out](#what-came-out) has the results.
+On the live run, 8 of 9 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -281,26 +285,28 @@ took 37 seconds on our run.
   found.
 
 **3. A deploy in the middle of the outage (INC-0103).**
-- **Expected outcome:** `checks_passed`, root cause on the expired certificate.
+- **Expected outcome:** `checks_passed`, root cause on the expired certificate, and nothing the
+  record doesn't say.
 - **What came back:** `checks_passed`, 43.5 min alert window, root cause citing only S04 (the
   certificate) and never the deploy D01.
-- **Verdict:** Pass. But passing the checks isn't being right: this draft's contributing factor says
+- **Verdict:** Miss. The root cause is right, but passing the checks isn't being right: this draft's contributing factor says
   "a month", which is the model's arithmetic on "since September", and no check can tell that from a
   fact.
 
 ### Results
 
-On the live run on 4 Nov 2026, 9 of 9 cases came out as expected.
+On the live run on 4 Nov 2026, 8 of 9 cases came out as expected. The miss is INC-0103.
 
 **Where it works:** claims tie back to real lines. The plain deploy and rollback (INC-0101) and the
-flag flip (INC-0102) pass, the cause lands on the certificate and not the nearby deploy (INC-0103),
+flag flip (INC-0102) pass, the root cause lands on the certificate and not the nearby deploy, even in the draft that
+misses (INC-0103),
 and a flapping page keeps one window with its firing time shown (INC-0107). "We don't know" stays
 "we don't know" (INC-0104). A page still firing (INC-0105), no page at all (INC-0106) and an alert
 history cut off before the first message (also INC-0106) go to review, and support's count the next
 morning still counts as evidence (also INC-0101).
 
 **Where it fails:** the checks prove a quote is really in the line it cites, not that the claim is
-right. INC-0103's "a month" got through that way, and that's the one to worry about, because a real
+right. INC-0103 is the miss: its "a month" got through that way, and that's the one to worry about, because a real
 quote can sit under a claim it doesn't support. This run also didn't test a cause someone proposes
 and later takes back, and numbers written as words aren't checked at all.
 

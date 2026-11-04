@@ -122,6 +122,9 @@ looks at the plate. Nothing is scrapped, returned, booked or released automatica
 
 Here are three of the twelve delivered lots in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the mill, the fabricator, the heat numbers and
+every value are invented.
+
 **1. A clean, full delivery.** `lot-01`.
 - **Input:** PO-48213 line 1 orders 6 plates of item 41212 (S355J2+N, 12 x 2000 x 6000 mm) from
   Harrowgate Steelworks Ltd, none received yet. Line 1 of delivery note DN-26-0712 (page 1 of
@@ -392,7 +395,7 @@ you each path through the checks runs, not how often a real scan gets misread.
 
 A few things worth noticing:
 
-- **The two new near misses are the reason this version exists.** `lot-11`'s form simply has
+- **`lot-11` and `lot-12` are near misses a quick check would wave through.** `lot-11`'s form simply has
   five rows instead of six, and every one of them passes. Here is what the recipe read from it,
   and the check it wrote (from `lots/lot-11.json`, abridged):
 
@@ -431,7 +434,7 @@ A few things worth noticing:
   12, 15, 8 and 20 mm ones, and the `thickness` check went to review as "Not read" instead of
   assuming the ordered size. On 2026-11-03 it read "10.00 mm" on `lot-06`. On that earlier run,
   the grade span on one certificate ran over a line break into the next box's label
-  ("S235JR\nStandard"), which is why Python cuts every span at its first line break. Neither run
+  ("S235JR\nStandard"), which is why Python cuts every span at its first line break. None of the runs
   on 2026-11-03 hit SIE Cloud's empty-result error or dropped a span.
 
 ### What you do next

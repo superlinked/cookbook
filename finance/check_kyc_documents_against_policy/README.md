@@ -90,6 +90,9 @@ the customer's risk; those are separate steps in the same onboarding.
 Here are three of the cases in `data/`, and what should happen to each. All three were received
 on 26 October 2026.
 
+All of this is synthetic, written for this recipe and stamped SPECIMEN. Every person, address and
+number is invented.
+
 **1. A bill that words things differently (`kyc-02`).**
 
 - **Input:** the form for Tobias James Okafor-Bell, born 2 November 1979, at flat 2, 114 Harbour

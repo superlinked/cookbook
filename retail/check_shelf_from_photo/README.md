@@ -88,6 +88,9 @@ output, never compared, and never a status on its own.
 
 Here are three of the tags in the photos in `data/`, and what should happen to each.
 
+The photos are real Open Prices proofs (CC BY-SA 4.0), and the catalog comes from Open Prices and
+Open Food Facts (ODbL). [Data and licenses](#data-and-licenses) has the one price we changed.
+
 **1. A tag with its own product above it.** T01 on `granola-shelf-141418.webp`.
 - **Input:** a Grandy Organics bag above the tag for Grandy Organics Ancient Grain Granola (UPC
   0648960035153, $7.99 in the catalog).

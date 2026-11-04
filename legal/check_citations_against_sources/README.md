@@ -98,6 +98,9 @@ page pin cites, or anything in the brief that isn't a citation.
 
 Here are three of the citations in `data/draft_brief.docx`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the courts, the parties, the citations and the
+firm are invented, so don't cite any of them.
+
 **1. An exact quote.**
 - **Input:** "A covenant not to compete is enforceable only to the extent it is reasonable in
   duration and geographic scope and necessary to protect a legitimate business interest such as

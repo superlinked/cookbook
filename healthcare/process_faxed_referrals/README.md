@@ -100,6 +100,8 @@ insurance authorization is a separate step this recipe doesn't touch.
 
 Here are three of the fax packets in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. No real patient, provider or clinic is in it.
+
 **1. A complete packet.** `fax-1021-brightwater-family-medicine.pdf`
 - **Input:** three image-only pages (cover, signed referral order, clinic note) for Delphine
   Arkwright, a new patient, with a member ID, a reason and "Routine" on the order.

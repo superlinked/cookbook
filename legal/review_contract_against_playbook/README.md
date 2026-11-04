@@ -101,6 +101,8 @@ anything outside the five positions.
 
 Here are three of the NDAs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: every company and person is invented.
+
 **1. Our own paper.**
 - **Input:** `nda-brackenridge-analytics.docx`, a mutual NDA on our template: "This Agreement and
   the obligations in it last for two (2) years from the date of this Agreement." and "This Agreement
@@ -123,11 +125,11 @@ Here are three of the NDAs in `data/`, and what should happen to each.
   date of this Agreement", and Section 5 says "This Agreement shall be governed by and construed in
   accordance with the laws of the State of New York."
 - **What should happen:** Five years is over the limit, so the period deviates. New York is on the
-  playbook's allowed list, so the law should match, but only if the extractor finds it. If it
-  doesn't, the row must not pass: it says not found and points the lawyer at the section.
-- **Expected outcome:** period `deviates`; law `matches_position` if found, `not_found` if not.
+  playbook's allowed list, so the law should match. If the extractor doesn't find it, the row must
+  not pass: it says not found and points the lawyer at the section.
+- **Expected outcome:** period `deviates`; law `matches_position`.
 
-On the live run, 6 of 6 NDAs came out as expected. [What came out](#what-came-out) has the results.
+On the live run, 3 of 6 NDAs came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -308,16 +310,15 @@ took 34 s on ours.
 - **Verdict:** Pass.
 
 **3. A law clause the extractor misses.**
-- **Expected outcome:** period `deviates`; law `matches_position` if found, `not_found` if not.
+- **Expected outcome:** period `deviates`; law `matches_position`.
 - **What came back:** period `deviates`; law `not_found`, with Section 5 cited.
-- **Verdict:** Pass. It's what we wrote it to test, and it's the limit. The extractor missed a New
-  York clause that's plainly in Section 5, so the lawyer reads that section to confirm it. That's
-  why "not found" never passes.
+- **Verdict:** Miss. The extractor missed a New York clause that's plainly in Section 5, so the
+  lawyer reads that section to confirm it. That's why "not found" never passes.
 
 ### Results
 
-On the live run on 4 Nov 2026 (UTC), 6 of 6 NDAs came out as expected on the positions we wrote them
-to test. The extractor also missed three clauses we didn't expect it to miss (Lowfield Ridge's New
+On the live run on 4 Nov 2026 (UTC), 3 of 6 NDAs came out as expected. The three misses are Lowfield
+Ridge, Orlaith and Velloway: the extractor missed a clause that's there in each (Lowfield Ridge's New
 York law, and the permitted disclosures of Orlaith and Velloway), each `not_found` with its sections
 cited.
 

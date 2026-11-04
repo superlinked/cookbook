@@ -82,6 +82,9 @@ update. Nobody else sees it.
 
 Here are three of the searches in `data/searches.json`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the guidance of a fictional clinic network. It
+isn't real clinical guidance, so don't treat it as any.
+
 **1. A question the guidance answers.** Q-01, adult.
 - **Input:** "An adult's office blood pressure reads 142/88 and they have no symptoms. What does our
   guidance say to do next?"
