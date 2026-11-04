@@ -1,0 +1,62 @@
+"""The log platform: search log events by service and time range.
+
+Stands in for your log platform's search API (a Loki, Elasticsearch or Datadog query for one
+service between two timestamps). The seed in data/log_platform.csv is loaded into an in-memory
+sqlite3 database, so the lookup is a plain SQL query. Each event comes back as the line the
+platform shows, with the parsed `key=value` fields (`user_id=`, `client_ip=`, `host=`,
+`request_id=`) written out as the platform stores them.
+"""
+
+from __future__ import annotations
+
+import csv
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+
+SEED = Path(__file__).resolve().parent / "data" / "log_platform.csv"
+
+
+@dataclass(frozen=True)
+class LogEvent:
+    timestamp: str  # ISO 8601 in UTC, as the platform stores it
+    level: str
+    service: str
+    message: str
+
+    @property
+    def line(self) -> str:
+        """The event as one exported log line."""
+        return f"{self.timestamp} {self.level:<5} {self.service} {self.message}"
+
+
+def _connect(seed: Path) -> sqlite3.Connection:
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE events (timestamp TEXT, level TEXT, service TEXT, message TEXT)")
+    with seed.open(newline="", encoding="utf-8") as handle:
+        rows = [
+            (row["timestamp"], row["level"], row["service"], row["message"])
+            for row in csv.DictReader(handle)
+        ]
+    db.executemany("INSERT INTO events VALUES (?, ?, ?, ?)", rows)
+    return db
+
+
+def search(service: str, start: str, end: str, seed: Path = SEED) -> list[LogEvent]:
+    """Every event the service logged from `start` up to `end` (ISO 8601 UTC strings, which sort
+    as text), oldest first."""
+    db = _connect(seed)
+    try:
+        found = db.execute(
+            "SELECT timestamp, level, service, message FROM events "
+            "WHERE service = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp",
+            (service, start, end),
+        ).fetchall()
+    finally:
+        db.close()
+    return [LogEvent(*row) for row in found]
+
+
+def export(events: list[LogEvent]) -> str:
+    """The events as the text file the engineer would download from the platform."""
+    return "".join(event.line + "\n" for event in events)

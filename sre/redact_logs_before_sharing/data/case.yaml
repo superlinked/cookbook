@@ -1,0 +1,9 @@
+# The vendor case this bundle is for, as the on-call engineer sets it up: which incident, which
+# vendor, which services talk to that vendor, the time range to export, and the notes file.
+incident: INC-2207
+vendor: cardvault
+services: [checkout-api, payment-worker]
+window:
+  start: "2026-10-27T09:10:00Z"
+  end: "2026-10-27T09:55:00Z"
+notes: oncall-notes.txt

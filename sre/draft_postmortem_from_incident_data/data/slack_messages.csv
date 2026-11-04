@@ -1,0 +1,49 @@
+channel,ts,user,text
+inc-0101-checkout-500s,1790949430.000000,U01MAYA,Paged for CheckoutHigh5xxRate. Checkout is returning 500s for about a quarter of orders. I'm IC; opening this channel.
+inc-0101-checkout-500s,1790949580.000000,U02DEV,"checkout v2.14.0 went out at 13:52, a few minutes before the errors started."
+inc-0101-checkout-500s,1790949855.000000,U02DEV,"Logs show 'connection pool exhausted: payment-client max=8' on every failed order. v2.14.0 moved the payment client to an async pool with a max of 8 connections, down from 64."
+inc-0101-checkout-500s,1790949962.000000,U01MAYA,"Decision: roll back checkout to v2.13.4. Dev, go ahead."
+inc-0101-checkout-500s,1790950050.000000,U07JULES,Support has 41 tickets from customers who saw an error page at checkout or were told their card was declined.
+inc-0101-checkout-500s,1790950968.000000,U02DEV,Rollback to v2.13.4 finished. Error rate is dropping.
+inc-0101-checkout-500s,1790951585.000000,U01MAYA,5xx alert resolved. Orders are completing normally again. Moving to monitoring.
+inc-0101-checkout-500s,1790952320.000000,U03SAM,"Why did this pass staging? Staging only runs 5 concurrent checkouts, so a pool of 8 was never exhausted there."
+inc-0101-checkout-500s,1790952420.000000,U01MAYA,Action items: Dev adds a load test with production-level concurrency to the checkout pipeline. Sam adds an alert on payment-client pool saturation. Jules sends the follow-up email to affected customers.
+inc-0101-checkout-500s,1790952510.000000,U01MAYA,Closing the incident. Postmortem draft due Friday.
+inc-0101-checkout-500s,1791016800.000000,U07JULES,"Final count from support for yesterday's checkout errors: 63 tickets. Payments logs show 1,140 failed checkout attempts from 812 customers."
+inc-0102-orders-db,1791367560.000000,U05THEO,Paged: orders-db is at 498 of 500 connections and the orders API p95 is 4.8 seconds. Order history pages are timing out.
+inc-0102-orders-db,1791367890.000000,U06PRIYA,I turned on recommendations_on_order_page at 09:58. It queries orders-db once per line item on the order page.
+inc-0102-orders-db,1791368145.000000,U05THEO,pg_stat_activity shows hundreds of identical SELECTs from the recommendations widget. That matches Priya's flag.
+inc-0102-orders-db,1791368300.000000,U05THEO,The flag went to 100% of users at once; there was no percentage rollout.
+inc-0102-orders-db,1791369655.000000,U05THEO,Turning the flag off now.
+inc-0102-orders-db,1791370210.000000,U05THEO,"Connections back to 120, p95 under 300 ms. Both alerts resolved."
+inc-0102-orders-db,1791370680.000000,U04LENA,Customers could still place orders; only order history and order detail pages timed out.
+inc-0102-orders-db,1791371130.000000,U05THEO,Follow-ups: Priya batches the recommendation queries into one query per order. Lena makes percentage rollout the default for new flags. I'll add a per-feature connection limit on orders-db.
+inc-0103-gateway-tls,1791795780.000000,U03SAM,"Paged: TLS handshake failures on api.larkspur.example, almost every mobile app request is failing."
+inc-0103-gateway-tls,1791796460.000000,U04LENA,Gateway v3.8.1 just rolled out. Could it be the deploy?
+inc-0103-gateway-tls,1791796625.000000,U03SAM,No. The failures started at 09:00:40 and the deploy started at 09:12:30. The deploy came after the errors.
+inc-0103-gateway-tls,1791796900.000000,U03SAM,Found it: the certificate for api.larkspur.example expired at 09:00:00 UTC. The auto-renew job has been failing since September because its DNS API token was rotated.
+inc-0103-gateway-tls,1791798090.000000,U03SAM,Renewed the certificate by hand and reloaded the gateway.
+inc-0103-gateway-tls,1791798300.000000,U03SAM,"Handshake failures back to zero, alert resolved."
+inc-0103-gateway-tls,1791798730.000000,U07JULES,Mobile app users saw 'cannot connect' the whole time; web checkout was not affected because it uses a different hostname.
+inc-0103-gateway-tls,1791799260.000000,U03SAM,Action items: I'll fix the renew job's DNS token and add an alert when any certificate is under 14 days from expiry. Lena adds a check that the renew job succeeded in the last 7 days.
+inc-0104-search-latency,1792079670.000000,U04LENA,Paged: search p99 is 3.9 seconds. Results are slow but still returning.
+inc-0104-search-latency,1792080130.000000,U04LENA,No search deploys today and no flag changes. CPU and memory on the search nodes look normal.
+inc-0104-search-latency,1792080585.000000,U02DEV,Index shard sizes look normal too. Nothing obvious in the slow query log.
+inc-0104-search-latency,1792081260.000000,U04LENA,Latency is back to normal on its own and the alert resolved. We still don't know what caused it.
+inc-0104-search-latency,1792081530.000000,U04LENA,Action item: Dev keeps per-shard latency metrics for this window so we can dig in tomorrow. Root cause still open.
+inc-0105-webhooks,1792397260.000000,U06PRIYA,"Paged: 12,400 payment webhooks undelivered. Merchants are not getting payment confirmations."
+inc-0105-webhooks,1792398015.000000,U06PRIYA,The partner endpoint answers 429 Too Many Requests. v1.9.0 raised the retry ceiling and our retries are hammering it.
+inc-0105-webhooks,1792398890.000000,U05THEO,Paused retries for the partner; the backlog stopped growing.
+inc-0105-webhooks,1792400310.000000,U06PRIYA,"Backlog is draining slowly, alert still firing. Handing over to the EU on-call; keep this channel open."
+inc-0106-avatar-uploads,1792669320.000000,U07JULES,Customers report avatar uploads fail with 'something went wrong'. 17 tickets in the last hour.
+inc-0106-avatar-uploads,1792669830.000000,U02DEV,media-upload returns 500 for HEIC images since v4.2.0 went out at 10:15; the new libvips build has no HEIC support.
+inc-0106-avatar-uploads,1792670710.000000,U02DEV,Rolled media-upload back to v4.1.3.
+inc-0106-avatar-uploads,1792671600.000000,U07JULES,Customers confirm uploads work again.
+inc-0106-avatar-uploads,1792672260.000000,U02DEV,Action items: I'll add HEIC samples to the upload tests. Sam makes the upload error-rate alert page when it is above 5%.
+inc-0107-fulfillment-lag,1793040180.000000,U05THEO,Paged: fulfillment queue lag over 15 minutes. Shipping labels are being created late.
+inc-0107-fulfillment-lag,1793040840.000000,U05THEO,Lag alert resolved by itself. Watching.
+inc-0107-fulfillment-lag,1793041500.000000,U05THEO,It fired again. This is not transient.
+inc-0107-fulfillment-lag,1793041960.000000,U04LENA,At 18:30 I lowered consumer_concurrency from 16 to 2 to cut costs. Evening order volume is more than 2 consumers can keep up with.
+inc-0107-fulfillment-lag,1793042550.000000,U04LENA,Reverted consumer_concurrency to 16.
+inc-0107-fulfillment-lag,1793043120.000000,U05THEO,"Lag back under a minute, alert resolved."
+inc-0107-fulfillment-lag,1793043600.000000,U05THEO,Action items: Lena adds a capacity check before changing worker concurrency. I'll make the lag alert wait 10 minutes before resolving so it does not flap.

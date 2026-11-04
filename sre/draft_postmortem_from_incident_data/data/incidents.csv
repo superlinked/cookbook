@@ -1,0 +1,8 @@
+incident,title,channel,services
+INC-0101,Checkout returns 500s,inc-0101-checkout-500s,checkout;frontend
+INC-0102,Order pages time out,inc-0102-orders-db,orders;orders-db
+INC-0103,Mobile API TLS failures,inc-0103-gateway-tls,api-gateway
+INC-0104,Search latency spike,inc-0104-search-latency,search
+INC-0105,Payment webhook backlog,inc-0105-webhooks,payments-webhooks
+INC-0106,Avatar uploads failing,inc-0106-avatar-uploads,media-upload
+INC-0107,Fulfillment queue lag,inc-0107-fulfillment-lag,fulfillment-worker

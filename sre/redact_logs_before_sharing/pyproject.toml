@@ -1,0 +1,13 @@
+[project]
+name = "sie-redact-logs-before-sharing"
+version = "0.1.0"
+description = "Redact secrets and customer data from an incident's logs before they go to a vendor's support case."
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+]
+
+[tool.uv]
+package = false

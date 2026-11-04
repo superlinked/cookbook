@@ -1,0 +1,18 @@
+[project]
+name = "sie-match-alerts-to-runbooks"
+version = "0.1.0"
+description = "Group an alert storm into likely shared problems and point each group at a runbook section."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+]
+
+[dependency-groups]
+# make_data.py needs only the standard library; the group exists so the documented command runs.
+data = []
+
+[tool.uv]
+package = false

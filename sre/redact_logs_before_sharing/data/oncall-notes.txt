@@ -1,0 +1,13 @@
+INC-2207 checkout timeouts - on-call notes (Imogen Tarrant)
+
+09:20 paged. checkout-api p99 at 4.9 s, 504s from payment-worker.
+09:24 payment-worker pods on 10.0.7.31 restarting every few minutes; ledger-db looks fine.
+09:31 Felix says Brightwater Ceramics (Delphine Marchetti) reported it at 09:15, ticket SUP-48213.
+      She was checking out from 198.51.100.23.
+09:40 stack trace from the worker:
+    PaymentTimeout: charge 5b9d2c14-8e3f-4a71-b0d6-2c7e9f1a4b38 exceeded 4.5 s
+      at payment_worker.charge (charge.py:88)
+      at payment_worker.run (worker.py:41)
+09:52 rolled back deploy_id=e1b7c3a9-6f24-4d85-b0e2-97a4c1d8f356 to build 4.18.301. Errors stopped.
+10:05 cardvault confirms a latency spike on their side 09:15 to 09:50.
+10:12 Felix let Delphine know checkout is back.

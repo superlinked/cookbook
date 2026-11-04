@@ -1,0 +1,14 @@
+service,owner,aliases,note
+payments-api,payments,payments;payment-svc,
+invoice-worker,payments,,
+web-frontend,storefront,frontend;storefront-web,
+checkout-ui,storefront,,
+auth-service,identity,auth;login-api,
+loyalty-api,loyalty,,
+orders-db,data-platform,,
+session-cache,data-platform,,
+order-events,streaming,,
+ingress-gateway,platform,,
+search-api,search,,
+search-es,search,,
+legacy-reports,,,the team that built it was dissolved; nobody has picked it up

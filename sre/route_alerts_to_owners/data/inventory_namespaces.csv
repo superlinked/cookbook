@@ -1,0 +1,7 @@
+namespace,service
+payments,payments-api
+storefront,web-frontend
+checkout,checkout-ui
+identity,auth-service
+search,search-api
+ingress,ingress-gateway
