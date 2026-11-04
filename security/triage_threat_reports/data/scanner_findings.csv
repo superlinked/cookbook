@@ -1,0 +1,7 @@
+host,cve,status
+vpn-gw-01,CVE-2099-41077,patched
+vpn-gw-02,CVE-2099-41077,open
+vpn-gw-01,CVE-2099-50213,patched
+vpn-gw-02,CVE-2099-50213,patched
+mail-relay-01,CVE-2099-33410,open
+erp-app-01,CVE-2099-28815,patched

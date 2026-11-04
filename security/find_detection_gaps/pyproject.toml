@@ -1,7 +1,7 @@
 [project]
-name = "sie-threat-relations"
+name = "sie-find-detection-gaps"
 version = "0.1.0"
-description = "Map how threat actors, malware, vulnerabilities and targets relate across threat reports."
+description = "Find the malware and tools that groups targeting your sectors use and no detection rule covers."
 requires-python = ">=3.12"
 dependencies = [
     "python-dotenv>=1.2.4",

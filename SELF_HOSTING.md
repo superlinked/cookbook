@@ -23,7 +23,7 @@ for every model it calls. Grouped:
 
 | Images | Recipes |
 | --- | --- |
-| `cuda12-default` | [categorize_products_into_taxonomy](ecommerce/categorize_products_into_taxonomy), [rerank_search_within_filters](ecommerce/rerank_search_within_filters), [search_products_by_photo_and_text](ecommerce/search_products_by_photo_and_text), [map_financial_statements_to_template](finance/map_financial_statements_to_template), [add_outside_notes_to_chart](healthcare/add_outside_notes_to_chart), [pseudonymize_clinical_notes](healthcare/pseudonymize_clinical_notes), [search_clinical_guidance](healthcare/search_clinical_guidance), [redact_documents_with_log](legal/redact_documents_with_log), [review_contract_against_playbook](legal/review_contract_against_playbook), [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging), [redact_logs_before_sharing](sre/redact_logs_before_sharing) |
+| `cuda12-default` | [categorize_products_into_taxonomy](ecommerce/categorize_products_into_taxonomy), [rerank_search_within_filters](ecommerce/rerank_search_within_filters), [search_products_by_photo_and_text](ecommerce/search_products_by_photo_and_text), [map_financial_statements_to_template](finance/map_financial_statements_to_template), [add_outside_notes_to_chart](healthcare/add_outside_notes_to_chart), [pseudonymize_clinical_notes](healthcare/pseudonymize_clinical_notes), [search_clinical_guidance](healthcare/search_clinical_guidance), [redact_documents_with_log](legal/redact_documents_with_log), [review_contract_against_playbook](legal/review_contract_against_playbook), [find_detection_gaps](security/find_detection_gaps), [triage_threat_reports](security/triage_threat_reports), [redact_logs_before_sharing](sre/redact_logs_before_sharing) |
 | `cuda12-transformers5` | [check_parts_in_assembly_photos](manufacturing/check_parts_in_assembly_photos), [route_alerts_to_owners](sre/route_alerts_to_owners) |
 | `cuda13-sglang-cu130` | [tag_products_from_photo_and_text](ecommerce/tag_products_from_photo_and_text), [draft_postmortem_from_incident_data](sre/draft_postmortem_from_incident_data) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` | [check_kyc_documents_against_policy](finance/check_kyc_documents_against_policy), [process_faxed_referrals](healthcare/process_faxed_referrals), [check_invoice_against_claim](insurance/check_invoice_against_claim), [match_claimed_items_to_receipts](insurance/match_claimed_items_to_receipts), [check_delivery_against_po](manufacturing/check_delivery_against_po) |
@@ -57,7 +57,7 @@ docker run --gpus all -p 8080:8080 \
 
 # in a second terminal
 curl http://localhost:8080/readyz      # expect: ok
-cd security/threat_report_tagging      # a recipe in the cuda12-default row
+cd security/triage_threat_reports      # a recipe in the cuda12-default row
 uv run recipe.py                       # with SIE_BASE_URL=http://localhost:8080 in .env
 ```
 

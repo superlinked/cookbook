@@ -1,33 +1,38 @@
-"""Tag threat actors, malware and tools in threat reports, with CVEs, hashes and IOCs.
+"""Triage threat reports against what your company runs: tag them, then check the scanner.
 
-Use case:  Threat report tagging: which actors, malware, tools and indicators is this report about?
-Who:       Cyber threat intelligence (CTI) teams that file vendor and partner reports into a
-           threat-intel platform.
-Problem:   One report says "LX-0417", another "Ashen Heron", a third "Grey Lantern", and the
-           same name can mean two different groups. Indicators come defanged in several styles,
-           sometimes live, sometimes truncated. Tagging by hand is slow, and a wrong merge
-           pins the activity on the wrong actor.
-Input:     data/reports.jsonl (synthetic reports about fictional actors and malware),
-           data/attack_techniques.csv (a MITRE ATT&CK technique subset) and rules.yaml (the
-           alias table and the tool-to-technique mapping).
+Use case:  Threat report triage: does this vendor or partner report affect us, and what do we
+           search the logs for?
+Who:       Cyber threat intelligence (CTI) analysts who read and file vendor and partner reports,
+           the teams that own the systems, and the SOC that searches the logs.
+Problem:   Names and indicators are messy ("LX-0417" is "Ashen Heron"; every vendor defangs
+           URLs its own way), and the question that matters, "does this one affect us?", means
+           looking CVEs up in the vulnerability scanner and product names up in the asset
+           inventory by hand. The report that names an open CVE on your VPN gateway reads like
+           the nine that don't concern you.
+Input:     data/reports.jsonl (synthetic reports), data/attack_techniques.csv (a MITRE ATT&CK
+           technique subset), the scanner's findings (scanner.py over
+           data/scanner_findings.csv), the asset inventory (asset_inventory.py over
+           data/asset_inventory.csv) and rules.yaml (the alias table, the tool mapping, the
+           cues, the model ID and the thresholds).
 SIE pipeline:
            (Python)                    pull CVEs, MD5/SHA-1/SHA-256 hashes and defanged URLs,
-                                       domains and IPs by regex; flag live URLs and malformed
-                                       indicators
+                                       domains and IPs by regex; find the inventory's product
+                                       names, aliases and vendors as whole words
            (Python)                    split each report into sentence windows that fit
-           extract  numind/NuNER_Zero  tag threat actor, malware and tool spans
-           (Python)                    also match alias-table names the model missed, any
-                                       case; normalize every name through the alias table, look
-                                       up each tool's candidate ATT&CK techniques; unknown names,
-                                       colliding aliases, unmapped tools and a tool in a sentence
-                                       with a negation or benign-use cue go to review
-Output:    tags.json (every report with entities, candidate observables, candidate techniques,
-           status and reasons), entities.csv (one row per actor, malware or tool mention) and
-           iocs.csv (one row per candidate indicator, defanged). "tagged" means no configured
-           review flag fired, not that the extraction is complete or correct.
-Why SIE:   One small zero-shot NER model, no LLM and no training: the labels are plain words in
-           rules.yaml. Indicators and alias merges are code you can read, so a person can see
-           why any merge happened. One SIE Cloud call per batch, and you host nothing.
+           extract  numind/NuNER_Zero  tag threat actor, malware and tool spans, all windows
+                                       in one batched call per 16 windows
+           (Python)                    normalize names through the alias table, look up each
+                                       tool's candidate ATT&CK techniques, look every CVE up in
+                                       the scanner and every product in the inventory, and set
+                                       the status
+Output:    In runs/<timestamp>/: tickets/<team>.md (a ticket draft per owning team), hunt.csv
+           (the SOC's hunt list, the only file with live indicators), tags.json (every report
+           with its tags, indicators, lookups, status and reasons), entities.csv and iocs.csv
+           (defanged). Status per report: affects_us, hunt, filed or review. The analyst and
+           the system owner decide what happens next.
+Why SIE:   One small zero-shot NER model, no training: the labels are plain words in
+           rules.yaml. No generative model makes any decision; the alias merges, lookups and
+           statuses are code you can read. Nothing to host.
 Runs on:   SIE Cloud.
 
     uv run recipe.py
@@ -48,7 +53,9 @@ from pathlib import Path
 from typing import Any, cast
 
 import yaml
+from asset_inventory import AssetInventory
 from dotenv import load_dotenv
+from scanner import OPEN, Finding, Scanner
 from sie_sdk import SIEClient
 from sie_sdk.client.errors import (
     InputTooLongError,
@@ -71,7 +78,9 @@ WAIT_S = 900
 ERROR_CHARS = 200
 
 ACTOR, MALWARE, TOOL = "actor", "malware", "tool"
+# Per mention: tagged, review or new. Per report: affects_us, hunt, filed or review.
 TAGGED, REVIEW, NEW = "tagged", "review", "new"
+AFFECTS_US, HUNT, FILED = "affects_us", "hunt", "filed"
 ENTITY_FIELDS = (
     "report_id",
     "kind",
@@ -87,6 +96,7 @@ ENTITY_FIELDS = (
     "reason",
 )
 IOC_FIELDS = ("report_id", "type", "value", "live_in_source", "malformed", "note")
+HUNT_FIELDS = ("report_id", "report_status", "type", "value", "published")
 HASH_TYPES = {32: "md5", 40: "sha1", 64: "sha256"}
 # A CSV cell starting with one of these opens as a formula in a spreadsheet.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -188,8 +198,10 @@ class Indicator:
 
 
 def refang(value: str) -> str:
-    value = re.sub(r"^hxxp", "http", value, flags=re.IGNORECASE)
-    return value.replace("[.]", ".").replace("(.)", ".").replace("[:]", ":").replace("[@]", "@")
+    """Undo defang: every hxxp or hxxps before a colon (or %3a) is http or https again, the
+    nested one in a query string included, and [.], (.), [:] and [@] are plain again."""
+    value = value.replace("[.]", ".").replace("(.)", ".").replace("[:]", ":").replace("[@]", "@")
+    return re.sub(r"hxxp(s?)(?=:|%3a)", r"http\1", value, flags=re.IGNORECASE)
 
 
 def defang(value: str) -> str:
@@ -338,13 +350,14 @@ def tag_windows(
 ) -> dict[str, dict[str, Any]]:
     """Send the windows to NuNER Zero in batches; return its result per window id.
 
-    A window with nothing in it comes back as ``entities: []``, not an error. A call that
-    fails for a reason that may pass (a lost connection, a timeout, a server error, a rate
-    limit) marks every window in its batch with that error, so those reports go to review and
-    the run still writes its outputs. Two cases stop the run with SIEStopped instead: a refusal
-    every batch would repeat (see `is_fatal`), and a run where no call succeeded at all, since
-    then nothing was tagged. An error that isn't an SIE error is a bug in this code and is
-    raised as is.
+    A window with nothing in it comes back as ``entities: []``, not an error. A reply with no
+    ``entities`` key fails that window, and counts as a failed call when the whole batch lacks
+    it. A call that fails for a reason that may pass (a lost connection, a timeout, a server
+    error, a rate limit) marks every window in its batch with that error, so those reports go
+    to review and the run still writes its outputs. Two cases stop the run with SIEStopped
+    instead: a refusal every batch would repeat (see `is_fatal`), and a run where no call
+    succeeded at all, since then nothing was tagged. An error that isn't an SIE error is a bug
+    in this code and is raised as is.
     """
     model, labels = rules["models"]["entities"], list(rules["labels"].values())
     options = {"threshold": rules["thresholds"]["min_entity_score"]}
@@ -356,13 +369,18 @@ def tag_windows(
         batch = items[start : start + size]
         calls += 1
         try:
-            found = client.extract(
-                model,
-                [Item(id=item_id, text=text) for item_id, text in batch],
-                labels=labels,
-                options=options,
-                provision_timeout_s=WAIT_S,
+            found = jsonable(
+                client.extract(
+                    model,
+                    [Item(id=item_id, text=text) for item_id, text in batch],
+                    labels=labels,
+                    options=options,
+                    provision_timeout_s=WAIT_S,
+                )
             )
+            # A reply that isn't one result per window is a failed call, not a crash.
+            if not isinstance(found, list) or len(found) != len(batch):
+                raise SIEError(f"{model} replied with {_count(found)} results for {len(batch)}")
         except SIEError as error:
             if is_fatal(error):
                 raise SIEStopped(stop_message(error, model)) from error
@@ -370,8 +388,19 @@ def tag_windows(
             failed = {"error": f"the SIE call failed: {short(error)}"}
             results.update({item_id: failed for item_id, _ in batch})
             continue
-        for (item_id, _), result in zip(batch, jsonable(found), strict=True):
+        missing: list[str] = []
+        for (item_id, _), result in zip(batch, found, strict=True):
+            if not isinstance(result, dict) or result.get("entities") is None:
+                # No `entities` is a failed call, not "nothing found": an empty list is that.
+                item_error = result.get("error") if isinstance(result, dict) else None
+                missing.append(
+                    "the reply has no `entities`"
+                    + (f" (item error: {item_error})" if item_error else "")
+                )
+                result = {"error": f"the SIE call failed: {missing[-1]}"}
             results[item_id] = result
+        if len(missing) == len(batch):
+            failures.append(SIEError(missing[0]))
     if failures and len(failures) == calls:
         raise SIEStopped(
             f"Every SIE call failed ({calls} of {calls} to {model}), so the run stops: "
@@ -385,6 +414,10 @@ def tag_windows(
             f"First: {short(failures[0])}"
         )
     return results
+
+
+def _count(found: Any) -> str:
+    return str(len(found)) if isinstance(found, list) else "no list of"
 
 
 def every_call_failed_advice(error: SIEError) -> str:
@@ -473,15 +506,16 @@ def model_entities(
     window: str,
     offset: int,
     result: dict[str, Any],
-    indicators: list[Indicator],
+    taken: list[tuple[int, int]],
     rules: dict[str, Any],
 ) -> tuple[list[Entity], list[str]]:
     """Keep the model spans that check out, moved to report offsets, and note the invalid ones.
 
     A span must carry one of our labels and a score, and its text must be exactly the window
-    text at its offsets. A span on top of a CVE, hash or IOC is dropped: those come from regex.
-    So is a span that is not a name: one in ``ignore_mentions`` ("MD5") or made only of generic
-    words ("threat group").
+    text at its offsets. A span on top of a `taken` span is dropped: CVEs, hashes and IOCs come
+    from regex, and product names from the asset inventory ("Corvane VPN" is a product we look
+    up, not an attacker's tool). So is a span that is not a name: one in ``ignore_mentions``
+    ("MD5") or made only of generic words ("threat group").
     """
     kinds = {label: kind for kind, label in rules["labels"].items()}
     ignored = {m.casefold() for m in rules["ignore_mentions"]}
@@ -495,7 +529,7 @@ def model_entities(
             notes.append(f"invalid span from the model dropped: {raw!r}")
             continue
         start, end = offset + start, offset + end
-        if any(start < i.end and i.start < end for i in indicators):
+        if any(start < e and s < end for s, e in taken):
             continue
         words = text.casefold().split()
         if text.strip().casefold() in ignored or all(w in generic for w in words):
@@ -667,13 +701,278 @@ def technique_cue(text: str, tag: Tag, cues: list[str]) -> str:
     read as credential dumping or exfiltration. This is a keyword check on one sentence, so it
     catches plainly worded cases only.
     """
-    sentence = next(
-        (m.group() for m in SENTENCE_RE.finditer(text) if m.start() <= tag.start < m.end()), ""
+    return sentence_cue(text, tag.start, cues)
+
+
+def sentence_of(text: str, position: int) -> tuple[int, int]:
+    """The (start, end) of the sentence holding ``position``."""
+    return next(
+        (m.span() for m in SENTENCE_RE.finditer(text) if m.start() <= position < m.end()),
+        (position, position),
     )
+
+
+def sentence_cue(text: str, position: int, cues: list[str]) -> str:
+    """The first cue (in list order) written as whole words in the sentence holding
+    ``position``, any case, or "" when none is there."""
+    start, end = sentence_of(text, position)
+    sentence = text[start:end]
     for cue in cues:
         if re.search(r"(?<![\w-])" + re.escape(cue) + r"(?![\w-])", sentence, re.IGNORECASE):
             return cue
     return ""
+
+
+# --- 5. Does it affect us? The scanner and the asset inventory --------------------------------
+
+# A capitalized word right after a product name makes it a longer, different name
+# ("Corvane VPN Gateway Manager"); a number right after it is the version the report names,
+# written "7.2", "v7", "version 7.2" or "(7.2)", and it may end a sentence ("Gateway 7.4.") or
+# a family ("7.x" is 7). Any other version wording near the name ("versions 8.0 and later",
+# ", 7.4 only", "prior to 7.0") isn't read; see unread_version.
+NAME_WORD_RE = re.compile(r" ([A-Z][\w-]*)")
+VERSION_RE = re.compile(r" \(?(?:version |v)?(\d+(?:\.\d+)*)(?![\w\[(]|\.\d)")
+
+
+@dataclass
+class ProductMention:
+    text: str  # as written in the report
+    start: int
+    end: int
+    product: str = ""  # the inventory product; "" when the name isn't an exact match
+    hosts: list[str] = field(default_factory=list)
+    version_written: str = ""
+    problem: str = ""  # why the name or version isn't an exact match; "" when it is
+    cue: str = ""  # a cue word in its sentence ("not affected"), "" when none
+
+
+def _overlaps(start: int, end: int, taken: list[tuple[int, int]]) -> bool:
+    return any(start < e and s < end for s, e in taken)
+
+
+def _longer_name(text: str, end: int, limit: int, taken: list[tuple[int, int]]) -> int:
+    """Where a product name really ends: after the capitalized words that follow it, if any.
+    A word inside an indicator ("CVE-2099-41077" after the name) is not part of the name."""
+    for _ in range(limit):
+        m = NAME_WORD_RE.match(text, end)
+        if m is None or _overlaps(m.start(1), m.end(1), taken):
+            break
+        end = m.end()
+    return end
+
+
+def unread_version(text: str, end: int, taken: list[tuple[int, int]], rules: dict[str, Any]) -> str:
+    """The version wording in the next few words after a product name that ends at ``end``,
+    in the same sentence, or "" when there is none: a `version_words` entry or any digit.
+    Words inside an indicator ("CVE-2099-41077", an IP) don't count. Called when VERSION_RE
+    read no version, so whatever this finds is a version the recipe can't compare."""
+    window = int(rules["relevance"]["version_window_words"])
+    words = [str(w) for w in rules["relevance"]["version_words"]]
+    sentence_end = sentence_of(text, max(end - 1, 0))[1]
+    tail = "".join(
+        " " if _overlaps(i, i + 1, taken) else c
+        for i, c in enumerate(text[end:sentence_end], start=end)
+    )
+    near = " ".join(tail.split()[:window])
+    for word in words:
+        if re.search(r"(?<![\w-])" + re.escape(word) + r"(?![\w-])", near, re.IGNORECASE):
+            return word
+    digit = re.search(r"\S*\d\S*", near)
+    return digit.group().strip(",;:()") if digit else ""
+
+
+def find_products(
+    text: str, inventory: AssetInventory, indicators: list[Indicator], rules: dict[str, Any]
+) -> list[ProductMention]:
+    """Every product the report names that is, or looks like, something in the inventory.
+
+    A product name or alias from the inventory written as whole words (any case, longest
+    first) is an exact match, unless a capitalized word follows it: "Corvane VPN Gateway
+    Manager" is a longer name, so it's a near miss. A number right after the name is the
+    version the report names, and a host only counts when its version starts with it. Other
+    version wording near the name ("versions 8.0 and later") is a problem: the recipe can't
+    compare it, so it doesn't ticket every host running the product. A vendor name with no
+    exact product name around it ("Corvane VPN Concentrator") is a near miss too: close to
+    something we run, not the same product. Names inside an indicator are part of the
+    indicator. Near misses carry a `problem` and go to review.
+    """
+    limit = int(rules["relevance"]["max_extra_name_words"])
+    cues = [str(c) for c in rules["relevance"]["product_cues"]]
+    taken = [(i.start, i.end) for i in indicators]
+    found: list[ProductMention] = []
+    for surface in inventory.names():
+        pattern = r"(?<![\w-])" + re.escape(surface) + r"(?![\w-])"
+        for m in re.finditer(pattern, text, re.IGNORECASE):
+            if _overlaps(m.start(), m.end(), taken):
+                continue
+            assets = inventory.find_product(m.group())
+            products = sorted({a.product for a in assets})
+            end = _longer_name(text, m.end(), limit, taken)
+            mention = ProductMention(m.group(), m.start(), end)
+            if end > m.end():
+                mention.text = text[m.start() : end]
+                mention.problem = (
+                    f"a longer name than the inventory's {' / '.join(products)}, so not the "
+                    "same product as far as the inventory knows"
+                )
+            elif len(products) > 1:
+                mention.problem = f"the inventory lists this name under {' and '.join(products)}"
+            else:
+                mention.product = products[0]
+                hosts = assets
+                version = VERSION_RE.match(text, m.end())
+                if version and not _overlaps(version.start(), version.end(), taken):
+                    written = version.group(1)
+                    mention.version_written, mention.end = written, version.end()
+                    hosts = [a for a in assets if (a.version + ".").startswith(written + ".")]
+                    if not hosts:
+                        have = ", ".join(sorted({a.version for a in assets}))
+                        mention.problem = (
+                            f"the report names version {written}; the inventory has {have}"
+                        )
+                elif unread := unread_version(text, m.end(), taken, rules):
+                    mention.problem = (
+                        f"the report qualifies the version ({unread!r}) in a way the recipe "
+                        "doesn't read; a person checks which versions it covers"
+                    )
+                    hosts = []
+                mention.hosts = [a.host for a in hosts]
+            mention.cue = sentence_cue(text, m.start(), cues)
+            found.append(mention)
+            taken.append((mention.start, mention.end))
+    for vendor in inventory.vendors():
+        pattern = r"(?<![\w-])" + re.escape(vendor) + r"(?![\w-])"
+        for m in re.finditer(pattern, text, re.IGNORECASE):
+            end = _longer_name(text, m.end(), limit, taken)
+            if _overlaps(m.start(), end, taken):
+                continue
+            ours = sorted({a.product for a in inventory.find_vendor(vendor)})
+            problem = (
+                f"close to the inventory's {' / '.join(ours)} but not the same name; a person "
+                "checks whether it's a product we run"
+            )
+            found.append(ProductMention(text[m.start() : end], m.start(), end, problem=problem))
+            taken.append((m.start(), end))
+    return sorted(found, key=lambda p: p.start)
+
+
+@dataclass
+class Ticket:
+    team: str
+    host: str
+    product: str
+    cve: str  # "" when the report names the product without a CVE
+    finding: str  # what the lookups found, in words
+    excerpt: str  # the report's sentence, indicators defanged
+
+
+@dataclass
+class Relevance:
+    products: list[ProductMention] = field(default_factory=list)
+    scanner: list[dict[str, str]] = field(default_factory=list)  # host, cve, status
+    tickets: list[Ticket] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)  # what sends the report to review
+    notes: list[str] = field(default_factory=list)  # what was checked and found closed
+
+
+def defanged_excerpt(text: str, position: int, indicators: list[Indicator]) -> str:
+    """The sentence holding ``position``, with every indicator in it written defanged, so a
+    ticket never carries a live link even when the report did."""
+    start, end = sentence_of(text, position)
+    return defanged_text(text, indicators, start, end)
+
+
+def defanged_text(text: str, indicators: list[Indicator], start: int = 0, end: int = -1) -> str:
+    """``text[start:end]`` (all of it by default) with every indicator inside written defanged.
+    A bare domain the regexes don't count (a live "www.example.com" or "user@example.com")
+    stays as written."""
+    end = len(text) if end < 0 else end
+    parts, cursor = [], start
+    for ind in sorted(indicators, key=lambda i: i.start):
+        if start <= ind.start and ind.end <= end:
+            parts += [text[cursor : ind.start], ind.value]
+            cursor = ind.end
+    return "".join([*parts, text[cursor:end]])
+
+
+def check_relevance(
+    text: str,
+    indicators: list[Indicator],
+    products: list[ProductMention],
+    scanner: Scanner,
+    inventory: AssetInventory,
+) -> Relevance:
+    """Look the report's CVEs up in the scanner and its products in the inventory.
+
+    A CVE the scanner shows open on a host is a ticket for the team that owns the host. A
+    product named exactly, with no CVE in the report, is a ticket for each host running it, to
+    check. A product named with CVEs is a ticket only through the scanner: a host running it
+    that the scanner has no result for, for any of those CVEs, goes to review, and a patched
+    CVE is a note. A near-miss name, a cue like "not affected" next to the product, and an open
+    CVE on a host with no owner in the inventory go to review too.
+    """
+    rel = Relevance(products=products)
+    cves = [i for i in indicators if i.type == "cve" and not i.malformed]
+    findings: dict[str, list[Finding]] = {}
+    for ind in cves:
+        findings.setdefault(ind.value, scanner.find_cve(ind.value))
+    rel.scanner = [asdict(f) for found in findings.values() for f in found]
+
+    def ticket(host: str, cve: str, finding: str, position: int) -> None:
+        assets = inventory.find_host(host)
+        teams = sorted({a.owner_team for a in assets})
+        if not teams:
+            rel.reasons.append(
+                f"{cve or 'a named product'} on {host}: the host isn't in the asset inventory, "
+                "so there is no owning team to send it to"
+            )
+            return
+        product = ", ".join(sorted({a.product for a in assets}))
+        excerpt = defanged_excerpt(text, position, indicators)
+        for team in teams:
+            new = Ticket(team, host, product, cve, finding, excerpt)
+            if all((t.team, t.host, t.cve) != (team, host, cve) for t in rel.tickets):
+                rel.tickets.append(new)
+
+    for ind in cves:
+        for f in findings[ind.value]:
+            if f.status == OPEN:
+                ticket(f.host, ind.value, "open, per the scanner", ind.start)
+    for cve, found in findings.items():
+        patched = [f.host for f in found if f.status != OPEN]
+        if not found:
+            rel.notes.append(f"{cve}: the scanner has no result for it on any host")
+        elif patched:
+            rel.notes.append(f"{cve}: patched on {', '.join(patched)}, per the scanner")
+    for p in products:
+        if p.problem:
+            rel.reasons.append(f"product {p.text!r}: {p.problem}")
+            continue
+        if p.cue:
+            rel.reasons.append(
+                f"product {p.text!r}: the sentence says {p.cue!r}; a person checks whether "
+                "it applies"
+            )
+            continue
+        if not cves:
+            for host in p.hosts:
+                finding = f"the report names {p.product} and gives no CVE; check exposure"
+                ticket(host, "", finding, p.start)
+            continue
+        # Every (host, CVE) pair needs a scanner result: a patched CVE on a host says nothing
+        # about another CVE the scanner never checked there.
+        unchecked = {
+            cve: missing
+            for cve in sorted(findings)
+            if (missing := [h for h in p.hosts if all(f.host != h for f in findings[cve])])
+        }
+        if unchecked:
+            pairs = " and for ".join(f"{cve} on {', '.join(h)}" for cve, h in unchecked.items())
+            rel.reasons.append(
+                f"product {p.text!r}: the scanner has no result for {pairs}; a person checks "
+                "whether it applies"
+            )
+    return rel
 
 
 # --- Run --------------------------------------------------------------------------------------
@@ -682,8 +981,9 @@ def technique_cue(text: str, tag: Tag, cues: list[str]) -> str:
 @dataclass
 class TaggedReport:
     id: str
+    published: str
     title: str
-    status: str
+    status: str  # affects_us | hunt | filed | review
     actors: list[str]
     malware: list[str]
     tools: list[str]
@@ -692,7 +992,25 @@ class TaggedReport:
     candidate_techniques: list[dict[str, str]]
     tags: list[Tag]
     indicators: list[Indicator]  # candidate observables, not vetted indicators
+    relevance: Relevance
     reasons: list[str] = field(default_factory=list)
+
+
+def hunt_indicators(report: TaggedReport, rules: dict[str, Any]) -> list[Indicator]:
+    """The indicators the SOC can search the logs for: well-formed, of a `hunt_types` type."""
+    types = set(rules["relevance"]["hunt_types"])
+    return [i for i in report.indicators if i.type in types and not i.malformed]
+
+
+def report_status(report: TaggedReport, rules: dict[str, Any]) -> str:
+    """affects_us when a ticket was drafted (its reasons stay on the report), else review when
+    any check raised a reason, else hunt when there's something to search the logs for, else
+    filed. A status says what the checks found; the analyst and the system owner decide."""
+    if report.relevance.tickets:
+        return AFFECTS_US
+    if report.reasons:
+        return REVIEW
+    return HUNT if hunt_indicators(report, rules) else FILED
 
 
 def tag_reports(
@@ -701,6 +1019,8 @@ def tag_reports(
     table: AliasTable,
     techniques: dict[str, Technique],
     rules: dict[str, Any],
+    scanner: Scanner,
+    inventory: AssetInventory,
 ) -> list[TaggedReport]:
     max_words = rules["thresholds"]["max_words_per_window"]
     windows = {report.id: sentence_windows(report.text, max_words) for report in reports}
@@ -714,6 +1034,8 @@ def tag_reports(
     tagged: list[TaggedReport] = []
     for report in reports:
         indicators = find_indicators(report.text, rules)
+        products = find_products(report.text, inventory, indicators, rules)
+        taken = [(i.start, i.end) for i in indicators] + [(p.start, p.end) for p in products]
         reasons: list[str] = []
         for ind in indicators:
             if ind.live_in_source and policy["live_ioc"]:
@@ -726,7 +1048,7 @@ def tag_reports(
             if error := result.get("error"):
                 reasons.append(f"window {number} was not tagged: {error}")
                 continue
-            entities, notes = model_entities(window, offset, result, indicators, rules)
+            entities, notes = model_entities(window, offset, result, taken, rules)
             found += entities
             reasons += notes
         entities = merge_entities(found, table_mentions(report.text, table, indicators), table)
@@ -744,6 +1066,9 @@ def tag_reports(
             for tag in tags
             if tag.status == REVIEW or tag.techniques_held
         ]
+        relevance = check_relevance(report.text, indicators, products, scanner, inventory)
+        reasons += relevance.reasons
+        reasons = list(dict.fromkeys(reasons))  # a name mentioned twice gives one reason
 
         def names(kind: str, tags: list[Tag] = tags) -> list[str]:
             return sorted({t.canonical for t in tags if t.kind == kind and t.status == TAGGED})
@@ -756,21 +1081,22 @@ def tag_reports(
                 for t in tag.candidate_techniques
             }
         )
-        mapped = [asdict(techniques[t]) for t in ids]
-        tagged.append(
-            TaggedReport(
-                report.id,
-                report.title,
-                REVIEW if reasons else TAGGED,
-                names(ACTOR),
-                names(MALWARE),
-                names(TOOL),
-                mapped,
-                tags,
-                indicators,
-                reasons,
-            )
+        out = TaggedReport(
+            report.id,
+            report.published,
+            defanged_text(report.title, find_indicators(report.title, rules)),
+            "",
+            names(ACTOR),
+            names(MALWARE),
+            names(TOOL),
+            [asdict(techniques[t]) for t in ids],
+            tags,
+            indicators,
+            relevance,
+            reasons,
         )
+        out.status = report_status(out, rules)
+        tagged.append(out)
     return tagged
 
 
@@ -782,7 +1108,50 @@ def csv_safe(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def write_outputs(output_dir: Path, tagged: list[TaggedReport]) -> None:
+def code_span(text: str) -> str:
+    """``text`` as a Markdown code span, so a viewer shows it as written: a link in it
+    ("[advisory](//evil.example/fix)", "<https://...>") is not made clickable. The fence is one
+    backtick longer than the longest run inside, and line breaks become spaces."""
+    text = " ".join(text.split())
+    runs = [len(run) for run in re.findall(r"`+", text)]
+    fence = "`" * (max(runs, default=0) + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
+def ticket_drafts(tagged: list[TaggedReport]) -> dict[str, str]:
+    """One Markdown ticket draft per owning team, listing every report that affects its hosts.
+    Indicators stay defanged here; the live ones are only in hunt.csv. The report's title and
+    sentences go in code spans, so a Markdown link a report carries doesn't render live."""
+    by_team: dict[str, list[tuple[TaggedReport, Ticket]]] = {}
+    for report in tagged:
+        for t in report.relevance.tickets:
+            by_team.setdefault(t.team, []).append((report, t))
+    drafts: dict[str, str] = {}
+    for team, rows in sorted(by_team.items()):
+        lines = [f"# Ticket draft for {team}", ""]
+        lines += [
+            "Drafted from threat reports by the CTI triage recipe. The CTI analyst checks it "
+            "before it's filed; your team decides what to do.",
+            "",
+        ]
+        for report_id in dict.fromkeys(r.id for r, _ in rows):
+            report = next(r for r, _ in rows if r.id == report_id)
+            title = code_span(report.title)
+            lines += [f"## {report.id}: {title} (published {report.published})", ""]
+            for _, t in (row for row in rows if row[0].id == report_id):
+                where = f"{t.cve} on" if t.cve else "On"
+                lines.append(f"- {where} `{t.host}` ({t.product}): {t.finding}")
+            names = ", ".join(report.actors + report.malware) or "none tagged"
+            lines += ["", f"Actors and malware named: {names}", ""]
+            for excerpt in dict.fromkeys(t.excerpt for r, t in rows if r.id == report_id):
+                lines.append(f"> {code_span(excerpt)}")
+            lines.append("")
+        drafts[team] = "\n".join(lines).rstrip() + "\n"
+    return drafts
+
+
+def write_outputs(output_dir: Path, tagged: list[TaggedReport], rules: dict[str, Any]) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = [asdict(report) for report in tagged]
     (output_dir / "tags.json").write_text(
@@ -813,11 +1182,30 @@ def write_outputs(output_dir: Path, tagged: list[TaggedReport]) -> None:
                         }
                     )
                 )
+    # The only file with live (refanged) indicators: the SOC pastes them into a log search.
+    with (output_dir / "hunt.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=HUNT_FIELDS)
+        writer.writeheader()
+        for report in tagged:
+            if report.status not in (AFFECTS_US, HUNT):
+                continue
+            for ind in hunt_indicators(report, rules):
+                row = {"report_id": report.id, "report_status": report.status}
+                row |= {"type": ind.type, "value": refang(ind.value), "published": report.published}
+                writer.writerow(csv_safe(row))
+    tickets = output_dir / "tickets"
+    tickets.mkdir(exist_ok=True)
+    for team, draft in ticket_drafts(tagged).items():
+        name = re.sub(r"[^\w-]", "_", team) or "_"
+        (tickets / f"{name}.md").write_text(draft, encoding="utf-8")
 
 
-def _setup() -> tuple[list[Report], AliasTable, dict[str, Technique], dict[str, Any]]:
+def _setup() -> tuple[
+    list[Report], AliasTable, dict[str, Technique], dict[str, Any], Scanner, AssetInventory
+]:
     rules, techniques = load_rules(), load_techniques()
-    return load_reports(), AliasTable.build(rules, techniques), techniques, rules
+    table = AliasTable.build(rules, techniques)
+    return load_reports(), table, techniques, rules, Scanner(), AssetInventory()
 
 
 def main() -> None:
@@ -825,19 +1213,26 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="output directory (default: runs/<timestamp>)")
     args = parser.parse_args()
     output = args.output or RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    reports, table, techniques, rules, scanner, inventory = _setup()
     with make_client() as client:
-        tagged = stop_on_refusal(lambda: tag_reports(client, *_setup()))
-    write_outputs(output, tagged)
+        tagged = stop_on_refusal(
+            lambda: tag_reports(client, reports, table, techniques, rules, scanner, inventory)
+        )
+    write_outputs(output, tagged, rules)
     for report in tagged:
+        print(f"{report.id}  {report.status:<10} actors: {', '.join(report.actors) or '-'}")
         ids = ", ".join(t["id"] for t in report.candidate_techniques) or "-"
-        print(f"{report.id}  {report.status:<7} actors: {', '.join(report.actors) or '-'}")
         print(f"        malware: {', '.join(report.malware) or '-'}  candidate techniques: {ids}")
+        for t in report.relevance.tickets:
+            print(f"        ticket: {t.team}  {t.cve or '-'} on {t.host}: {t.finding}")
+        for note in report.relevance.notes:
+            print(f"        checked: {note}")
         for reason in report.reasons:
             print(f"        review: {reason}")
-    review = sum(report.status == REVIEW for report in tagged)
-    print(f"\n{len(tagged)} reports: {len(tagged) - review} tagged, {review} to review")
-    print("tagged = no configured review flag fired; techniques and indicators are candidates")
-    print(f"outputs: {output / 'tags.json'}, {output / 'entities.csv'}, {output / 'iocs.csv'}")
+    counts = {s: sum(r.status == s for r in tagged) for s in (AFFECTS_US, HUNT, FILED, REVIEW)}
+    print(f"\n{len(tagged)} reports: " + ", ".join(f"{n} {s}" for s, n in counts.items()))
+    print("techniques and indicators are candidates; the analyst and system owners decide")
+    print(f"outputs in {output}: tags.json, entities.csv, iocs.csv, hunt.csv, tickets/")
 
 
 if __name__ == "__main__":

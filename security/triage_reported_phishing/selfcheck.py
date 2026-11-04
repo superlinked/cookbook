@@ -589,7 +589,7 @@ def check_fatal_error() -> None:
         assert str(error) in stopped, stopped
         assert "SIE_API_KEY" not in stopped, stopped
     # A model SIE marked as never loading (gated, not found) stops the run and points at the
-    # model name, the same advice threat_report_tagging gives.
+    # model name, the same advice triage_threat_reports gives.
     gated = ModelLoadFailedError("gated model", error_class="GATED", permanent=True)
     for model in RULES["models"].values():
         client = StandIn(REPLIES, fail=(model,), error=gated)

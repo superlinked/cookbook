@@ -1,0 +1,7 @@
+rule_id,title,platform,covers
+DR-0101,Thornpipe implant beacon to a staging host,EDR,Thornpipe implant
+DR-0102,Halvard Gateway path traversal attempt,WAF,CVE-2099-41877
+DR-0103,Larchwood stealer reads browser credential stores,EDR,Larchwood stealer
+DR-0104,Credential dumping from LSASS memory,EDR,
+DR-0105,Gullwire tunnel over DNS,NDR,Gullwire;Gullwire tunneler
+DR-0106,Brackenfold ransomware note dropped on file shares,EDR,Brackenfold;Brackenfold locker
