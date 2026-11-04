@@ -15,8 +15,9 @@ body:
       label: Where did it run?
       options:
         - SIE Serverless
-        - My own SIE (docker run)
-        - My own SIE (Helm cluster)
+        - SIE Local
+        - A single SIE container (docker run)
+        - SIE Cluster
     validations:
       required: true
   - type: textarea

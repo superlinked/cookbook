@@ -223,7 +223,7 @@ Change `rules.yaml` and it tells you right away if you broke something.
 
 ## Run it
 
-**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-find-detection-gaps)).
@@ -397,9 +397,9 @@ Each model is one line under `models:` in `rules.yaml`. As of 31 Oct 2026, SIE S
 other relation extraction model for `relations`, so there's nothing to swap in here yet.
 [MODELS.md](../../MODELS.md) lists every model these recipes use and links SIE's full catalog.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`, and the API
+The same code runs on your machine and uses SIE Cluster or SIE Local. Set `SIE_BASE_URL` in `.env`, and the API
 key becomes optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

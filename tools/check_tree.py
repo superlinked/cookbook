@@ -46,7 +46,7 @@ README_SECTIONS = (
     "### Results",
     "### What you do next",
     "## Try another model",
-    "## Run it on your own SIE",
+    "## Run it using SIE Cluster or SIE Local",
 )
 # What came out names the examples again, under "### The two examples" or "### The three examples".
 RESULTS_SECTION = "## What came out"
@@ -55,10 +55,12 @@ EXAMPLES_RESULT = re.compile(r"### The (?:two|three) examples")
 RESULT_LABELS = ("**Where it works:**", "**Where it fails:**")
 VERDICT = re.compile(r"^- \*\*Verdict:\*\* (?:Pass|Miss)\.", re.M)
 MIN_VERDICTS = 2
-# "## Run it" opens with the line that sends readers to SIE Serverless, the keys, docs and repo.
+# "## Run it" opens with the line naming the three ways to run it, with the keys, docs and repo.
 RUN_SECTION = "## Run it"
-RUN_LINE_START = "**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?"
+RUN_LINE_START = "**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?"
 RUN_LINE_LINKS = (
+    "[SIE Cluster](https://superlinked.com/docs/deployment?",
+    "[SIE Local](https://superlinked.com/docs/quickstart?",
     "(https://console.superlinked.com/console/keys?",
     "(https://superlinked.com/docs/reference/api?",
     "(https://github.com/superlinked/sie)",

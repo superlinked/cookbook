@@ -16,7 +16,7 @@ folder into their own project and it runs with only `uv` and an SIE API key.
   `uv.lock`, `.python-version` (3.12) and `.env.example`. There is no root
   Python project and no shared package.
 - `MODELS.md` lists every model the recipes use; `SELF_HOSTING.md` covers
-  running them on your own SIE.
+  running them using SIE Cluster or SIE Local.
 - The root `README.md` indexes every recipe by industry; add a line there for a
   new recipe.
 
@@ -34,7 +34,7 @@ Run everything from inside the recipe folder:
 - `uv run selfcheck.py` where a recipe has one (offline, no SIE call).
 
 A live run needs `SIE_API_KEY` in a `.env` in the
-recipe folder or the repo root, or `SIE_BASE_URL` pointing at a self-hosted SIE
+recipe folder or the repo root, or `SIE_BASE_URL` pointing at SIE Cluster or SIE Local
 (the key is then optional).
 The first call can wait minutes while SIE Serverless starts a cold model.
 
@@ -76,9 +76,10 @@ The first call can wait minutes while SIE Serverless starts a cold model.
   `### What you do next`), and potential improvements. At least one example
   shows a limit or a trade-off. Every README also has
   `## Try another model` (swaps you actually ran, with what changed) and
-  `## Run it on your own SIE` (the SIE image for each model);
+  `## Run it using SIE Cluster or SIE Local` (the SIE image for each model);
   `tools/check_tree.py` fails without them.
-- Recipe code runs on the reader's machine. Only the models run on SIE Serverless or on a
-  self-hosted SIE, so write "ran the recipe against SIE Serverless", not "on".
+- Recipe code runs on the reader's machine. Only the models run on SIE Serverless, SIE Cluster or
+  SIE Local, so write "ran the recipe using SIE Serverless", not "on". Those are the only three
+  names: no "SIE Cloud", no "your own SIE".
 - A new model goes in `MODELS.md` with its license and SIE image.
 - Use Conventional Commits.

@@ -7,15 +7,15 @@
 Example apps built on open models served by [SIE](https://github.com/superlinked/sie), the
 Superlinked Inference Engine. Each recipe is one job a team does every week, such as redacting
 chats or triaging phishing, built from SIE model calls plus rules in plain Python and YAML that
-you can read and change. The code runs on your machine and calls models on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or on an
-SIE you host yourself.
+you can read and change. The code runs on your machine and uses models on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme),
+[SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme).
 
 Every recipe is its own folder with its own `pyproject.toml` and `uv.lock`, so you install only
 what that recipe needs. Copy a folder into your own project and it still runs.
 
 ## Run a recipe
 
-**Try a recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
+**Run a recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you) and an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme)).
@@ -40,12 +40,12 @@ All the data in these recipes is synthetic or comes from public datasets named i
   happened when we swapped each one for another model.
 - Every recipe README has a **Try another model** section. Each model is one line in that
   recipe's `rules.yaml`, so trying one that answers in the same format is a one-line change.
-- **[SELF_HOSTING.md](SELF_HOSTING.md)** runs the recipes on your own SIE, with a `docker run`
+- **[SELF_HOSTING.md](SELF_HOSTING.md)** runs the recipes using SIE Cluster or SIE Local, with a `docker run`
   command or a Helm cluster. Set `SIE_BASE_URL` in `.env`; nothing else changes.
 
 ## Recipes
 
-Run time is a warm live run against SIE Serverless, on the date in each recipe's README (2 to 4 Nov 2026
+Run time is a warm live run using SIE Serverless, on the date in each recipe's README (2 to 4 Nov 2026
 for most). A run that has to start a cold model can take several minutes longer. Calls counts the
 recipe's SIE requests (one request can carry many items).
 
@@ -152,5 +152,5 @@ runs the per-recipe checks listed in
 ## Future work
 
 - **Scheduled live runs.** CI checks every recipe without calling SIE; the `Live` workflow runs
-  recipes against SIE Serverless only when a maintainer starts it. A weekly scheduled run of a few
+  recipes using SIE Serverless only when a maintainer starts it. A weekly scheduled run of a few
   recipes would catch model drift early. It spends SIE credits, so it is not on yet.

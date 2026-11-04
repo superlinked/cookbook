@@ -25,7 +25,7 @@ uvx pre-commit install          # ruff, file hygiene, actionlint, tree and lock 
 3. Run it live: `uv run recipe.py`. Put the examples and what came out in
    the README.
 4. Add `## Try another model` with at least one swap you ran, and
-   `## Run it on your own SIE` with the image for each model (copy the table
+   `## Run it using SIE Cluster or SIE Local` with the image for each model (copy the table
    shape from another recipe; the images are in SIE's compatibility matrix).
 5. Link it from the root `README.md` under its industry, and add any new model
    to `MODELS.md`.

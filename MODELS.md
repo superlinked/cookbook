@@ -2,7 +2,7 @@
 
 Every model the recipes call, with the recipes that use it. All of them are open-weight models served
 by [SIE](https://github.com/superlinked/sie). The id is what goes in a recipe's `rules.yaml`, the
-same on SIE Serverless and on your own SIE. "Image" is the SIE v0.10.1 image that serves the model
+same on SIE Serverless, SIE Cluster and SIE Local. "Image" is the SIE v0.10.1 image that serves the model
 when you host it yourself (see [SELF_HOSTING.md](SELF_HOSTING.md)). Check each license on the
 model card before you rely on it.
 
@@ -28,7 +28,7 @@ model card before you rely on it.
 
 ## Swaps we ran
 
-Between 31 Oct and 4 Nov 2026 (the date is in each recipe's README) we swapped one model at a time in each recipe's `rules.yaml` and ran the recipe against
+Between 31 Oct and 4 Nov 2026 (the date is in each recipe's README) we swapped one model at a time in each recipe's `rules.yaml` and ran the recipe using
 SIE Serverless with nothing else changed. A row that says a swap did not run was checked but not run.
 Each recipe README's "Try another model" section has the details. The short version:
 

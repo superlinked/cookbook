@@ -290,7 +290,7 @@ call; and the SIE failure rule. [`make_data.py`](./make_data.py) writes the volu
 
 ## Run it
 
-**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents)).
@@ -467,7 +467,7 @@ index into the review platform.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe against SIE Serverless on 2026-11-04 (UTC), on this 12-document volume.
+nothing else, and ran the recipe using SIE Serverless on 2026-11-04 (UTC), on this 12-document volume.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -480,9 +480,9 @@ SIE Serverless has no other model for `privilege` (`fastino/GLiNER2.5-Decide`) y
 `fastino/GLiNER2.5-Decide-1B` and `fastino/GLiNER2.5-multi-Decide` to self-host; we have not run
 them here. See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local. Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -493,7 +493,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `fields` | `fastino/gliner2-large-v1` | `cuda12-default` | L4 |
 | `privilege` | `fastino/GLiNER2.5-Decide` | `cuda12-transformers5` | L4 |
 
-One SIE server runs one image, so these 3 images need a cluster: the
+One SIE server runs one image, so these 3 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

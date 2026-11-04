@@ -272,7 +272,7 @@ the SIE error rule, offline, with hand-written records and stand-in model replie
 
 ## Run it
 
-**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog)).
@@ -466,7 +466,7 @@ Then the steward runs the import, and the existing catalog record is always the 
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe against SIE Serverless. These swaps ran before the
+at a time, changed nothing else, and ran the recipe using SIE Serverless. These swaps ran before the
 material rule, so records not named came out as in the first main run (L24, L28 and L30 linked);
 with the rule, those three go to review before any judge sees them, whatever the judge model.
 
@@ -484,9 +484,9 @@ different model puts the same pairs at different numbers.
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local. Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
@@ -496,7 +496,7 @@ is then optional. The table gives the SIE v0.10.1 image each model runs on, from
 | `text` | `Qwen/Qwen3-Embedding-4B` has no published image in v0.10.1: set `Qwen/Qwen3-Embedding-8B` instead | `cuda12-default` | L4 |
 | `judge` | `Qwen/Qwen3.8-27B-FP8` | `cuda13-sglang-cu130` | H100 80GB |
 
-One SIE server runs one image, so these 2 images need a cluster: the
+One SIE server runs one image, so these 2 images need SIE Cluster: the
 [sie-cluster Helm chart](https://github.com/superlinked/sie/tree/main/deploy/helm/sie-cluster)
 with one worker pool per image routes each model to its pool. See
 [SELF_HOSTING.md](../../SELF_HOSTING.md) for the values file.

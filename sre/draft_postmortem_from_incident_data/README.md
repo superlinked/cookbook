@@ -251,7 +251,7 @@ stand-in model replies.
 
 ## Run it
 
-**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-draft-postmortem-from-incident-data)).
@@ -416,7 +416,7 @@ the tickets and taking the draft to the review meeting.
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
 nothing else, and ran an earlier version of this recipe (before the lookups, the number check
-and the action-item checks) against SIE Serverless on 31 Oct 2026.
+and the action-item checks) using SIE Serverless on 31 Oct 2026.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -426,9 +426,9 @@ and the action-item checks) against SIE Serverless on 31 Oct 2026.
 "Drafts ready" is that version's name for `checks_passed`. See [MODELS.md](../../MODELS.md) for
 every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local. Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

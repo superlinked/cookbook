@@ -236,7 +236,7 @@ photos.
 
 ## Run it
 
-**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos)).
@@ -400,7 +400,7 @@ since the recipe says nothing about torque.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 2026-11-03 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe against SIE Serverless on all 10 photos.
+at a time, changed nothing else, and ran the recipe using SIE Serverless on all 10 photos.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -412,9 +412,9 @@ without a code change. The score thresholds were set on SAM 3's scores, and thes
 much lower; they would need their own thresholds and prompts.
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
-## Run it on your own SIE
+## Run it using SIE Cluster or SIE Local
 
-The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local. Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

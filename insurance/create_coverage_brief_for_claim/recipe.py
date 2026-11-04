@@ -30,7 +30,7 @@ Output:    briefings.json, briefings.csv and briefings.md in runs/<timestamp>/: 
 Why SIE:   Both models run on SIE Serverless. The reranker reads the whole packet for every claim,
            so the LLM sees only a short list, and a loss the search finds nothing for never reaches
            it. No generative model sets the status. Nothing to host.
-Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
 
     uv run recipe.py
 """
@@ -243,7 +243,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 

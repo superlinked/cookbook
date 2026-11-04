@@ -38,7 +38,7 @@ Output:    po-lines.csv (one row per PO line on the deliveries, with its fill st
 Why SIE:   Two models, no generative model makes a decision. The PO matching, quantities,
            limits, tolerances, guard bands, heat number match and qualified-inspector list are
            plain Python reading rules.yaml.
-Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
+Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
 
     uv run recipe.py
 """
@@ -268,7 +268,7 @@ def make_client() -> SIEClient:
     api_key = os.environ.get("SIE_API_KEY", "").strip()
     base_url = os.environ.get("SIE_BASE_URL", "").strip()
     if not api_key and not base_url:
-        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for your own SIE, in .env")
+        raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
 
