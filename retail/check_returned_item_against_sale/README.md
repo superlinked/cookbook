@@ -1,10 +1,11 @@
 # Check a returned item against the sale before taking it back
 
-> **This example:** a returns desk with the POS sale line and photos of the item.
+> **This example:** a returns desk with the sale line from the point of sale and photos of the
+> item.
 >
 > **How it works:** an OCR model reads the packaging, a vision-language model answers fixed
 > questions about condition, and plain rules compare the text with the sale and apply the returns
-> policy. The associate decides every return.
+> policy. The associate decides every return, and a manager decides the ones sent up.
 >
 > **Use the same pattern for:** checking a delivery against the purchase order at the back door,
 > inspecting a damaged-in-transit claim, checking a trade-in device.
@@ -16,8 +17,8 @@ didn't pair, a toaster that was the wrong color, a phone a customer changed thei
 The flow is the same each time. The customer hands over the receipt, the associate scans its
 barcode, and the point-of-sale (POS) system pulls up the sale: transaction ID, date, SKU, UPC,
 product name, model number where there is one, price and the store's policy category. Then the
-associate looks at the item, decides whether the store takes it back, and issues the refund or
-calls a manager.
+associate looks at the item (in this recipe they also photograph it and its packaging),
+decides whether the store takes it back, and issues the refund or calls a manager.
 
 Scanning the receipt proves that a sale happened. It doesn't prove that the box on the counter is
 the thing that was sold. That gap is where most of the cost of returns sits for a store:
@@ -42,10 +43,11 @@ Here's the job end to end, and the step this recipe takes on:
 flowchart LR
     A[Customer brings the item and receipt to the returns desk] --> B[Associate scans the receipt]
     B --> C[Point of sale pulls up the sale]
-    C --> D["Compare the item with the sale<br/>and the return policy"]
+    C --> D["Check the item against the sale,<br/>its condition and the return policy"]
+    P[Associate photographs the item<br/>and its packaging] --> D
     H[Store operations sets the return policy] --> D
     D --> E[Associate looks at the item and decides]
-    E --> F[Refund issued]
+    E --> F[Refund issued or return refused]
     D --> G[Manager decides the cases sent up]
     classDef recipe fill:#e8f0fe,stroke:#1a73e8
     class D recipe;

@@ -2,9 +2,10 @@
 
 > **This example:** a technician at a stopped line asking about a coolant system's manual.
 >
-> **How it works:** a page-image embedding model finds the right pages, diagrams included, and a
-> language model answers from them with a quote. Python checks the quote is printed on that page,
-> or the answer isn't shown.
+> **How it works:** a model that searches page images finds the right pages of this unit's manual
+> revision, diagrams included, and a vision-language model answers from the page with a quote.
+> Python checks the cited page, that the quote is printed on it and that the answer's numbers and
+> tags are in the quote, or the answer isn't shown.
 >
 > **Use the same pattern for:** finding a torque spec in a scanned service manual, the right
 > lockout steps for a machine, a spare part number from an exploded diagram.
@@ -43,11 +44,11 @@ Here's the job end to end, and the step this recipe takes on:
 
 ```mermaid
 flowchart LR
-    A[Operator sees a fault code on the chiller] --> B[Technician opens the work order from the maintenance system]
+    A[Technician has a question about the chiller] --> B[Technician opens the work order from the maintenance system]
     B --> C[Manual revision for this unit]
     C --> D["Find the manual page that answers the question,<br/>with a quote from it"]
     D --> E[Technician reads the cited page and works on the machine]
-    D -->|nothing found| F["Page through the manual,<br/>or call engineering"]
+    D -->|no reliable match, or the check failed| F["Page through the manual,<br/>or call engineering"]
     classDef recipe fill:#e8f0fe,stroke:#1a73e8
     class D recipe;
 ```

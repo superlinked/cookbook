@@ -1,10 +1,10 @@
-# Check every part is in place in assembly photos
+# Check no part is missing in assembly photos
 
 > **This example:** bolts on a flange, where the empty hole is the proof one is missing.
 >
-> **How it works:** a segmentation model finds bolts and empty holes, and Python compares them with
-> the expected count and position. A bolt is only called missing when the empty hole is seen;
-> anything unclear goes to an inspector.
+> **How it works:** a detection model finds bolts and empty holes, and Python compares the bolt
+> count with the expected count and reports where each empty hole is. A bolt is only called missing
+> when the empty hole is seen; anything unclear goes to an inspector.
 >
 > **Use the same pattern for:** checking clips on a wiring harness, connectors seated on a board,
 > labels present on a finished pallet.

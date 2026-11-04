@@ -4,7 +4,8 @@
 >
 > **How it works:** an OCR model reads the scanned delivery note, certificates and inspection
 > forms, and an extraction model points at the fields. Python matches lines to the order, checks
-> the totals and compares every value with the grade's limits.
+> the totals, compares the strength results with the grade's limits and the measured dimensions
+> with the inspection plan's tolerances.
 >
 > **Use the same pattern for:** a chemical delivery against its certificate of analysis, a
 > supplier's first-article inspection report, a calibration certificate against the instrument
@@ -65,9 +66,9 @@ flowchart LR
     C[Receiving inspector measures the plates and fills in the form] --> E
     D[Purchase order in the ERP] --> E
     H[Inspection plan and tolerances in the quality system] --> E
-    E["Read the papers, tick each line off the order,<br/>check the lot against the grade's limits"]
+    E["Read the papers, tick each line off the order,<br/>check the lot against the grade<br/>and the inspection plan"]
     E --> F[Buyer chases short deliveries and decides on extras]
-    E --> G["Quality engineer decides on the lot<br/>(quarantine and NCR, or release)"]
+    E --> G["Quality engineer decides on the lot<br/>(quarantine and a nonconformance<br/>report, or release)"]
     classDef recipe fill:#e8f0fe,stroke:#1a73e8
     class E recipe;
 ```

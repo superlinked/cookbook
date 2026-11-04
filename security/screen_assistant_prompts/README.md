@@ -1,10 +1,10 @@
-# Screen prompts before they reach an AI assistant
+# Screen prompts before they reach an AI assistant (copilot)
 
 > **This example:** a security team's copilot, where analysts paste logs, emails and screenshots.
 >
-> **How it works:** an OCR model reads screenshots, plain rules catch credentials and injection
-> phrases, and a guard model judges intent. Each prompt comes out allow, block or review, with the
-> reason.
+> **How it works:** an OCR model reads screenshots, plain rules catch credentials (blocked before
+> any model sees them) and injection phrases, and a guard model judges intent. Each prompt comes
+> out allow, block or review, with the reason; your app forwards only the allowed ones.
 >
 > **Use the same pattern for:** screening uploads to an internal chat assistant, checking support
 > tickets for pasted secrets, screening prompts to a coding assistant.
@@ -52,9 +52,9 @@ Here's the job end to end, and the step this recipe takes on:
 flowchart LR
     A["SOC analyst pastes logs, emails, configs<br/>or a screenshot"] --> B["Screen the prompt for credentials,<br/>hidden notes to the AI and misuse"]
     F[Platform engineer owns the rules] --> B
-    B --> C[Copilot answers the analyst]
-    B --> D["Prompt stopped, with a reason"]
-    B --> E[SOC lead or on-call senior analyst reviews it]
+    B -->|allow| C[Copilot answers the analyst]
+    B -->|block| D["Prompt stopped, with a reason"]
+    B -->|review| E[SOC lead or on-call senior analyst reviews it]
     classDef recipe fill:#e8f0fe,stroke:#1a73e8
     class B recipe;
 ```

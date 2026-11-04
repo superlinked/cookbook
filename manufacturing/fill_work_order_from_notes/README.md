@@ -1,10 +1,12 @@
 # Fill in a work-order completion form from the technician's notes
 
-> **This example:** a maintenance team's CMMS, where failure codes are usually left blank.
+> **This example:** a maintenance team's work-order system (CMMS), where failure codes are usually
+> left blank.
 >
 > **How it works:** a classification model picks the failure, cause and action codes from your
-> picklists, and an extraction model points at the parts and hours. Python checks every value
-> against the picklist and the parts catalog, and leaves a field blank rather than guess.
+> picklists, and an extraction model points at the component, parts, hours and follow-up. Python
+> checks codes against the picklist, parts against the catalog and hours against the time the order
+> was open, and flags any field it can't back up rather than guess.
 >
 > **Use the same pattern for:** coding a safety near-miss report, filling a quality nonconformance
 > form, closing out an inspection round.

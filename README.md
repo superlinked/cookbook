@@ -62,14 +62,14 @@ requests (one request can carry many items).
 | [Fill in a work-order completion form from the technician's notes](manufacturing/fill_work_order_from_notes) | GLiNER2.5-Decide, gliner2-large-v1 | 14 | 4 s |
 | [Check a delivery against its purchase order and certificates](manufacturing/check_delivery_against_po) | LightOnOCR-3-4B, gliner2-large-v1 | 52 | 3 min |
 | [Answer maintenance questions from the equipment manual, with the page](manufacturing/answer_from_equipment_manual) | tomoro-colqwen3-embed-4b:compact, Qwen3.8-27B-FP8 | 31 | 50 s |
-| [Check every part is in place in assembly photos](manufacturing/check_parts_in_assembly_photos) | sam3 | 9 | 6 s |
+| [Check no part is missing in assembly photos](manufacturing/check_parts_in_assembly_photos) | sam3 | 9 | 6 s |
 
 ### Security
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
 | [Triage reported phishing and pull out the indicators](security/triage_reported_phishing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 1 s |
-| [Screen prompts before they reach an AI assistant](security/screen_assistant_prompts) | Qwen3Guard-Gen-4B, LightOnOCR-3-4B | 15 | 10 s |
+| [Screen prompts before they reach an AI assistant (copilot)](security/screen_assistant_prompts) | Qwen3Guard-Gen-4B, LightOnOCR-3-4B | 15 | 10 s |
 | [Tag actors, malware and tools in threat reports](security/threat_report_tagging) | NuNER_Zero | 1 | 1 s |
 | [Map how threats relate across reports](security/threat_relations) | gliner-relex-large-v1.0 | 1 | 1 s |
 

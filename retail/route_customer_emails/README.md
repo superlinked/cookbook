@@ -4,7 +4,8 @@
 >
 > **How it works:** phrase rules catch safety and legal emails first, a classification model
 > suggests a team for the rest, and an extraction model pulls the order number and store. Python
-> checks the order number's format before it goes in the ticket.
+> checks the order number's format and the store against the store list before either goes in the
+> routes file.
 >
 > **Use the same pattern for:** routing supplier emails to buyers, sorting store incident reports,
 > triaging marketplace seller messages.
@@ -36,6 +37,7 @@ flowchart LR
     B --> C[Care lead confirms the route]
     C --> D["Specialist queue<br/>(delivery, returns, billing, loyalty)"]
     C --> E["Product safety or legal, the same day"]
+    C --> G["General care queue<br/>(no clear team)"]
     D --> F[Agent replies to the customer]
     classDef recipe fill:#e8f0fe,stroke:#1a73e8
     class B recipe;

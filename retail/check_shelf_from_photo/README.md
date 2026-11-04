@@ -6,8 +6,8 @@
 > vision-language model says which product sits in each slot. Python ties packages to tags and
 > compares prices with the catalog.
 >
-> **Use the same pattern for:** checking a promotional display against its planogram, auditing a
-> cooler door, checking price changes went up on the shelf.
+> **Use the same pattern for:** checking a promotional display against its layout plan, auditing a
+> cooler door, checking that new prices made it onto the shelf tags.
 
 ## Background
 
@@ -39,6 +39,7 @@ flowchart LR
     C --> D[Restock the empty slot]
     C --> E[Move the product back above its tag]
     C --> F[Ask for a new tag]
+    C --> H[Associate checks the tags<br/>the recipe couldn't read]
     classDef recipe fill:#e8f0fe,stroke:#1a73e8
     class C recipe;
 ```

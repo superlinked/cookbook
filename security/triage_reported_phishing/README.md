@@ -1,10 +1,11 @@
 # Triage reported phishing and pull out the indicators
 
-> **This example:** a SOC analyst's queue of emails that employees reported.
+> **This example:** a security team's queue of emails that employees reported as phishing.
 >
-> **How it works:** a classification model suggests phishing, spam or benign from the words, an
-> extraction model finds the indicators, and a long list of Python checks can overrule the model or
-> send the email to an analyst.
+> **How it works:** a classification model suggests phishing, spam or benign from the words, regex
+> pulls out the links, domains and IPs (no model involved, so the email can't talk its way out of
+> them), and an extraction model finds payment requests and deadlines. A long list of Python checks
+> can overrule the model or send the email to an analyst.
 >
 > **Use the same pattern for:** triaging abuse reports from customers, sorting security tickets
 > from the service desk, screening vendor emails for invoice fraud.
@@ -40,7 +41,7 @@ Here's the job end to end, and the step this recipe takes on:
 ```mermaid
 flowchart LR
     A[Employee presses report phishing] --> B[Shared SOC mailbox]
-    B --> C["Suggest a verdict and pull out the links,<br/>domains and IPs, defanged"]
+    B --> C["Suggest a verdict, pull out the links,<br/>domains and IPs, defanged,<br/>and check them against the blocklist"]
     C --> D[SOC analyst looks at the ones that need a person]
     C --> G[Your own workflow acts on the rest]
     D --> E[Block the indicators that hold up]
