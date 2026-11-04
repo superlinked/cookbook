@@ -1,0 +1,60 @@
+# The analyst's standing questions, per company: the same questions every filing season.
+#
+# Each question is asked of this year's 10-K and of last year's, so the wording takes the year
+# from the filing: {fiscal_year} is the filing's fiscal year, {prior_year} the one before and
+# {next_year} the one after. `about` says which year the question's figures are for:
+# `fiscal_year` (the filing's own year) or `next_year` (guidance for the coming year). A figure
+# the filing gives for another year is not an answer, even when it is in the right paragraph.
+#
+# `key_terms`: the words the filing uses for the thing asked about. At least one quote must
+# name one of them, and every figure in the answer must come from a sentence of the filing that
+# names one. That keeps "other purchase obligations" out of an answer about manufacturing ones.
+
+companies:
+  - ticker: AAPL
+    questions:
+      - id: AAPL-1
+        ask: >-
+          What were Apple's manufacturing purchase obligations at the end of fiscal
+          {fiscal_year}, and how much of them was payable within 12 months?
+        about: fiscal_year
+        key_terms: [manufacturing purchase obligations]
+      - id: AAPL-2
+        ask: >-
+          Why was Apple's effective tax rate for fiscal {fiscal_year} different from fiscal
+          {prior_year}?
+        about: fiscal_year
+        key_terms: [effective tax rate]
+      - id: AAPL-3
+        ask: What drove the change in Apple's Greater China net sales in fiscal {fiscal_year}?
+        about: fiscal_year
+        key_terms: [Greater China]
+      - id: AAPL-4
+        ask: How much revenue did Apple Vision Pro generate in fiscal {fiscal_year}?
+        about: fiscal_year
+        key_terms: [Vision Pro]
+
+  - ticker: TGT
+    questions:
+      - id: TGT-1
+        ask: >-
+          How much does Target expect to spend on capital expenditures in {next_year}, and what
+          is the spending for?
+        about: next_year
+        key_terms: [capital expenditures]
+      - id: TGT-2
+        ask: >-
+          What was Target's effective income tax rate for fiscal {fiscal_year}, and why did it
+          change from fiscal {prior_year}?
+        about: fiscal_year
+        key_terms: [effective income tax rate]
+      - id: TGT-3
+        ask: Why did Target's year-end inventory change in fiscal {fiscal_year}?
+        about: fiscal_year
+        key_terms: [inventory]
+      - id: TGT-4
+        ask: >-
+          What were Target's manufacturing purchase obligations at the end of fiscal
+          {fiscal_year}?
+        about: fiscal_year
+        key_terms: [manufacturing purchase obligations]

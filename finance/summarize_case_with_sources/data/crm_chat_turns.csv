@@ -1,0 +1,11 @@
+message_id,turn,time,speaker,role
+M1,1,14:02,Customer,customer
+M1,2,14:02,Priya Castellane,staff
+M1,3,14:03,Customer,customer
+M1,4,14:03,Priya Castellane,staff
+M1,5,14:04,Customer,customer
+M1,6,14:04,Priya Castellane,staff
+M1,7,14:05,Customer,customer
+M1,8,14:05,Priya Castellane,staff
+M1,9,14:06,Customer,customer
+M1,10,14:06,Priya Castellane,staff

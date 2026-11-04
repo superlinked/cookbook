@@ -1,0 +1,10 @@
+counterparty_id,legal_name,aliases,registration_number,parent_ticker,relationship_manager,credit_officer
+CP-1001,Pellridge Foods Ltd,Pellridge Foods;Pellridge,08814275,,Lucan Pryor,Saoirse Mallin
+CP-1002,Sallowmere Building Supplies Ltd,Sallowmere Building Supplies;Sallowmere,07650318,,Nadia Lusk,Kwame Adjei
+CP-1003,Halden Cold Storage Ltd,Halden Cold Storage;Halden Cold Store;Halden,09127764,,Lucan Pryor,Saoirse Mallin
+CP-1004,Northwind Logistics Ltd,Northwind Logistics;Northwind,06993102,,Nadia Lusk,Kwame Adjei
+CP-1005,Northwind Energy Supply Ltd,Northwind Energy Supply;Northwind Energy;Northwind,10234587,NYSE:NWEG,Amara Okoro,Teodor Brask
+CP-1006,Quillfield Engineering Ltd,Quillfield Engineering;Quillfield,05518840,,Amara Okoro,Teodor Brask
+CP-1007,Tolland Packaging Ltd,Tolland Packaging;Tolland,08402219,LSE:TLPK,Nadia Lusk,Kwame Adjei
+CP-1008,Ferncastle Dairy Ltd,Ferncastle Dairy;Ferncastle,07261953,,Lucan Pryor,Saoirse Mallin
+CP-1009,Ostley Marine Services Ltd,Ostley Marine Services;Ostley Marine;Ostley,09981236,,Amara Okoro,Teodor Brask

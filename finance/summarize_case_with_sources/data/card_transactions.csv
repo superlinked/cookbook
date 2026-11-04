@@ -1,0 +1,5 @@
+card_id,transaction_id,at,merchant,amount,currency,status,dispute_status,dispute_ref
+CRD-77120,TXN-5501,2026-10-19T17:22:00Z,Quillon Electronics,8.99,GBP,posted,,
+CRD-77120,TXN-5502,2026-10-21T12:40:00Z,Copperpot Cafe,23.40,GBP,posted,withdrawn,8806 2144 5739 0012
+CRD-77120,TXN-5503,2026-10-22T01:12:00Z,Quillon Electronics,89.99,GBP,posted,open,8806 2144 5739 0012
+CRD-77120,TXN-5504,2026-10-22T16:20:00Z,PayDirect Transfers,150.00,GBP,declined,,

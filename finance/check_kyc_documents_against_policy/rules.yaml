@@ -1,0 +1,74 @@
+# How the recipe reads the documents: models, thresholds, the fields asked of the extraction
+# model, and how names, addresses and dates are compared. What the policy requires is in
+# policy.yaml. Thresholds are starting points, not tuned values: check them against your own
+# documents.
+
+models:
+  ocr: lightonai/LightOnOCR-3-4B          # each scanned page to Markdown, once per page
+  extract: fastino/gliner2-large-v1       # each document's fields, once per text window
+
+thresholds:
+  render_dpi: 150            # render each PDF page at this resolution before OCR
+  max_image_edge_px: 2048    # LightOnOCR's recommended longest edge
+  min_page_chars: 80         # an OCR page shorter than this is unreadable
+  # GLiNER2 reads at most 512 tokens per item. 180 words is about that, not a guarantee; the
+  # windows overlap so a "Label: value" pair cut at one edge is still whole in the next.
+  window_words: 180
+  window_overlap_words: 30
+
+# Fields asked of GLiNER2 per document purpose. `description` goes into the output_schema.
+#
+# `label`: the value only counts when the model's span sits on a line (or table row) carrying
+# one of these words, and the recorded value is the whole cell after the label. GLiNER2 returns
+# short spans: on an address it gives back the street or the postcode alone, and on
+# "FOLASADE GRACE" it can return "GRACE". The model finds the field; Python takes the cell.
+# This also stops a due date or a billing-period date being taken for the statement date.
+# `field`: the name the value is recorded under, when several model fields locate one value
+# (an address is located by its street or by its town, whichever the model returns).
+# `cell`: no label; the value is the whole cell (or line) the span sits in. The issuer's name is
+# a heading, not a labelled box, and is then looked up in `issuers` below.
+documents:
+  identity:
+    surname: {description: surname or family name of the document holder, label: [surname]}
+    given_names: {description: given names of the document holder, label: [given names, given name]}
+    date_of_birth: {description: date of birth of the document holder, label: [date of birth]}
+    date_of_expiry: {description: date of expiry of the document, label: [date of expiry, expiry]}
+    document_number:
+      {description: document number or passport number, label: [document no, passport no, licence no]}
+  address:
+    issuer: {description: name of the company that issued the bill or statement, cell: true}
+    account_holder: {description: name of the account holder, label: [account holder, customer name]}
+    address_street:
+      {description: service address street, field: address, label: [service address, supply address, billing address]}
+    address_city:
+      {description: service address city, field: address, label: [service address, supply address, billing address]}
+    statement_date: {description: statement date, label: [statement date, bill date, date of issue, issue date, invoice date]}
+
+# Who issues what. The issuer read from the document decides its type, whatever the customer
+# called it when they uploaded it. Names compare without case or punctuation and must match a
+# whole entry: "Kestrel Energy Mobile" is not "Kestrel Energy". An issuer not listed here sends
+# the address document to review. This stands in for the issuer list your team keeps.
+issuers:
+  Kestrel Energy: utility_bill
+  Brookline Water Co.: utility_bill
+  Larkspur Mobile: mobile_phone_bill
+
+# Specimen documents are the demo data. In production a SPECIMEN marking is itself a red flag:
+# set this to review.
+specimen_policy: allow   # allow | review
+
+# Name comparison drops these titles; a single letter matches a given name with that initial,
+# and a middle name may be left out on an address document (never on the ID).
+name_titles: [mr, mrs, ms, miss, mx, dr]
+
+# How an address is taken apart for comparison: house number, flat, street and postcode must
+# each be the application's. The town is not compared; the postcode covers it.
+address:
+  postcode_pattern: '\b[A-Z]{2}\s?\d{5}\b'
+  flat_words: [flat, apt, apartment, unit]
+  street_types: [road, street, avenue, lane, close, terrace, row, drive, court, way, place, crescent, wharf, gardens]
+  max_street_words: 4      # words from the house number to the street type, at most
+  abbreviations: {rd: road, st: street, ave: avenue, av: avenue, ln: lane, cl: close, ter: terrace, terr: terrace, dr: drive, ct: court, cres: crescent, pl: place}
+
+# Date formats accepted on documents and the form, tried in order.
+date_formats: ["%d %b %Y", "%d %B %Y", "%Y-%m-%d", "%d/%m/%Y", "%d.%m.%Y", "%B %d, %Y", "%b %d, %Y"]

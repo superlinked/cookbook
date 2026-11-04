@@ -1,0 +1,13 @@
+case,received,surname,given_names,date_of_birth,flat,house_number,street,town,postcode,nationality,occupation,tax_residency
+kyc-01,2026-10-26,Marlowe,Evelyn Rose,1987-03-14,3,27,Larchmere Avenue,Eastbrook,UT 40217,Utopian,Pharmacist,Utopia
+kyc-02,2026-10-26,Okafor-Bell,Tobias James,1979-11-02,2,114,Harbour Road,Port Ellery,UT 40381,Utopian,Marine engineer,Utopia
+kyc-03,2026-10-26,Halvorsen,Ingrid Maeve,1965-06-21,,9,Cinderford Close,Westmarch,UT 40566,Utopian,Retired,Utopia
+kyc-04,2026-10-26,Desrosiers,Paul Anton,1992-08-05,,301,Quayside Terrace,Port Ellery,UT 40388,Utopian,Software developer,Utopia
+kyc-05,2026-10-26,Nakashima,Rei,1998-01-27,,56,Orchard Row,Eastbrook,UT 40219,Utopian,Graphic designer,Utopia
+kyc-06,2026-10-26,Ferreira Lopes,Ana Beatriz,1984-12-09,,8,Quillon Street,Westmarch,UT 40561,Utopian,Nurse,Utopia
+kyc-07,2026-10-26,Brannigan,Cormac,1975-04-30,,71,Elderwood Lane,Eastbrook,UT 40214,Utopian,Electrician,Utopia
+kyc-08,2026-10-26,Adeyemi,Folasade Grace,1988-04-03,,63,Saltmarsh Road,Westmarch,UT 40558,Utopian,Accountant,Utopia
+kyc-09,2026-10-26,Kowalczyk,Marek,1971-04-17,2,114,Harbour Road,Port Ellery,UT 40381,Utopian,Welder,Utopia
+kyc-10,2026-10-26,Abernethy,Hollis Dean,1990-09-23,,45,Gannet Way,Eastbrook,UT 40222,Utopian,Teacher,Utopia
+kyc-11,2026-10-26,Lindqvist,Astrid Johanna,1982-02-11,,17,Heron Close,Westmarch,UT 40564,Utopian,,Utopia
+kyc-12,2026-10-26,Mendoza Ruiz,Carlos Andres,1995-06-30,,9,Pelican Crescent,Port Ellery,UT 40385,Utopian,Chef,Utopia

@@ -1,0 +1,58 @@
+# Linking rules, the event list, the model IDs and every threshold the recipe uses.
+# The borrowers live in the counterparty list (data/counterparties.csv, read by
+# counterparties.py); this file says how to find them in the news and what counts as a warning.
+# Thresholds are starting points, not tuned values. Check them against your own news queue.
+
+models:
+  entities: numind/NuNER_Zero        # finds company, ticker and place names in the article
+  events: fastino/GLiNER2.5-Decide   # picks the event in the sentences around each borrower
+
+# Entity labels sent to NuNER Zero. The model card asks for lower-case labels. `location` is
+# there so a borrower alias that is also a town ("Halden") can be read as the town.
+labels: [company, ticker, location]
+
+# Exchanges whose "(EXCHANGE: SYMBOL)" form is matched by a plain pattern as well as by the
+# model. A ticker written this way is a fact in the text, so it never depends on a score.
+exchanges: [NYSE, NASDAQ, LSE, TSX]
+
+# Words that may follow a borrower's name inside a longer company name and still mean the
+# same company: "Pellridge Foods Ltd." is Pellridge Foods. Any other extra word makes it a
+# different company ("Northwind Energy Services" is not Northwind Energy), which goes to review.
+legal_suffixes: [ltd, limited, plc, inc, incorporated, corp, corporation, llc, group, holdings, co]
+
+# Words allowed between two borrower names in one company span ("Halden and Pellridge"). Each
+# name is still checked on its own words: "Northwind Energy Services and Halden Cold Storage"
+# sends Northwind Energy to review and links Halden Cold Storage.
+name_joining_words: [and]
+
+# A full stop after these words doesn't end a sentence ("Pellridge Foods Ltd. missed ...").
+no_split_after: ["Ltd", "Inc", "Corp", "Co", "plc", "No", "Mr", "Ms", "Mrs", "Dr", "St"]
+
+# The question GLiNER2.5-Decide answers about each linked borrower, with {name} filled in.
+# Each event is one option; `none` is the answer for news that isn't a warning. The question,
+# the options and the borrower's sentences share the model's window of about 512 tokens, so
+# keep each description to one short line. A text too long for the window goes to review.
+question: What does this text report about {name}?
+events:
+  missed_payment: "{name} missed, delayed or defaulted on a loan, bond, interest or supplier payment"
+  lawsuit: "{name} is being sued, or a legal claim was filed against {name}"
+  insolvency: "{name} entered insolvency, administration, receivership or bankruptcy"
+  management_change: "the chief executive or finance director of {name} resigned, left or was replaced"
+  plant_closure: "{name} closed or is closing a plant, depot, site or production line"
+  customer_loss: "{name} lost a major customer or contract"
+  rating_action: "a rating agency downgraded {name} or put its rating on watch"
+  none: "routine or good news about {name}, or {name} is unaffected by what happened"
+no_event: none
+
+thresholds:
+  min_entity_score: 0.50       # NuNER Zero span score; lower spans are not returned
+  max_words_per_window: 150    # NuNER Zero reads 384 tokens; articles are split on sentences
+  ticker_pair_max_gap_chars: 12  # "Northwind (NYSE: NWEG)": a ticker this close after a name,
+                                 # with only "(" and the exchange between, belongs to that name
+  batch_size: 16               # article windows per NuNER Zero call
+  context_sentences_after: 1   # sentences read after each one naming the borrower, stopping at
+                               # a sentence that names another company
+  min_event_score: 0.50        # a warning event needs this probability to be an alert
+  min_none_score: 0.50         # `none` needs this probability to be filed with no alert
+  max_warning_when_filed: 0.25 # filed only while every warning event stays under this;
+                               # a weaker warning that still shows goes to review

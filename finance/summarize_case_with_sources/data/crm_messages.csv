@@ -1,0 +1,6 @@
+case_ref,message_id,sent_at,channel,author,author_role,file
+CASE-2026-04417,M1,2026-10-22T14:02:00Z,web chat,Rosalind Achterberg; Priya Castellane,chat,01-web-chat.txt
+CASE-2026-04417,M2,2026-10-24T08:17:00Z,secure message,Rosalind Achterberg,customer,02-secure-message.txt
+CASE-2026-04417,M3,2026-10-24T10:30:00Z,case note,Priya Castellane,staff,03-agent-note.txt
+CASE-2026-04417,M4,2026-10-26T11:40:00Z,internal email,Joel Ambrose,staff,04-fraud-email.txt
+CASE-2026-04417,M5,2026-10-28T19:05:00Z,secure message,Rosalind Achterberg,customer,05-secure-message.txt
