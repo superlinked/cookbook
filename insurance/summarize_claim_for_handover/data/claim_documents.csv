@@ -1,0 +1,6 @@
+claim_number,doc_id,saved_at,kind,author,author_role,file
+CLM-2026-004417,D1,2026-10-04T16:20:00Z,file note,Marisol Quaye,staff,01-claim-note.txt
+CLM-2026-004417,D2,2026-10-05T16:12:00Z,email to vendor,Marisol Quaye,staff,02-email-to-vendor.txt
+CLM-2026-004417,D3,2026-10-08T03:41:00Z,email from insured,Tibor Varga,insured,03-insured-email.txt
+CLM-2026-004417,D4,2026-10-09T18:30:00Z,file note,Marisol Quaye,staff,04-claim-note.txt
+CLM-2026-004417,D5,2026-10-12T23:05:00Z,file note,Marisol Quaye,staff,05-claim-note.txt

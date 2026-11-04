@@ -47,6 +47,16 @@ Run time is a warm live run on SIE Cloud, on the date in each recipe's README (2
 for most). A run that has to start a cold model can take several minutes longer. Calls counts the
 recipe's SIE requests (one request can carry many items).
 
+### Insurance
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Check a recorded call against the claim record that was saved](insurance/check_call_against_claim_record) | parakeet-tdt-0.6b-v3, gliner2-large-v1 | 10 | 5 s |
+| [Check an invoice against the claim before it's paid](insurance/check_invoice_against_claim) | LightOnOCR-3-4B, gliner2-large-v1 | 30 | 57 s |
+| [Match claimed items to receipts and list the proof still needed](insurance/match_claimed_items_to_receipts) | LightOnOCR-3-4B, gliner2-large-v1 | 33 | 45 s |
+| [Create a coverage brief from the policy wording, with exact quotes](insurance/create_coverage_brief_for_claim) | Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 19 | 90 s |
+| [Summarize a claim for the next adjuster, with a source for every line](insurance/summarize_claim_for_handover) | pii-redact, Qwen3.8-27B-FP8 | 6 | 14 s |
+
 ### Finance
 
 | Recipe | Models | SIE calls | Run time |

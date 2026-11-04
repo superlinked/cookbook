@@ -1,0 +1,17 @@
+[project]
+name = "sie-check-call-against-claim-record"
+version = "0.1.0"
+description = "Check each recorded first-notice-of-loss call against the claim that was saved from it."
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+]
+
+[dependency-groups]
+# make_data.py needs nothing beyond the standard library (and macOS `say` and `afconvert`).
+data = []
+
+[tool.uv]
+package = false

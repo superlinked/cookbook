@@ -1,0 +1,99 @@
+# The claims team's rules and every threshold the recipe uses. The thresholds are starting
+# points nobody tuned, so check them against your own invoices.
+
+models:
+  ocr: lightonai/LightOnOCR-3-4B          # each scanned invoice page to Markdown
+  extract: fastino/gliner2-large-v1       # the invoice's fields, per text window
+
+thresholds:
+  render_dpi: 150            # render each PDF page at this resolution before OCR
+  max_image_edge_px: 2048    # LightOnOCR's recommended longest edge
+  min_page_chars: 80         # an OCR page shorter than this is "unreadable" and goes to review
+  # GLiNER2 reads at most 512 tokens per item; 180 words is about 512 tokens, not a guarantee.
+  # The recipe asks SIE for overflow_policy "error", so a window that runs over comes back as
+  # an input-too-long error (a failed call: the invoice goes to review), never cut short
+  # silently. Windows overlap so a "Label | value" pair cut at a window edge is still
+  # seen whole in the next one.
+  window_words: 180
+  window_overlap_words: 30
+  money_tolerance: 0.01      # dollars; the invoice arithmetic and the authorized amount allow this
+
+# The fields GLiNER2 is asked to find on the invoice. `description` goes into the output_schema.
+# A field that is not read sends the check that needs it to review.
+#
+# `label`: the value only counts when the model's span sits on a line carrying one of these
+# labels, and the recorded value is the whole cell after the label. The model finds the field
+# and Python takes the cell. This is what stops the subtotal being taken for the total, or the
+# shop's own address for the service address.
+# `letterhead`: no label. The value is the whole line the span sits on, and that line may not
+# carry one of `not_label` (the bill-to name is not the vendor).
+documents:
+  invoice:
+    vendor_name:
+      description: business name of the repair company that issued the invoice
+      letterhead: true
+      not_label: [bill to, claim number, claim no, service address, vehicle, payable to]
+    invoice_number: {description: invoice number, label: [invoice number, invoice no]}
+    invoice_date: {description: date of the invoice, label: [invoice date]}
+    bill_to: {description: name of the customer the invoice is billed to, label: [bill to, customer]}
+    claim_number: {description: insurance claim number, label: [claim number, claim no, claim reference]}
+    subtotal: {description: subtotal before tax, label: [subtotal]}
+    tax: {description: sales tax amount, label: [sales tax, tax, vat]}
+    total: {description: total amount due on the invoice, label: [total due, amount due, balance due, total]}
+
+# The second GLiNER2 call per window uses entity labels instead of the output_schema. With two
+# addresses on the page (the shop's letterhead and the job), the schema call returned neither on
+# our property invoices; entity mode returns every street address and every VIN, and Python
+# keeps the one on a line carrying the field's `label`. `entity_labels` maps each label to the
+# field it feeds. With only "street address" and "vehicle identification number", it missed the
+# job address on two of the ten invoices; adding "person name" (which also points at the
+# bill-to line) found it on all ten. Every span is kept whatever its score: the labelled line is
+# the filter.
+entity_labels:
+  street address: service_location
+  vehicle identification number: service_location
+  person name: bill_to
+entity_fields:
+  service_location: {label: [service address, job address, property address, vehicle]}
+
+# Python reads the invoice line items from the OCR table. The header row names these columns,
+# and every row under it with the header's number of cells is a line item.
+line_item_columns:
+  qty: [qty, quantity, hours, hrs]
+  unit_price: [unit price, rate, price]
+  amount: [amount, line total, ext]
+
+# Invoice status: `checks_passed` when every check passed (it goes to the claim handler's
+# payment queue with the invoice number, date and total ready), otherwise `review` (the
+# exceptions queue, one row per failed check). Nothing is paid or denied automatically: the
+# claim handler decides.
+checks:
+  readable: The page has enough OCR text, and every SIE call for it succeeded
+  claim_match: The claim number, bill-to name and service address or vehicle VIN are this claim's
+  conflicting_values: No invoice field was read twice with two different values
+  vendor: The invoice is from a vendor approved on the claim
+  invoice_number: The invoice number was read, as one value
+  invoice_math: Each line is qty x unit price; the lines add up to the subtotal; subtotal + tax = total
+  invoice_date: Dated on or after the date of loss, and not after the invoice arrived
+  authorized_amount: The total is at or below the authorized amount (estimate plus approved supplements)
+
+# Vendor names compare after "&" becomes "and" and these legal suffixes are dropped. Anything
+# else (a trading name, another branch, a shorter name) is a different vendor.
+vendor_suffixes_ignored: [inc, incorporated, llc, ltd, limited, co, company, corp, corporation]
+
+# Addresses compare without case or punctuation, after these words are shortened.
+address_abbreviations:
+  street: st
+  avenue: ave
+  road: rd
+  drive: dr
+  lane: ln
+  court: ct
+  close: cl
+  way: wy
+  boulevard: blvd
+  place: pl
+  northbound: nb
+
+# Date formats accepted on invoices, tried in order. US invoices write month first.
+date_formats: ["%B %d, %Y", "%b %d, %Y", "%m/%d/%Y", "%Y-%m-%d", "%d %B %Y", "%m-%d-%Y"]

@@ -1,0 +1,83 @@
+# What is taken out of the claim file, how the handover summary is written and checked, and every
+# threshold. Thresholds are starting points, not tuned values: check them on your own claims.
+
+models:
+  # SIE Cloud's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # server (spans scoring 0.6 or more, the two models' spans unioned). Here it only looks for
+  # bank account, card and ID numbers; names, addresses, phones, dates and amounts stay.
+  pii: superlinked/pii-redact
+  # Writes the summary from the masked file, with a source and a quote per line (chat, strict
+  # JSON schema).
+  summary: Qwen/Qwen3.8-27B-FP8
+
+# The PII model's labels this recipe asks for, and what each one counts as. Only these: the new
+# adjuster is allowed to know who everyone on the claim is.
+pii_labels:
+  account number: bank account
+  credit card number: card number
+  social security number: SSN
+  national id number: ID number
+
+masking:
+  # The PII model reads about 384 words per request, so a longer document is sent as windows of
+  # this many words, each sharing `window_overlap_words` with the last.
+  window_words: 300
+  window_overlap_words: 50
+  # A card number: 13 to 19 digits, with or without spaces or hyphens. Every one is masked to its
+  # last `show_last` digits, whether or not it passes the Luhn check (a mistyped card number
+  # fails it and is still a card number). The one exception is a job ticket the claims system
+  # holds for a vendor on this claim: that is kept, so accounts payable can match the invoice.
+  card_number: '(?<![\d-])\d(?:[ -]?\d){12,18}(?![\d-])'
+  # A bank account number, found by the words in front of it ("account number 0081 4472 9310",
+  # "acct # 77120044"); `gap` is what may sit between the words and the number. Masked to the
+  # last `show_last` digits.
+  account_words: '(?i)\b(?:bank account|account|acct)(?:\s+(?:no\.?|number|#))?'
+  account_gap: '[^\d\n]{0,12}?'
+  account_number: '\d(?:[ -]?\d){5,16}(?![\d-])'
+  # A full Social Security number: three, two and four digits with the same separator, or nine
+  # digits right after "SSN" or "social security". It becomes `ssn_replacement`.
+  ssn: '(?<![\d-])\d{3}([- ])\d{2}\1\d{4}(?![\d-])'
+  ssn_words: '(?i)\b(?:ssn|social security(?: number| no\.?)?)\b[^\d\n]{0,12}?(?P<value>\d{9})(?!\d)'
+  ssn_replacement: SSN on file
+  show_last: 4
+  # Numbers the PII model may tag that are not bank, card or ID numbers, kept as written: the
+  # claim and policy numbers (and an old policy number in another format), plus every phone the
+  # claims system holds for a party on the claim (checked in code).
+  keep_patterns:
+    claim number: '\bCLM-\d{4}-\d{6}\b'
+    policy number: '\bHO[- ]?\d(?:[ -]?\d){4,9}\b'
+  # Every label asked for is a number, so only the digit runs in a PII-model span with at least
+  # this many digits are taken out (or the whole span when it has three or more number words,
+  # "four nine one seven"). A span without one is left as written: the model also tags the word
+  # "SSN", a name next to "card" and the form name "1099".
+  model_min_digits: 5
+  # What a region the model tagged becomes when it isn't a bank account or card number with
+  # enough digits to mask.
+  removed: "[{kind} removed]"
+
+# Homeowners coverages, as the claims system codes them and the summary names them.
+coverages:
+  A: dwelling
+  B: other structures
+  C: contents
+  D: loss of use
+
+checks:
+  # A quote counts when, after collapsing whitespace and straightening quote marks, it appears
+  # verbatim in the one document the line cites and is at least this long.
+  min_quote_chars: 12
+  # A promise or a payment whose quote has one of these words and whose text has none states as
+  # done what its source denies ("reimbursed" quoting "not reimbursed yet"): it goes to review.
+  negation_words: ["not", "n't", "cannot", "never", "unable", "no", "yet"]
+  # The summary may say a health reason was given, never the condition. A line whose text or
+  # quote holds one of these terms (whole words, any case) goes to review, and its text is
+  # withheld from the outputs. Add the conditions, treatments and symptoms your files mention.
+  health_terms: [asthma, asthmatic, inhaler, respiratory, breathing, wheezing, lung, lungs,
+                 copd, bronchitis, pneumonia, allergy, allergies, allergic, mold sensitivity,
+                 migraine, diabetes, diabetic, pregnant, pregnancy, chemotherapy, cancer,
+                 dialysis, surgery, diagnosis, diagnosed, medication, prescription, oxygen,
+                 disability, dementia, anxiety, depression, ptsd, heart condition,
+                 immunocompromised]
+
+summary:
+  max_completion_tokens: 4000   # includes any reasoning the model does first

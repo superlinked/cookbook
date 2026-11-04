@@ -1,0 +1,30 @@
+# A made-up contents substantiation guideline for this demo. It is not any insurer's guideline;
+# put your own team's threshold, accepted proof and wording here.
+
+# An item claimed above this amount (quantity times price, as the inventory lists it) needs
+# proof of ownership. At or below it, an item with no receipt is listed for the handler and
+# nothing is asked for.
+proof_threshold: "100.00"
+
+# What the guideline accepts when there is no receipt, in the order the request lists them.
+other_proof_accepted:
+  - a bank or card statement showing the purchase
+  - a photo of it in your home
+  - the box, the manual or the warranty card
+
+# The wording of each request to the policyholder. {placeholders} are filled in by recipe.py.
+requests:
+  no_receipt: >-
+    For the {item} ({amount}): we couldn't find it on the receipts you sent. Please send one of
+    these instead: {other_proof}.
+  not_read: >-
+    We couldn't read {photo}. Please photograph it again, flat on a table and in good light,
+    and upload it to your claim.{covers}
+  price_differs: >-
+    For the {item}: your list says {claimed}, and the receipt from {merchant} dated {bought}
+    shows {receipt_price}. Please confirm what you paid, or tell us what the difference is for.
+  inventory_not_read: >-
+    We couldn't read the list of items you sent. Please photograph it again, flat on a table and
+    in good light, or fill in the inventory form on the claims portal.
+  nothing_to_ask: >-
+    Nothing to ask the policyholder for. The reasons above are for the handler.

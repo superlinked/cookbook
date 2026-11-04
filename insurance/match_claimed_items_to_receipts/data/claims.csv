@@ -1,0 +1,9 @@
+claim_number,policy_number,policyholder,date_of_loss,contents_claimed,inventory_source
+CLM-26-1001,HO-4471902,Marta Lindqvist,2026-10-14,920.69,handwritten
+CLM-26-1002,HO-5208816,Desmond Achterberg,2026-10-02,443.98,handwritten
+CLM-26-1003,HO-3390457,Priya Ramaswamy,2026-09-28,446.01,handwritten
+CLM-26-1004,HO-6612083,Tomasz Wierzbicki,2026-10-09,538.91,handwritten
+CLM-26-1005,HO-2045718,Aiyana Whitford,2026-10-11,1325.15,handwritten
+CLM-26-1006,HO-7731264,Gideon Farrow,2026-10-18,786.23,handwritten
+CLM-26-1007,HO-8156390,Lena Okonkwo-Hart,2026-10-14,316.44,handwritten
+CLM-26-1008,HO-9047731,Corin Abernathy,2026-10-21,181.43,portal
