@@ -1,0 +1,73 @@
+# The facts this household keeps on its sheet. Add, remove or reword them freely.
+#
+#   name:         how the fact shows on the sheet
+#   question:     what the recipe asks your files for it
+#   kind:         text, amount (must hold a money amount) or date (must give a day, checked
+#                 against the words it came from, and against the calendar when `calendar` is set)
+#   calendar:     words to look for in calendar event titles; the calendar must agree
+#   topic_words:  words that, in the title of a file that couldn't be read, mean the fact may be
+#                 in that file
+#   note:         a line shown with the fact on the sheet
+
+facts:
+  - id: furnace_filter
+    name: Furnace filter
+    question: What size furnace filter does the house take?
+    kind: text
+    topic_words: [furnace, filter, hvac]
+
+  - id: brake_price
+    name: Brake job price
+    question: How much did the garage say the brake job would cost?
+    kind: amount
+    topic_words: [brake, brakes, garage, ridgeline, car]
+
+  - id: denver_seat
+    name: Seat to Denver
+    question: What seat am I in on the flight to Denver?
+    kind: text
+    topic_words: [seat, flight, denver, boarding]
+    note: As printed on the paper pass; the airline app has the current seat.
+
+  - id: move_out_notice
+    name: Notice to move out
+    question: How much notice do I have to give before moving out?
+    kind: text
+    topic_words: [lease, notice, landlord, rent]
+
+  - id: denver_trip
+    name: Denver flight and hotel
+    question: What is my flight number to Denver, and which hotel am I staying at?
+    kind: text
+    topic_words: [denver, flight, hotel, trip]
+
+  - id: eye_exam
+    name: Next eye exam
+    question: When is my next eye exam?
+    kind: date
+    calendar: eye exam
+    topic_words: [eye, exam, optometry, haldane]
+
+  - id: wifi_password
+    name: Wifi password
+    question: What is the home wifi password?
+    kind: text
+    topic_words: [wifi, router, password, internet]
+
+  - id: blood_type
+    name: Blood type
+    question: What is my blood type?
+    kind: text
+    topic_words: [blood, doctor, medical]
+
+  - id: registration_cost
+    name: Car registration cost
+    question: How much does the car registration renewal cost?
+    kind: amount
+    topic_words: [registration, dmv, car]
+
+  - id: plumber_visit
+    name: Plumber's visit
+    question: When is the plumber coming?
+    kind: date
+    topic_words: [plumber, plumbing, sink, leak]

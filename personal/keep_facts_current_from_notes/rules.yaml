@@ -1,0 +1,60 @@
+# How the fact sheet is built: models, thresholds and the checks Python runs on every value.
+# Thresholds are starting points, not tuned values. Check them against your own files.
+# The facts themselves are in facts.yaml.
+
+models:
+  transcribe: nvidia/parakeet-tdt-0.6b-v3   # voice memos with no transcript -> timed sentences
+  ocr: lightonai/LightOnOCR-3-4B            # photos and scanned PDF pages -> Markdown
+  embed: Qwen/Qwen3-Embedding-4B            # one vector per chunk and per fact question
+  rerank: Qwen/Qwen3-Reranker-4B            # re-scores the nearest chunks against the question
+  answer: Qwen/Qwen3.8-27B-FP8              # value + sources with their words (chat, JSON schema)
+
+sources:
+  # Which reader handles a file in data/, by extension. The two .csv seeds are not sources.
+  notes: [".md", ".txt"]
+  audio: [".wav", ".m4a", ".mp3", ".flac"]
+  image: [".png", ".jpg", ".jpeg"]
+  pdf: [".pdf"]
+  # A file's date comes from a YYYY-MM-DD in its name; a note's from its `## YYYY-MM-DD` heading.
+  # It is the date you captured it, not the date it was true.
+  date_pattern: '(\d{4}-\d{2}-\d{2})'
+  # A file whose text comes back shorter than this is unread: it goes on the unread list.
+  min_read_chars: 20
+  # Title words that say nothing about what a file holds. An unread file whose title has no
+  # other word could hold any fact.
+  generic_title_words: [memo, new, recording, voice, scan, photo, img, image, document, file]
+
+chunking:
+  max_chunk_words: 60        # memo segments and document paragraphs are packed up to this size
+  min_chunk_chars: 30        # shorter document paragraphs (headings) join the next one
+  render_dpi: 200            # PDF page render resolution before OCR
+  max_image_edge_px: 2048    # LightOnOCR's recommended longest edge
+
+retrieval:
+  # Qwen3-Embedding is asymmetric: questions get this instruction, chunks are encoded as is.
+  query_instruction: Given a question about my own notes, memos and documents, retrieve the passages that answer it
+  embed_top_k: 8             # nearest chunks by cosine similarity, sent to the reranker
+  answer_top_k: 4            # best reranked chunks the language model reads...
+  # ...plus any other of the 8 scoring at least min_rerank_score, so a passage that would
+  # contradict the value isn't dropped by the cut-off. Below this best score the fact is
+  # not_found (or needs_review, when an unread file may hold it) with no language model call.
+  min_rerank_score: 0.30
+
+answer:
+  max_completion_tokens: 3000  # includes any reasoning the model does first
+  max_source_words: 40       # the words a source is cited by; longer than this is not a citation
+
+checks:
+  # A later source replaces an earlier one only when its own cited words say so with one of
+  # these, and it is dated later. Otherwise two different values are a conflict.
+  update_phrases: ["is now", "are now", "moved to", "changed to", "rescheduled to", "now on", "replaced"]
+  # An update phrase right after one of these words does not count ("is not moved to").
+  negations: ["not", "never", "no longer", "isn't", "wasn't", "hasn't", "didn't"]
+  # Words in a value that don't need to appear in the words it came from (the model writes
+  # "2:15 PM" for "2:15 in the afternoon").
+  value_free_words: [am, pm, a.m., p.m.]
+
+index:
+  # Each file's chunks and vectors are saved here, keyed on the file's hash and every model and
+  # chunk setting, so only new or changed files are read again. --rebuild ignores it.
+  cache: runs/index-cache.json

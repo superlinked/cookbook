@@ -1,0 +1,106 @@
+# The person's rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own inbox.
+
+models:
+  transcribe: nvidia/parakeet-tdt-0.6b-v3   # a voice memo with no transcript, to text
+  ocr: lightonai/LightOnOCR-3-4B            # a photo of a bill or flyer, to Markdown
+  action_type: fastino/GLiNER2.5-Decide     # one action type per message
+  fields: fastino/gliner2-large-v1          # what, who, when, where, amount, due date
+
+# Whose inbox this is. Times without an offset are read in this time zone, and the calendar
+# holds are written in UTC from it.
+person:
+  name: Jordan Ellery
+  time_zone: America/Los_Angeles
+  # Time zone words that mean the person's own zone. Any other zone named next to a time
+  # (ET, CST, UTC...) becomes a question instead of a guessed conversion.
+  local_zone_words: [PT, PST, PDT, Pacific]
+other_zone_words: [ET, EST, EDT, Eastern, CT, CST, CDT, Central, MT, MST, MDT, Mountain, UTC, GMT]
+
+thresholds:
+  # The Decide question and its option descriptions take part of the model's window of about
+  # 512 tokens, so a message is read in windows of about 120 words.
+  type_window_words: 120
+  # gliner2-large-v1 reads about 512 tokens per item. Words are counted conservatively.
+  field_window_words: 180
+  field_window_overlap_words: 30
+  min_type_score: 0.50      # top action-type probability below this: ask the person
+  min_type_margin: 0.15     # top-1 minus top-2 probability below this: ask the person
+  hold_minutes: 60          # length of a proposed calendar hold
+  change_search_days: 60    # a change that names no day is looked for this far ahead
+  min_text_chars: 10        # a memo or photo that reads shorter than this: ask the person
+  yearless_past_days: 60    # see the date rules below
+
+# The question GLiNER2.5-Decide answers, and its options (label: description).
+# Keep descriptions short: the model reads all of them with every message.
+question: What should the person do about this message?
+action_types:
+  schedule: >-
+    an appointment, meeting, practice or event at a set time, booked or confirmed, to put on
+    the calendar
+  change: a message saying a planned event moves to another time or is cancelled
+  pay: a bill, invoice or payment that is due
+  reply: someone asks the person a question and is waiting for an answer
+  todo: a task or errand for the person to do, such as a note to self or a pick-up
+  fyi: a newsletter, promotion, delivery notice or receipt with nothing to do
+
+# Types that never become an action: the message is listed as no_action.
+no_action_types: [fyi]
+
+# What gliner2-large-v1 is asked for (field: description). One string per field per window.
+fields:
+  what: the task, event or bill, in a few words
+  who: the person or organization involved
+  when: date and time of the event or task, such as next Tuesday at 10:30 AM
+  where: place or address of the event
+  amount: amount of money due, such as $84.17
+  due_date: date by which a payment or an answer is due
+
+# Fields where two windows giving two different values is a question, not "the first one wins".
+single_value_fields: [when, amount, due_date]
+
+# Which fields each type needs. A missing one becomes a question.
+# When the model returns no `when`, a date in the sentence that names `what` is used instead.
+required:
+  schedule: [when]
+  change: []
+  pay: [amount, due_date]
+  reply: []
+  todo: []
+
+# A `change` with one of these words cancels the event it matches; without one, it needs a new
+# time. Words in the quoted history don't count.
+cancel_terms: [cancelled, canceled, called off, is off, no longer on]
+# A cancel word after one of these in the same clause ("is NOT cancelled", "is not going to be
+# called off") doesn't count.
+cancel_negations: [not, never, "isn't", "aren't", "wasn't", "won't", "hasn't", "haven't"]
+# A reply or to-do whose sentence says there is nothing to do becomes a question.
+negation_terms: [no need to, don't need to, do not need to, not necessary, no action needed]
+
+# Dates. A time span that contains one of these words, and no exact date, is vague: it becomes
+# a question for the person, never a guessed date.
+vague_terms: [sometime, some time, soon, at some point, later, whenever, next week, this week,
+              next month, this month, end of the month, one of these days, in a few days]
+# "next <weekday>" is read as the weekday of the following Monday-to-Sunday week. When that and
+# the nearest such weekday differ (said on a Monday, "next Wednesday" could be either), it is a
+# question. A bare weekday ("Friday", "this Saturday") is the nearest one after the sent date;
+# the sent day's own weekday is a question (today, or in a week?).
+# A bare hour ("at 3") is read as PM when it is below this hour, otherwise AM ("at 9" = 9 AM).
+bare_hour_pm_below: 7
+# A date with no year is the next one on or after the sent date, except one that falls within
+# `yearless_past_days` before it ("October 20" sent on October 27), which is a question. A
+# payment due date or a hold already past at the sent time is a question too.
+
+# Bill check. The amount must be the one on the bill's "amount due" line (no such line is a
+# question), and when the bill shows its summary, previous balance - payments + total new
+# charges must equal it. A summary with only some of its lines is a question too.
+bill_lines:
+  amount_due: amount due
+  previous_balance: previous balance
+  payments: payment received
+  new_charges: total new charges
+
+# Words that don't count when comparing an event's name with a calendar title or another
+# message ("your teeth cleaning" vs "Leo's cleaning").
+stop_words: [the, a, an, your, my, our, for, with, of, at, to, in, on, and, is, appointment,
+             event, this, that, s]
