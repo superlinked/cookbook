@@ -1,0 +1,14 @@
+query_id,kind,text,department,photo_of,abo_item_id,abo_image_id,cropped,x,y,w,h,note
+Q01,text,stemless wine glasses,DRINKING_CUP,,,,,,,,,three sets of clear glasses; only P27 is stemless
+Q02,text,grey laptop bag,,,,,,,,,,no filter: a grey messenger bag and grey backpacks
+Q03,text,grey laptop bag,BACKPACK,,,,,,,,,the same words in the backpack department
+Q04,text,cordless power drill,,,,,,,,,,the catalog sells no tools
+Q05,text,navy ballet flat,SANDAL,,,,,,,,,the app offers a department the catalog does not have
+Q06,photo,,,,B07DBHB6B5,91wtj8DCDDL,,0,0,256,256,"room shot: a black armchair, with the P11 lamp small in the corner"
+Q07,photo,,LAMP,,B07DBHB6B5,91wtj8DCDDL,yes,256,0,256,256,"the same room shot, cropped by the shopper to the lamp"
+Q08,photo,,HANDBAG,,B07HMG2K51,91ghKd9nyML,,512,0,256,256,a man wearing the P17 messenger bag
+Q09,photo,,SHOES,,B01N9YD8AK,61cV+UnTTvL,,768,0,256,256,the black Madison flat; the catalog has only the navy one (P33)
+Q10,photo,,,,B07TK1DS8Z,71hg33n5VaL,,1024,0,256,256,a claw hammer; the catalog sells no tools
+Q11,photo_and_text,but the base should be dark wood,LAMP,Q07,B07DBHB6B5,91wtj8DCDDL,yes,256,0,256,256,"the cropped lamp from Q07, with words; P34 has a dark wood base, P35 a light one"
+Q12,photo_and_text,in brown leather,HANDBAG,Q08,B07HMG2K51,91ghKd9nyML,,512,0,256,256,"the worn messenger bag from Q08, with words; the catalog has only grey fabric"
+Q13,photo,,,,B07QHL4LQ2,813JIvSr-JL,,1280,0,256,256,"the P15 rug, marked unavailable; P16 is the same pattern in grey"

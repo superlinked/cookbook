@@ -1,0 +1,15 @@
+[project]
+name = "sie-match-products-to-catalog"
+version = "0.1.0"
+description = "Match a new supplier's product records to the existing catalog: same product, variant or new."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2",
+    "pillow>=12.3.0,<13",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+]
+
+[tool.uv]
+package = false

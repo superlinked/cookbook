@@ -1,0 +1,17 @@
+[project]
+name = "sie-rerank-search-within-filters"
+version = "0.1.0"
+description = "Rerank product search results within the shopper's filters."
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+]
+
+[dependency-groups]
+# Only make_data.py --esci needs it, to read the ESCI parquet file.
+data = ["pyarrow>=22.0.0,<26"]
+
+[tool.uv]
+package = false

@@ -1,0 +1,401 @@
+# Rerank search results without breaking the shopper's filters
+
+> **This example:** a store's product search, where size, color and stock filters are facts, not
+> preferences.
+>
+> **How it works:** size, color and stock filters run in plain Python, then a reranker orders only
+> what passed. Products with missing data go on a list for their owner.
+>
+> **Use the same pattern for:** a parts search filtered by vehicle fitment, a help-center search
+> limited to the shopper's country, accessories that must fit the product.
+
+## Background
+
+A shopper types into the search box on the store's site or app, picks a color and a size in
+the filters on the left, and expects the first row of results to be what they asked for. Nobody
+at the store touches that query. The search service retrieves candidates (often a keyword
+engine like BM25, sometimes with synonyms bolted on), applies the filters against the catalog
+and the stock system, and orders what's left, all in a few hundred milliseconds.
+
+The people who own this are the search relevance engineer and the merchandiser. Their weekly
+job happens after the fact: they open the search analytics dashboard, look at the queries with
+no clicks or no results, reproduce them in a storefront preview, and fix what they can. Some
+fixes are search fixes (a synonym, a ranking rule, a better model). Many are catalog fixes: a
+product with no color in the PIM never matches a color filter, and a product missing from the
+inventory feed never counts as in stock. Those go to the catalog or inventory owner as a ticket.
+
+What the systems already give you, structured: the query text and the filters the shopper
+picked; product IDs, brand, color and listing text from the PIM; stock per sellable variant
+(this size, this color, in stock or not) from the inventory system. None of that needs a model.
+What does is the gap between how shoppers describe things ("warm jacket with a hood that is
+waterproof") and how listings are written.
+
+Why it matters: a keyword engine puts the products that repeat the query's words first, so
+"cropped black shirt" fills the page with black T-shirts that aren't cropped. A shopper who
+doesn't see what they want in the first row usually leaves. And a filter that's bent (a size 8
+search showing a size 8.5, or a sold-out shoe) costs trust faster than a bad order does.
+
+Here's the job end to end, and the step this recipe takes on:
+
+```mermaid
+flowchart LR
+  A["Shopper types a query<br/>and picks color and size"] --> B["Search service finds<br/>candidates by keyword"]
+  B --> C["Apply the filters against<br/>the PIM and the stock system"]
+  C --> D["Order what passed the filters<br/>by what the shopper meant"]
+  D --> E[Shopper sees the first row]
+  E --> F["Relevance engineer and merchandiser<br/>review last week's bad searches"]
+  F --> G["Search fixes: synonyms,<br/>ranking rules"]
+  F --> H["Catalog or inventory owner<br/>fixes missing product data"]
+  classDef recipe fill:#e8f0fe,stroke:#1a73e8
+  class D recipe;
+```
+
+## The problem
+
+You want a better order without touching the filters. The obvious move, asking a model to rank
+everything, lets the model trade a filter for relevance, and the shopper's size and stock are
+facts, not preferences. Plain keyword ranking keeps the filters but gets the order wrong. And if
+you filter after cutting the candidate list to the top 20, a matching product at rank 21 is
+gone before anyone checks it.
+
+So the filters stay in Python and the model only orders what passed them. Each search gets a
+status, which is what the shopper sees:
+
+- **`ranked`**: the eligible products in reranked order. Those scoring at least `min_score` are
+  shown as matches, the rest below them as related items.
+- **`no_good_match`**: even the best eligible product scores below `min_score`; the page shows
+  them as related items, not as matches.
+- **`no_results`**: no candidate passed the filters, after looking past the first page of
+  keyword hits. The reason says how many failed a filter and how many were held.
+- **`not_reranked`**: the reranker call failed for a reason that may pass; the page is the
+  keyword order with the filters still applied.
+
+Separately, a product the recipe couldn't check (no color in the catalog, not in the inventory
+feed) is **held**: never shown, never guessed. If a held product would have ranked in the first
+five, it goes on a **data gap list** for the catalog or inventory owner, one line per product
+no matter how many queries hit it. The shopper still gets their results right away; the owner
+decides whether to fix the record. None of the statuses is a decision about the store: the
+relevance engineer and the merchandiser decide whether to switch the reranker on.
+
+## Where this runs, and what the output is for
+
+This isn't a batch job or data labeling. The code below is the reranking step inside your search
+endpoint: one shopper's query and filters go in, and the page of results that shopper sees comes
+out, in order. In production your search service calls `search(query, filters)` on every request.
+
+The recipe runs that same function two ways, so you can see what it does before you wire it in:
+
+- **One search**: `uv run recipe.py "black tennis shoes" --color black --size 8` prints the page
+  a shopper would get, next to the order the keyword engine alone would have shown.
+- **Last week's bad searches**: with no arguments, it runs the eight sample queries (the kind
+  the relevance engineer pulls from the analytics dashboard as no-click or no-result queries) and
+  writes one before-and-after page per query plus the data gap list. That's what the engineer
+  and the merchandiser look at to decide whether to switch the reranker on. No labels and no
+  score: they read the pages.
+
+The data gap list is the only output that goes to a person as work: the catalog or inventory
+owner gets one line per product whose missing data kept it off a page it should have been on.
+
+## How we'll solve it
+
+1. **Start from what the systems already know.** The query and its filters, the PIM (title,
+   brand, color, listing text) and a variant-level stock feed: one row per product, color, size
+   and sizing system (women, men, toddler, ...), in stock or not. In your setup the candidates
+   come from your own search engine; here BM25 over title, brand and color stands in.
+2. **Filter while retrieving, not after.** Walk down the keyword hits a page of 20 at a time and
+   apply the filters until 20 products pass or the hits run out (with a cap of 200 hits read).
+   Color comes from the PIM; size and stock come from the variant rows in the shopper's color,
+   so a sold-out black size 8 doesn't pass because the white size 8 is in stock. A product with
+   no PIM color, or missing from the feed, is held. A failed filter is a fact and wins over
+   anything unknown: a sock in the wrong color is dropped even if it's also missing from the
+   feed.
+3. **Rerank the eligible products.** `Qwen/Qwen3-Reranker-4B` scores each eligible and held
+   product against the query, using the listing text, with an instruction that says it's
+   judging shopping relevance. It's called once per search, with all of them.
+4. **Decide in Python.** Eligible products in reranked order, matches first. If the best is
+   below `min_score`, the status is `no_good_match`. Held products are never shown; a held
+   product scoring at least `min_score` that would rank within `held_within` goes on the data
+   gap list.
+5. **Write two things.** The shopper's results per query, next to the keyword-only order, and
+   the deduplicated data gap list for the catalog and inventory owners.
+
+If an SIE call fails for a reason that may pass (a timeout, a 5xx, a rate limit, or a reply
+without a numeric score for every product sent), that search falls back to the keyword order
+with its filters still applied, and the run carries on; if SIE refuses the call or every call
+fails, the run stops with SIE's message and writes nothing.
+
+## Picking the model
+
+There is one model, `Qwen/Qwen3-Reranker-4B`, through SIE's `score` call. It takes a query, an
+instruction and a list of texts, and returns a score between 0 and 1 for each text: how likely
+it answers the query. That is exactly the shape of this job. The candidates are already chosen
+by rules, so you don't need a model that finds products, only one that reads "i want a warm
+jacket with a hood and that is waterproof and black or dark coloured like navy" next to a
+listing and says how well they fit. It reads the title, brand, color and the first 300
+characters of the bullet points, which is where "waterproof" and "hooded" live.
+
+Its score is useful in two ways here. As an order, it's strong: in our run it put the waterproof
+hooded jacket first at 0.982, with everything else under 0.03. As an absolute value, it's a
+starting point: `min_score` is 0.50, the reranker's yes/no midpoint, not a value fitted to this
+data, and the swaps below show that another reranker's scores need another threshold. It also
+reads the size words in the query as part of the request, which the filters already handled
+(see Q-01 below).
+
+The reranker is not a chat model and decides nothing on its own. It only orders products that
+the filters already let through, plus the held ones, which it can score but never put on the
+page.
+
+## The flow
+
+```mermaid
+flowchart TD
+    Q[Query and filters<br/>from the search box] --> K[Next page of keyword hits<br/>keyword_search.py, BM25 here]
+    P[PIM: title, brand,<br/>color, listing text] --> F
+    I[Stock feed: product, color,<br/>size, sizing system, in stock] --> F
+    K --> F{Each hit: PIM color,<br/>then the variant rows<br/>in that color and size}
+    F -- fails --> D[dropped]
+    F -- unknown --> H[held, never shown]
+    F -- passes --> E[eligible]
+    E --> N{20 eligible, hits run out,<br/>or 200 hits read?}
+    N -- no --> K
+    N -- yes --> A{Anything eligible?}
+    A -- no --> NR[no_results<br/>with failed and held counts]
+    A -- yes --> R[Qwen3-Reranker-4B on SIE<br/>eligible and held products]
+    H --> R
+    R --> X{Call failed or a<br/>score missing?}
+    X -- yes --> KO[not_reranked<br/>keyword order, filters kept]
+    X -- no --> S{Best eligible score<br/>at least min_score?}
+    S -- no --> NG[no_good_match<br/>shown as related]
+    S -- yes --> RK[ranked<br/>matches, then related]
+    R --> G{Held product scores at least<br/>min_score and would rank in top 5?}
+    G -- yes --> GL[data gap list<br/>one line per product]
+    NR --> SH[Shopper's page]
+    KO --> SH
+    NG --> SH
+    RK --> SH
+    GL --> OW[Catalog or inventory owner<br/>fixes the record]
+```
+
+## How it's built
+
+Everything you'd want to argue about lives in [`rules.yaml`](./rules.yaml): the model name, the
+BM25 settings, the page size and the 200-hit cap, the words that count for each color facet, how
+many products the reranker sees (20), the instruction, `min_score` (0.50), how many results are
+shown (10), `held_within` (5) and who owns each kind of data gap. The existing systems are small
+lookup modules, each backed by a committed CSV seed loaded into an in-memory SQLite database:
+
+- [`pim.py`](./pim.py) stands in for your PIM's product API: `get_products(ids)` by exact
+  product ID, and `all_products()` to build the search index.
+- [`inventory.py`](./inventory.py) stands in for your inventory or availability API:
+  `find_variants(product_id)` returns every variant row, and `[]` means the product isn't in
+  the feed (stock unknown, which is not the same as sold out).
+- [`keyword_search.py`](./keyword_search.py) stands in for your search engine: `search(query,
+  offset, limit)` returns one page of BM25 hits, the way an Elasticsearch, OpenSearch or Solr
+  query with `from` and `size` would.
+
+[`recipe.py`](./recipe.py) holds the endpoint and the rules, in the same order as the flow.
+
+| Step | Code | SIE call | What it does |
+| --- | --- | --- | --- |
+| Load | `load_rules`, `load_queries`, `SearchEndpoint.__init__` | none | Reads `rules.yaml` and the sample queries, loads the PIM and feed seeds, builds the BM25 index from the PIM |
+| Walk the hits | `SearchEndpoint.collect` | none | Asks the engine for pages of 20 hits and checks each one until 20 pass, the hits run out or 200 are read. A product the PIM doesn't have is dropped |
+| Filters | `check_filters`, `color_matches`, `norm` | none | PIM color as a whole word from `color_words` (empty: held). Then the variant rows in the shopper's size and sizing system (none: dropped), in the shopper's color (a blank variant color: held), and at least one in stock (none: dropped). Not in the feed: held. Sizes compare without case or spaces, so `12w` is `12W` but `8.5` is not `8` |
+| Rerank | `rerank_text`, `SearchEndpoint.search`, `parse_scores` | `score` | One call per search with every eligible and held product. A reply with no `scores`, a missing score or a score that isn't a finite number is a failed call |
+| Decide | `build_page`, `decide`, `gap_ids` | none | Orders by score, marks match or related, places each held product (`would_rank`), picks the status, and lists held products for the gap list |
+| Gap list | `data_gaps` | none | One line per product across all searches, with what's missing, its owner, the queries it was held from, its best score and best rank |
+| Write | `write_outputs`, `render_page`, `render_summary`, `csv_safe` | none | `pages/Q-xx.md`, `summary.md`, `results.json` and `data_gaps.csv`, every CSV cell defused against spreadsheet formulas |
+
+The SIE error rule is the same as in the security recipes (`SIEStopped`, `is_fatal`,
+`guarded`, `CallLog`). A transient failure sends that search to `not_reranked` with a short
+reason and the run carries on. A refusal every call would repeat (a bad key, no credits, a model
+name SIE doesn't know) stops the run with SIE's full message and writes no outputs. If every
+call failed, the run stops too. The one-search command follows the same rule.
+
+[`selfcheck.py`](./selfcheck.py) checks the filters (the sold-out black 8 next to an in-stock
+white 8, the 8.5 sneaker, near sizes like `18`, `12` and toddler `8`, colors like "Blackberry"),
+the walk past hit 20 and the hit cap, the ordering and gap rules, malformed reranker replies,
+the outputs and the SIE error rule, with the committed data and hand-written stand-in replies.
+It also checks that `inventory.csv` and `queries.json` are exactly what `make_data.py` writes.
+[`make_data.py`](./make_data.py) builds the stock feed and queries from tables you can read,
+and with `--esci` rebuilds the PIM seed from ESCI.
+
+## Run it
+
+You need [uv](https://docs.astral.sh/uv/) and an SIE API key
+([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-rerank-search-within-filters)).
+
+```bash
+cp .env.example .env   # then set SIE_API_KEY
+uv run recipe.py                                                  # the 8 sample queries
+uv run recipe.py "black tennis shoes" --color black --size 8      # one search
+uv run recipe.py "black running shoes" --color black --size 8.5 --size-system women
+uv run selfcheck.py    # optional: offline checks, no SIE call
+uv run --group data make_data.py   # optional: rebuild data/inventory.csv and data/queries.json
+```
+
+`uv run` installs this recipe's few dependencies into its own `.venv` on the first run. The
+sample run writes `runs/<timestamp>/`; one search only prints. The first call can wait a few
+minutes while SIE Cloud starts the reranker. A warm sample run makes 8 SIE calls, one per query,
+and took about 5 seconds.
+
+## What came out
+
+The input is three seeds in [`data/`](./data):
+
+- `pim.csv`: 79 products (title, brand, color and the first 300 characters of the bullet
+  points). This is real public product text from the Amazon Shopping Queries dataset (ESCI),
+  every US product ESCI lists for seven of its shopper queries.
+- `inventory.csv`: a **made-up** variant stock feed. Each listing is one variant, the size its
+  title names in the PIM color, in stock, except the planted rows. ESCI has no stock data.
+- `queries.json`: 8 queries with the filters each shopper picked. Q-01 to Q-07 are ESCI's query
+  text; Q-08 is written for this recipe. The filters are planted, following the query's words.
+
+> **The product text is real, the stock and filters are not.** They say nothing about any real
+> seller's stock.
+
+Our live run on 4 Nov 2026 (UTC):
+
+| Case | What we planted | Should come out | What came out | Why |
+| --- | --- | --- | --- | --- |
+| Sold out in the size | Q-01 "women s black tennis shoes size 8": two sneakers that fit, one sold out in 8, one in every size | `ranked`; both dropped | Both dropped. The status was `no_good_match`, not `ranked` | A filter is a fact; the model never sees them as options |
+| Half size | Q-01, a size-8.5 sneaker (B01ESD61JI) | dropped by the size filter | Dropped: "no variant in size women 8" | Its title says 8.5, and now so does the feed |
+| Wordy query | Q-02 "i want a warm jacket with a hood ... black or ... navy" | `ranked`, the waterproof hooded jacket first | `ranked`, the Wantdo jacket first at 0.982 | The case keyword ranking gets wrong and a reranker should get right |
+| Not in the stock feed | Q-03 "mens black 100% cotton dress socks", a matching sock missing from the feed | `ranked` for the shopper; the sock on the data gap list | `ranked`; the sock scored 0.9163, would rank 4, on the list for the inventory owner | The shopper isn't kept waiting for an inventory fix |
+| No color in the catalog | Q-04 "all white boots for girls", two Dr. Martens boots with no catalog color | `ranked` for the shopper; both boots on the data gap list | `ranked`; boots at 0.9071 and 0.8149, both would rank 4, on the list for the catalog owner | Same as above, for the PIM owner this time |
+| Nothing really matches | Q-05 "cropped black shirt", only black T-shirts | `no_good_match` | `no_good_match`, best 0.2453 | Better to say so than to call a T-shirt a match |
+| Typo | Q-06 "biys sz 9 black tennis shoes", filter toddler 9 | `ranked` | `no_good_match`, best 0.1857 | Kept as the shopper typed it; we report whatever comes out |
+| Nothing left | Q-07 "women shoes flats black size 12w": nothing stocked in 12W | `no_results` | `no_results`: all 62 hits read, 61 failed a filter, 1 held | The filter removed everything, and the page should say so |
+| Other color in stock | Black size 8 sold out, white size 8 and black size 9 in stock, for one shoe (B071LF8XSF) | the black shoe dropped for a black size 8 query | Dropped in Q-01: "sold out in black, size women 8" | Stock belongs to the variant, not the product |
+| Match past hit 20 | Q-08 "black running shoes", women 8.5: the first 30 keyword hits fail the filters or are held | `ranked` with that hit | `ranked`, the 8.5 sneaker from keyword hit 31 at 0.6544 | Filtering after the cut-off would report `no_results` |
+
+Two planted cases came out differently from the plan, and we left them that way. Q-01 was meant
+to be `ranked`. Once the feed is honest about sizes, the only black women's size 8 shoes left are
+a New Balance sneaker (0.1275) and a ballet flat (0.0228), and the reranker didn't call either a
+match for "tennis shoes size 8". The women's sneaker that topped Q-01 in our earlier runs at
+0.909 is a size 9, so it no longer passes. Q-06 was meant to be `ranked` too; its three toddler
+size 9 sneakers scored 0.1857 at best. Treat all of this as a demo that the wiring works, not as
+a measure of accuracy: eight queries tell you the pieces fit, not how often the order is right.
+
+A few things worth noticing:
+
+- **Q-08 is why the filters run while walking.** "Black running shoes" pulls in every black
+  thing with "running" or "shoe" in its title, and the first 30 hits are the wrong size, the
+  wrong color or (one sock) missing from the stock feed. Cut at 20 and filter afterwards, and the
+  shopper gets an empty page. The walk reads all 58 hits and finds the one that fits:
+
+  ```text
+  # Q-08: ranked
+  Query: 'black running shoes'
+  Filters: black, size women 8.5, in stock
+  Keyword hits read: 58; 1 passed the filters.
+
+  | 1 | Skechers Sport Women's Dlites-play On Memory Foam Lace-up Sneaker,Black/Black,8.5 M US (B01ESD61JI, hit 31) | 0.6544 | match | ...
+  - Held B077ZJXCTH (hit 12, score 0.0115, would rank 2): not in the stock feed. Never shown.
+  ```
+
+  It's the same sneaker Q-01 dropped for being an 8.5. The shopper who wears an 8.5 gets it.
+- **Q-04's keyword engine thought a pant was a boot.** The first keyword hit for "all white
+  boots for girls" is "Dickies Girl Junior's Slim Worker Boot Cut Pant, White, 7". It has
+  "white", "boot" and "girl", which is all BM25 asked for. The reranker put the Carter's ankle
+  boot first at 0.9932 and moved the pant down to ninth.
+- **The data gap list is short and specific.** Three lines, one per product, each with its
+  owner:
+
+  ```csv
+  product_id,title,missing,owner,queries,best_score,best_rank
+  B077ZJXCTH,"Gildan Men's Stretch Cotton Ankle Socks, 12-Pack, Black, Shoe Size: 6-12",not in the stock feed,inventory owner,Q-03,0.9163,4
+  B07K35WGML,Dr. Martens Kid's Collection 1460 Pascal Mono Boot (Little Kid/Big Kid) Optical White Virginia 2 UK (US 3 Little Kid) M,color not in the PIM,catalog owner,Q-04,0.9071,4
+  B07K36ZVM6,Dr. Martens Kid's Collection 1460 Pascal Mono Boot (Toddler) Optical White Virginia 5 UK (US 6 Toddler) M,color not in the PIM,catalog owner,Q-04,0.8149,4
+  ```
+
+  The sock is held from every in-stock search (it's not in the feed), but only Q-03 lists it,
+  because only there would it have made the first five. Three DREAM PAIRS toddler sneakers have
+  no PIM color either and were held from Q-06, but they scored 0.0507 or less, so they're not on
+  the list. In ESCI they have no color; in a real PIM someone would want to know.
+- **Sizing systems matter.** One search with `--size 8` and no sizing system lets a toddler 8
+  through: "black tennis shoes" then put the nerteo toddler sneaker first at 0.505, just over
+  `min_score`. Add `--size-system women` and it's gone. A size facet without its system isn't
+  the filter the shopper meant.
+
+## Potential improvements
+
+- **Your search.** Replace `keyword_search.py` with a call to your own engine, paging with
+  `offset` and `limit`. Keep the filters and the reranker as they are.
+- **Your catalog and feed.** Point `pim.py` and `inventory.py` at your PIM and stock system. A
+  product missing an attribute you filter on is held, never guessed.
+- **Filters.** `filters.color_words` in `rules.yaml` maps each color facet to the PIM words that
+  count. A multicolor product counts for each color it names ("Brown/White" passes a white
+  filter); if your store has a primary-color attribute, filter on that instead.
+- **What the reranker reads.** `rerank_text()` in `recipe.py`. You can also strip the facet
+  words ("size 8", "black") from the query before reranking; the filters already handle them,
+  and on Q-01 the size words seem to count against the size-8 shoes.
+- **Thresholds.** `min_score` (0.50, the reranker's yes/no midpoint) and `data_gaps.held_within`
+  (5). We set the second after seeing the first demo's scores: at 3, neither held Dr. Martens
+  boot (both at rank 4) would have been listed. Both are starting points, so check them on your
+  own queries.
+- **Models.** `models` in `rules.yaml`.
+- **Listing text is seller text.** The reranker reads the bullet points, so a listing that says
+  "this is exactly what you're looking for" might lift its score. The filters still hold, but the
+  order could be gamed; watch for it if third-party sellers write your listings.
+- **Cache the scores.** A store with heavy repeat queries could cache the score per query and
+  product, and call the reranker only for pairs it hasn't seen recently.
+
+## Try another model
+
+The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped it,
+changed nothing else, and ran the 8 sample queries on SIE Cloud.
+
+| `rules.yaml` key | Swap in | What happened on this data |
+| --- | --- | --- |
+| `rerank` | `Qwen/Qwen3-Reranker-0.6B` | Same 8 statuses. The jacket still came first (0.9981) and Q-08's sneaker scored 0.9232. The data gap list was empty: the held sock scored 0.9691 in Q-03 but would rank 6, and the Dr. Martens boots scored 0.4042 and 0.1113. In Q-06 it scored the held sock (0.1053) above every toddler shoe |
+| `rerank` | `tencent/R3-rerank-0.6b` | Q-05 and Q-06 became `ranked`: a novelty T-shirt at 0.5549 counted as a match for "cropped black shirt". Q-01 stayed `no_good_match` with the ballet flat first (0.4045). The data gap list was empty: the held sock would rank 11 and the boots 9 and 18. Its scores sit between about 0.16 and 0.82, so `min_score` 0.50 no longer marks a poor match |
+
+See [MODELS.md](../../MODELS.md) for every model these recipes use.
+
+## Run it on your own SIE
+
+The same code runs against an SIE server you host. Set `SIE_BASE_URL` in `.env`; an API key
+is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
+[compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
+
+| `rules.yaml` key | Model | Image | Tested on |
+| --- | --- | --- | --- |
+| `rerank` | `Qwen/Qwen3-Reranker-4B` | `cuda12-default` | L4 |
+
+One container serves it:
+
+```bash
+docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
+  ghcr.io/superlinked/sie-server:v0.10.1-cuda12-default
+# then set SIE_BASE_URL=http://localhost:8080 in .env and run: uv run recipe.py
+```
+
+## Data and licenses
+
+- Product text and query text: the [Amazon Shopping Queries dataset (ESCI)](https://github.com/amazon-science/esci-data),
+  Apache-2.0 ([license](https://github.com/amazon-science/esci-data/blob/main/LICENSE)), copied
+  from the test split through the Hugging Face parquet mirror
+  [`tasksource/esci`](https://huggingface.co/datasets/tasksource/esci) (file
+  `parquet/default/test/0.parquet`). We keep ESCI only as public product text (title, brand,
+  color, bullet points cut to 300 characters) and the text of seven queries. ESCI's relevance
+  labels are not used or shipped. Product titles and brands are real Amazon listings.
+- The stock feed, the sizes and sizing systems, the filters and Q-08 are made up for this demo.
+  They say nothing about any real seller's stock.
+- [`make_data.py`](./make_data.py) rebuilds `inventory.csv` and `queries.json` with
+  `uv run --group data make_data.py`, and `pim.csv` too with `--esci esci-test-0.parquet`
+  (download command in its docstring).
+
+## Files
+
+- `recipe.py`: the search endpoint (`SearchEndpoint.search`), the filters, the decision rules and
+  the command line
+- `pim.py`, `inventory.py`, `keyword_search.py`: stand-ins for the PIM, the stock system and the
+  search engine
+- `selfcheck.py`: plain asserts on the filters, the walk, the ordering and gap rules, reply
+  parsing, outputs and the SIE failure rule, no SIE call (`uv run selfcheck.py`)
+- `rules.yaml`: model, keyword search settings, color words, thresholds and gap owners
+- `make_data.py`: builds `data/` from ESCI plus the planted feed and filters
+- `data/`: the PIM seed, the variant stock feed and the sample queries
+- `pyproject.toml`, `uv.lock`: this recipe's dependencies
+
+See the SIE task page for [reranking](https://superlinked.com/rerank?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-rerank-search-within-filters).

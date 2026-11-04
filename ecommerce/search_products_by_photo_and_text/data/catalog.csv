@@ -1,0 +1,36 @@
+product_id,category,title,color,available,abo_item_id,abo_image_id,x,y,w,h
+P01,SOFA,"Amazon Brand - Stone & Beam Andover Modern Sofa Couch, 78""W, Linen",beige,yes,B07B4L6C47,91u1nJvgGhL,0,0,256,256
+P02,SOFA,"Amazon Brand - Rivet Goodwin Modern Sofa, 88.6""W, Charcoal Grey",grey,yes,B07HZ57QD3,91S00XqPfqL,256,0,256,256
+P03,SOFA,"Amazon Brand - Rivet Edgewest Modern Left-Facing U-Shape Sectional, Leather, 117""W, Charcoal",grey,yes,B07BWMQLS9,71AfsL90tjL,512,0,256,256
+P04,SOFA,"AmazonBasics Outdoor Patio Garden PE Rattan Textured Faux Wicker Modular Sofa - 4-Piece Set, Brown and Grey Rattan",brown,yes,B07X5XSRPT,71zHcRnrAwL,768,0,256,256
+P05,CHAIR,"Amazon Brand - Stone & Beam Jameson Farmhouse Leather Nailhead Recliner Chair, 36""W, Driftwood",brown,yes,B07B4MMTXT,91YQ0SlflAL,1024,0,256,256
+P06,CHAIR,"Amazon Brand - Rivet Curved Tufted Velvet Accent Chair, Marina Mid-Century, 28.7""W, Hunter Green",green,yes,B075X2WN36,91Xl1truRSL,1280,0,256,256
+P07,CHAIR,"Amazon Brand - Ravenna Home Classic-Style Solid Pine Dining Chair, 40""H, Gray Finish, Set of 2",grey,yes,B07MBFF1M7,51TnKG4L00L,1536,0,256,256
+P08,CHAIR,"Amazon Brand - Stone & Beam Elisabet Upholstered Swivel Chair, 33.5""W, Midnight",navy,yes,B0853VN8BT,91jweMOux4L,0,256,256,256
+P09,LAMP,"Amazon Brand - Stone & Beam Contemporary Glass Table Lamp with Narrow-Necked Body, LED Bulb Included, 20.25""H, White",white,yes,B0825DWB31,51hgHleTRaL,256,256,256,256
+P10,LAMP,"Ravenna Home Clear Ribbed Glass Cylinder Living Room Floor Lamp with LED Light Bulb - 64.25 Inches, Dark Bronze",brown,yes,B07DBCMTPC,41QtgNNdyAL,512,256,256,256
+P11,LAMP,"Amazon Brand - Ravenna Home Modern Round Table Lamp With LED Light Bulb - 17.50 Inches, Chrome with Clear Glass",clear,yes,B07DBHB6B5,41SHn0jzPOL,768,256,256,256
+P12,LAMP,"Amazon Brand - Stone & Beam Contemporary 2-Tone Floral Textured Ceramic Table Lamp, LED Bulb Included, 17.75""H, Beige",beige,yes,B0825CP44X,51rQA0rCqGL,1024,256,256,256
+P13,RUG,"Amazon Brand - Rivet Handcrafted Wool-and-Cotton Rug with Undulating Stripes, 5' x 8', Cream and Taupe",cream,yes,B07QD6YNB7,A1L0LwCPsLL,1280,256,256,256
+P14,RUG,"Amazon Brand - Stone & Beam Old World Area Rug, 1' 10"" x 2' 10"", Blue and Orange",blue,yes,B075Z9SBPH,91mB4D4+AxL,1536,256,256,256
+P15,RUG,"Ravenna Home Floral Medallion Tiled Rug, 4' x 6', Cerulean Blue with Ivory",blue,no,B07QHL4LQ2,A1-iOdeRXGL,0,512,256,256
+P16,RUG,"Amazon Brand - Ravenna Home Floral Medallion Tiled Rug, 2'3"" x 7'3"", Warm Grey with Ivory",grey,yes,B07QC8BJFR,91mFII9hTXL,256,512,256,256
+P17,HANDBAG,AmazonBasics Messenger Bag - Grey,grey,yes,B07HMG2K51,91-wTDkPv+L,512,512,256,256
+P18,HANDBAG,"Amazon Brand - The Fix Quinn Suede Fringe Wristlet Clutch, Havana Tan/Orange",brown,yes,B06WD1T48N,A1Uwe3x7EdL,768,512,256,256
+P19,HANDBAG,"Amazon Brand - The Fix Hampton Crossbody Leather Circle Bag, Bright Orange-Red",red,yes,B06WRPKD88,91zxIlJkmfL,1024,512,256,256
+P20,BACKPACK,AmazonBasics Carry-On Travel Backpack - Black,black,yes,B01J24H2K0,81+ADtxHDkL,1280,512,256,256
+P21,BACKPACK,AmazonBasics Urban Backpack for Laptops up to 15-Inches - Grey,grey,yes,B07QRZD489,91p--tZQOsL,1536,512,256,256
+P22,BACKPACK,AmazonBasics Sport Laptop Backpack - Grey,grey,yes,B07D7WCXBT,91bCs6qWMuL,0,768,256,256
+P23,SUITCASE,"AmazonBasics Premium Hardside Spinner Luggage with Built-In TSA Lock - 3-Piece Set (21"", 26"", 30""), Grey",grey,yes,B07CWQMKCC,91AXGmCOvmL,256,768,256,256
+P24,SUITCASE,"AmazonBasics Hardside Spinner, Carry-On, Expandable Suitcase Luggage with Wheels, Blue - 3-Piece Set",blue,yes,B0727Y5L53,91Mb2i8VULL,512,768,256,256
+P25,SUITCASE,"AmazonBasics 28"" ABS Hardside Spinner Luggage, Red",red,yes,B07R7G6M7N,91BNU4+ciCL,768,768,256,256
+P26,DRINKING_CUP,"AmazonBasics Serene Coolers Glass Drinkware Set, 16-Ounce, Set of 6",clear,yes,B0896L76B3,61JIl2lXHBL,1024,768,256,256
+P27,DRINKING_CUP,"AmazonBasics Tritan Stemless Wine Glasses - 14-Ounce, Set of 4",clear,yes,B08989KYPF,71ycJQJFldL,1280,768,256,256
+P28,DRINKING_CUP,AmazonBasics Briercrest 16-Piece Old Fashioned and Coolers Glass Drinkware Set,clear,yes,B0896LKL83,61KxAqB14hL,1536,768,256,256
+P29,BOOT,"find. Arbor Chelsea Boots, Black), 10.5 UK",black,yes,B07THKW5LF,71RGYATqQyL,0,1024,256,256
+P30,BOOT,"Amazon Brand - The Fix Women's Hazel 4-Buckle Strap Ankle Boot, Black, 6.5 B US",black,yes,B074JPC2PH,81RgLQezkvL,256,1024,256,256
+P31,SHOES,Amazon Brand - The Fix Women's Dolly Block Heel Buckle Gladiator Sandal,grey,yes,B06XH67XMQ,81773IlJPuL,512,1024,256,256
+P32,SHOES,"Concept 3 by Skechers Men's Traver Lace-up Mesh Sneaker, Navy Blue, 8 Medium US",navy,yes,B07YFHG6JT,91V+yWmJbqL,768,1024,256,256
+P33,SHOES,"Amazon Brand - 206 Collective Women's Madison Ballet Flat, Navy, 10.5 B US",navy,yes,B01MSE5A2C,61BMn9WOzqL,1024,1024,256,256
+P34,LAMP,"Amazon Brand - Ravenna Home Faux Wood Table Lamp, Bulb Included, 18""H, Espresso Dark Brown",brown,yes,B07ML7J584,41BOXA3Sb6L,1280,1024,256,256
+P35,LAMP,"Amazon Brand - Ravenna Home Faux Wood Table Lamp with LED Light Bulb, 18""H, Oak",beige,yes,B07MHMNJZT,41QVbQ8Ol0L,1536,1024,256,256
