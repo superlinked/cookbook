@@ -1,0 +1,6 @@
+contract_id,supplier,services,critical_or_important
+EB-ICT-0117,Nimbusline Cloud Ltd,managed cloud hosting of the Customer's payments ledger and its backups,yes
+EB-ICT-0098,Brennick Data Services GmbH,operation of the Customer's customer-statement print and archive platform,no
+EB-ICT-0142,Tallowmere Analytics S.A.,a hosted fraud-scoring service for card transactions,yes
+EB-ICT-0076,Brindlecote Payments B.V.,a card payments gateway for the Customer's online banking channel,yes
+EB-ICT-0051,Brackwater Records Ltd,offsite storage and retrieval of the Customer's archived loan files,no

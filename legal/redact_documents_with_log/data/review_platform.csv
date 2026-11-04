@@ -1,0 +1,7 @@
+volume,bates,custodian,date,author,recipients,doc_type,coding,designation,privilege_coding
+PMS-VOL001,PMS0000001,Osric Pellham,2026-06-05T13:12:00Z,Osric Pellham <osric@pellhammarine.example>,Corwin Ashdale <corwin.ashdale@kitteringmarine.example>; Marek Halloran <marek@pellhammarine.example>,Email,Produce with redactions,,Not privileged
+PMS-VOL001,PMS0000002,Nell Brandt,2026-06-15T14:41:00Z,Nell Brandt <nell@pellhammarine.example>,Larkspur Mutual Claims <claims@larkspur-mutual.example>,Email,Produce with redactions,,Not privileged
+PMS-VOL001,PMS0000003,Nell Brandt,2026-10-23T00:00:00Z,Granite Harbor Bank,Pellham Marine Supply LLC,Bank record,Produce with redactions,CONFIDENTIAL,Not privileged
+PMS-VOL001,PMS0000004,Osric Pellham,2026-07-07T22:05:00Z,Osric Pellham <osric@pellhammarine.example>,Priya Okonjo <priya.okonjo@hollis-crane.example>,Email,Produce with redactions,,Partly privileged
+PMS-VOL001,PMS0000005,Nell Brandt,2026-10-21T20:40:00Z,Osric Pellham <osric@pellhammarine.example>,Nell Brandt <nell@pellhammarine.example>,Email,Produce with redactions,,Not privileged
+PMS-VOL001,PMS0000006,Nell Brandt,2026-01-02T00:00:00Z,Pellham Marine Supply LLC,,Spreadsheet,Produce with redactions,CONFIDENTIAL,Not privileged

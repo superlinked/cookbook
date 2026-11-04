@@ -1,0 +1,300 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R 10 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Length 3256 >>
+stream
+BT
+13 TL
+64 780 Td
+/F2 10 Tf (ICT SERVICES AGREEMENT) Tj
+T*
+T*
+/F1 10 Tf (This Agreement is made on 12 March 2023 between Eastmere Bank plc, 1 Quayside Row, Bristol) Tj
+T*
+/F1 10 Tf (BS1 6XE \(the Customer\), and Nimbusline Cloud Ltd, 14 Fernhollow Yard, Leeds LS9 4QT \(the) Tj
+T*
+/F1 10 Tf (Supplier\).) Tj
+T*
+T*
+/F2 10 Tf (1. DEFINITIONS) Tj
+T*
+T*
+/F1 10 Tf (1.1 Customer Data means all data, including personal data, that the Supplier receives or) Tj
+T*
+/F1 10 Tf (creates for the Customer. ICT incident has the meaning given in Regulation \(EU\) 2022/2554.) Tj
+T*
+T*
+/F2 10 Tf (2. SERVICES AND SUBCONTRACTING) Tj
+T*
+T*
+/F1 10 Tf (2.1 The Supplier shall provide the services described in Schedule 1 \(the Services\), being) Tj
+T*
+/F1 10 Tf (managed cloud hosting of the Customer's payments ledger and its backups. Schedule 1 is a) Tj
+T*
+/F1 10 Tf (clear and complete description of every function and ICT service provided under this) Tj
+T*
+/F1 10 Tf (Agreement.) Tj
+T*
+T*
+/F1 10 Tf (2.2 The Supplier may subcontract part of the Services only with the Customer's prior written) Tj
+T*
+/F1 10 Tf (consent. Any approved subcontractor is bound by the same obligations as the Supplier, and) Tj
+T*
+/F1 10 Tf (the Supplier remains fully responsible for the subcontractor's performance.) Tj
+T*
+T*
+/F2 10 Tf (3. SERVICE LEVELS) Tj
+T*
+T*
+/F1 10 Tf (3.1 The Supplier shall meet the service levels in Schedule 2, including monthly availability) Tj
+T*
+/F1 10 Tf (of 99.9%, a four-hour response time for priority 1 tickets and a recovery time objective of) Tj
+T*
+/F1 10 Tf (eight hours.) Tj
+T*
+T*
+/F1 10 Tf (3.2 Service levels are reviewed every twelve months. Any update or revision takes effect) Tj
+T*
+/F1 10 Tf (only when agreed in writing and recorded as a new version of Schedule 2.) Tj
+T*
+T*
+/F2 10 Tf (4. LOCATIONS OF SERVICE AND DATA) Tj
+T*
+T*
+/F1 10 Tf (4.1 The Services are provided from, and Customer Data is processed and stored in, Ireland) Tj
+T*
+/F1 10 Tf (and the Netherlands only.) Tj
+T*
+T*
+/F1 10 Tf (4.2 The Supplier shall notify the Customer in writing at least ninety \(90\) days before any) Tj
+T*
+/F1 10 Tf (change to the countries or regions in which the Services are provided or Customer Data is) Tj
+T*
+/F1 10 Tf (processed or stored.) Tj
+T*
+T*
+/F2 10 Tf (5. DATA PROTECTION AND SECURITY) Tj
+T*
+T*
+/F1 10 Tf (5.1 The Supplier shall ensure the availability, authenticity, integrity and confidentiality) Tj
+T*
+/F1 10 Tf (of Customer Data, including personal data, in accordance with Applicable Data Protection Law) Tj
+T*
+/F1 10 Tf (and the security measures in Schedule 3.) Tj
+T*
+T*
+/F1 10 Tf (5.2 Customer Data is encrypted in transit and at rest. Access is limited to named personnel) Tj
+T*
+/F1 10 Tf (with a business need.) Tj
+T*
+T*
+/F2 10 Tf (6. ICT INCIDENT ASSISTANCE) Tj
+T*
+T*
+/F1 10 Tf (6.1 When an ICT incident related to the Services occurs, the Supplier shall provide the) Tj
+T*
+/F1 10 Tf (Customer with all reasonable assistance to contain, investigate and recover from it, at no) Tj
+T*
+/F1 10 Tf (additional cost to the Customer.) Tj
+T*
+T*
+/F2 10 Tf (7. COOPERATION WITH AUTHORITIES) Tj
+T*
+T*
+ET
+BT
+/F1 8 Tf
+64 40 Td (Synthetic contract for the SIE Cookbook. Every party is fictional.) Tj
+ET
+BT
+/F1 8 Tf
+460 40 Td (Page 1 of 3) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 2395 >>
+stream
+BT
+13 TL
+64 780 Td
+/F1 10 Tf (7.1 The Supplier shall cooperate fully with the competent authorities and resolution) Tj
+T*
+/F1 10 Tf (authorities of the Customer, including persons appointed by them, and shall give them access) Tj
+T*
+/F1 10 Tf (to information, premises and personnel relating to the Services.) Tj
+T*
+T*
+/F2 10 Tf (8. FEES AND PAYMENT) Tj
+T*
+T*
+/F1 10 Tf (8.1 The Customer shall pay the fees in Schedule 4 monthly in arrears within thirty \(30\) days) Tj
+T*
+/F1 10 Tf (of a valid invoice.) Tj
+T*
+T*
+/F1 10 Tf (8.2 Fees are fixed for the Initial Term. Late payments bear interest at two percent above) Tj
+T*
+/F1 10 Tf (the base rate.) Tj
+T*
+T*
+/F2 10 Tf (9. TERM AND TERMINATION) Tj
+T*
+T*
+/F1 10 Tf (9.1 This Agreement runs for an Initial Term of three years and renews for successive) Tj
+T*
+/F1 10 Tf (one-year periods.) Tj
+T*
+T*
+/F1 10 Tf (9.2 The Customer may terminate this Agreement on thirty \(30\) days' written notice if the) Tj
+T*
+/F1 10 Tf (Supplier materially breaches applicable law or this Agreement, if circumstances arise that) Tj
+T*
+/F1 10 Tf (alter the performance of the Services, or if a competent authority can no longer effectively) Tj
+T*
+/F1 10 Tf (supervise the Customer because of this Agreement. The Customer may also terminate for) Tj
+T*
+/F1 10 Tf (convenience on six \(6\) months' written notice.) Tj
+T*
+T*
+/F2 10 Tf (10. EXIT AND RETURN OF DATA) Tj
+T*
+T*
+/F1 10 Tf (10.1 On termination, expiry, insolvency, resolution or discontinuation of the Supplier's) Tj
+T*
+/F1 10 Tf (business, the Supplier shall give the Customer access to, recover and return all Customer) Tj
+T*
+/F1 10 Tf (Data, personal and non-personal, in an easily accessible, machine-readable format within) Tj
+T*
+/F1 10 Tf (thirty \(30\) days, and then delete its copies.) Tj
+T*
+T*
+/F2 10 Tf (11. GOVERNING LAW) Tj
+T*
+T*
+/F1 10 Tf (11.1 This Agreement is governed by the laws of England and Wales. The courts of London have) Tj
+T*
+/F1 10 Tf (exclusive jurisdiction.) Tj
+T*
+T*
+/F1 10 Tf (Signed for and on behalf of the parties:) Tj
+T*
+T*
+/F1 10 Tf (______________________________) Tj
+T*
+/F1 10 Tf (Adaeze Marlow, Head of Procurement) Tj
+T*
+T*
+/F1 10 Tf (______________________________) Tj
+T*
+/F1 10 Tf (Pieter Vossenaar, Managing Director) Tj
+T*
+T*
+ET
+BT
+/F1 8 Tf
+64 40 Td (Synthetic contract for the SIE Cookbook. Every party is fictional.) Tj
+ET
+BT
+/F1 8 Tf
+460 40 Td (Page 2 of 3) Tj
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R >>
+endobj
+9 0 obj
+<< /Length 1372 >>
+stream
+BT
+13 TL
+64 780 Td
+/F2 10 Tf (SCHEDULES) Tj
+T*
+T*
+/F2 10 Tf (Schedule 1: Services) Tj
+T*
+T*
+/F1 10 Tf (Managed cloud hosting of the Customer's payments ledger and its backups, including) Tj
+T*
+/F1 10 Tf (monitoring, backup and restore, capacity management and a service desk open every day of the) Tj
+T*
+/F1 10 Tf (year.) Tj
+T*
+T*
+/F2 10 Tf (Schedule 2: Service levels) Tj
+T*
+T*
+/F1 10 Tf (Monthly availability: 99.9%. Priority 1 response: four hours. Priority 2 response: one) Tj
+T*
+/F1 10 Tf (business day. Recovery time objective: eight hours. Recovery point objective: fifteen) Tj
+T*
+/F1 10 Tf (minutes. Measured monthly and reported by the tenth business day of the next month.) Tj
+T*
+T*
+/F2 10 Tf (Schedule 3: Security measures) Tj
+T*
+T*
+/F1 10 Tf (Encryption in transit with TLS 1.2 or later and at rest with AES-256. Multi-factor) Tj
+T*
+/F1 10 Tf (authentication for every administrative account. An annual penetration test by an) Tj
+T*
+/F1 10 Tf (independent tester, with the summary shared with the Customer.) Tj
+T*
+T*
+/F2 10 Tf (Schedule 4: Fees) Tj
+T*
+T*
+/F1 10 Tf (A fixed monthly fee of EUR 18,400, invoiced monthly in arrears. Changes to the Services are) Tj
+T*
+/F1 10 Tf (priced by written change request.) Tj
+T*
+T*
+ET
+BT
+/F1 8 Tf
+64 40 Td (Synthetic contract for the SIE Cookbook. Every party is fictional.) Tj
+ET
+BT
+/F1 8 Tf
+460 40 Td (Page 3 of 3) Tj
+ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 9 0 R >>
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000134 00000 n 
+0000000231 00000 n 
+0000000333 00000 n 
+0000003641 00000 n 
+0000003777 00000 n 
+0000006224 00000 n 
+0000006360 00000 n 
+0000007784 00000 n 
+trailer
+<< /Size 11 /Root 1 0 R >>
+startxref
+7921
+%%EOF

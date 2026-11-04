@@ -1,0 +1,117 @@
+# The bank's DORA contract checklist, owned by legal, plus every model and threshold the recipe
+# uses. The clause list follows DORA (Regulation (EU) 2022/2554) Article 30(2), points (a) to
+# (h), written in our own words. It is a starting point: add 30(2)(i) training, the 30(3) terms
+# for critical or important functions, or your own policy by adding entries under `clauses`.
+# Thresholds are starting points, not tuned values. Check them against your own contracts.
+
+models:
+  document: docling                     # pages that have a text layer (e-signed, Word exports)
+  ocr: lightonai/LightOnOCR-3-4B        # scanned pages
+  rerank: Qwen/Qwen3-Reranker-4B
+  verdict: Qwen/Qwen3.8-27B-FP8
+
+thresholds:
+  min_text_layer_chars: 200       # a page with fewer text-layer characters is a scan: OCR it
+  render_dpi: 400                 # scan render resolution before OCR
+  max_image_edge_px: 2048         # LightOnOCR's recommended longest edge
+  min_page_chars: 200             # a page read shorter than this is unreadable (a text-layer
+                                  # page: shorter than half its own text layer, up to this)
+  min_chunk_chars: 40             # shorter paragraphs (headings) are joined to the next one
+  top_k_chunks: 3                 # passages per clause the LLM reads
+  max_completion_tokens: 400      # cap on the status JSON
+
+scope:
+  checked: >-
+    Checked against the bank's DORA checklist: Article 30(2)(a) to (h). Not checked:
+    30(2)(i), the provider taking part in the bank's ICT security awareness programmes and
+    digital operational resilience training.
+  critical_or_important_note: >-
+    The register marks this contract as supporting a critical or important function, so the
+    extra Article 30(3) terms apply. They are not checked here.
+
+# Words that send a "found" to needs_review on any clause: a duty the passage takes away.
+review_terms_every_clause: ["not be required", "not be obliged", "is not obliged", "is not required"]
+
+# Each clause: `description` is the reranker query; `found_if` and `needs_review_if` go to the
+# LLM. `review_terms` are words that send a "found" to needs_review when the cited passage
+# contains them, whatever the LLM said: a check in plain Python, matched without case.
+clauses:
+  - id: services_subcontracting
+    article: "30(2)(a)"
+    title: Description of services and subcontracting
+    description: >-
+      A clear and complete description of all functions and ICT services the provider delivers,
+      stating whether subcontracting is permitted and, if so, on what conditions.
+    found_if: The contract describes the services and says whether and how subcontracting is allowed.
+    needs_review_if: Services are described but subcontracting is not addressed, or the reverse.
+    review_terms: ["without the Customer's consent", "at its discretion"]
+
+  - id: data_locations
+    article: "30(2)(b)"
+    title: Locations of service and data
+    description: >-
+      The countries or regions where the services are provided and where data is processed and
+      stored, and an obligation to notify the financial entity in advance of any change of location.
+    found_if: Named countries or regions for service and data, plus advance notice of changes.
+    needs_review_if: Locations are named but there is no advance-notice duty, or locations are vague ("worldwide").
+    review_terms: ["worldwide", "at its discretion"]
+
+  - id: data_security
+    article: "30(2)(c)"
+    title: Availability, authenticity, integrity and confidentiality of data
+    description: >-
+      Provisions on availability, authenticity, integrity and confidentiality of data,
+      including personal data, in relation to data protection.
+    found_if: The provider commits to protect the availability, authenticity, integrity and confidentiality of data.
+    needs_review_if: Only some of these properties are covered, or the duty is "reasonable efforts" only.
+    review_terms: ["reasonable efforts", "commercially reasonable"]
+
+  - id: data_access_return
+    article: "30(2)(d)"
+    title: Access, recovery and return of data
+    description: >-
+      Ensuring access, recovery and return of personal and non-personal data in an easily accessible
+      format if the provider becomes insolvent, is resolved, discontinues its business, or the contract ends.
+    found_if: Data is returned in an accessible format on termination and on insolvency, resolution or discontinuation.
+    needs_review_if: Return covers only termination, or the format, timing or cost is left open.
+    review_terms: ["then-current", "where technically feasible"]
+
+  - id: service_levels
+    article: "30(2)(e)"
+    title: Service level descriptions
+    description: Service level descriptions, including how they are updated and revised.
+    found_if: Measurable service levels and a way to update or revise them.
+    needs_review_if: Service levels are mentioned without measurable targets, or the provider can change them alone.
+    review_terms: ["sole discretion", "at its discretion", "from time to time"]
+
+  - id: incident_assistance
+    article: "30(2)(f)"
+    title: Assistance when an ICT incident occurs
+    description: >-
+      The provider must assist the financial entity when an ICT incident related to the service
+      occurs, at no additional cost or at a cost determined in advance.
+    found_if: A firm duty to assist with ICT incidents, free of charge or at a price fixed in the contract.
+    needs_review_if: >-
+      Assistance is discretionary ("may", "at its discretion"), or priced at rates not fixed in advance
+      (for example "then-current rates").
+    review_terms: ["at its discretion", "then-current", "time-and-materials"]
+
+  - id: authority_cooperation
+    article: "30(2)(g)"
+    title: Cooperation with competent and resolution authorities
+    description: >-
+      The provider must cooperate fully with the competent authorities and resolution authorities
+      of the financial entity, including persons appointed by them.
+    found_if: A duty to cooperate fully with competent and resolution authorities.
+    needs_review_if: Cooperation is limited, for example to what is "legally required" of the provider.
+    review_terms: ["legally required", "to the extent required by law"]
+
+  - id: termination_rights
+    article: "30(2)(h)"
+    title: Termination rights and notice periods
+    description: >-
+      Termination rights of the financial entity and the related minimum notice periods, in line with
+      the expectations of competent authorities.
+    found_if: The financial entity can terminate, with stated notice periods.
+    needs_review_if: Termination needs the provider's consent, carries a penalty, or has no stated notice period.
+    review_terms: ["termination fee", "penalty", "with the Supplier's consent"]

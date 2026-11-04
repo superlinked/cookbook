@@ -1,0 +1,85 @@
+# The litigation-support team's rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against the volumes you receive.
+# The cover letter's fields and the other side's lawyers come from the matter system
+# (matter.py, backed by data/matter_*.csv), not from here.
+
+models:
+  ocr: lightonai/LightOnOCR-3-4B      # scanned pages (no text layer)
+  document: docling                   # pages with a text layer, and native Word files
+  fields: fastino/gliner2-large-v1    # date, author, recipients, document type
+  privilege: fastino/GLiNER2.5-Decide # "potentially privileged" or "not privileged"
+
+thresholds:
+  min_text_layer_chars: 100      # a PDF page with fewer text-layer characters is a scan: OCR it
+  render_dpi: 200                # scan render resolution before OCR
+  max_image_edge_px: 2048        # LightOnOCR's recommended longest edge
+  min_page_chars: 40             # a page that reads shorter than this is unreadable: QC exception
+  # gliner2-large-v1 and GLiNER2.5-Decide read about 512 tokens per item; words are counted
+  # conservatively, and an input that still runs over is a failed call for that document.
+  field_window_words: 180
+  field_window_overlap_words: 30
+  # The privilege question takes part of GLiNER2.5-Decide's window. Windows are cut per page, so
+  # each page is scored on its own, and overlap so a sentence cut at one edge is whole in the next.
+  privilege_window_words: 150
+  privilege_window_overlap_words: 30
+  # The document's strongest window decides. At or above privileged_at: "scored potentially
+  # privileged". At or above unsure_from: "unsure". Both send it to the lawyer.
+  privileged_at: 0.50
+  unsure_from: 0.35
+
+# Bates stamps. The prefix and number of digits come from the cover letter (the matter system's
+# production log). OCR can read a 0 as O or a 1 as l; these letters are read as digits inside a
+# stamp, and a space or dash between prefix and number is allowed.
+bates:
+  ocr_digit_lookalikes: {O: "0", o: "0", D: "0", I: "1", l: "1", "|": "1", S: "5", B: "8"}
+  # A native file is produced under one Bates number, which is its file name.
+  native_extensions: [.docx]
+
+# Where one document ends and the next begins. A page starts a document when it says "Page 1 of
+# M" or begins with an email header. A page that says "Page N of M" with N above 1 continues the
+# document before it only if that page said "Page N-1 of M". Anything else (no numbering and no
+# email header, numbering that doesn't follow, a document that stops before "M of M") gets a
+# boundary note and a QC exception, so a person confirms where the document starts and ends.
+document_breaks:
+  page_numbering: 'Page\s*(\d+)\s*of\s*(\d+)'
+  email_header: '\A\W*From:.*?\bSubject:'
+
+# The footer legend: the line the producing party adds to every page, naming the custodian
+# whose files the page came from. The custodian is read from it in Python. The legend and the
+# Bates stamps are not part of the document as written, so both are removed before the
+# privilege question. A native file has no legend; its custodian comes from the cover letter.
+footer_legend_pattern: '^.*\bCONFIDENTIAL\s*-\s*Custodian:\s*(?P<custodian>.+?)\s*$'
+
+# What gliner2-large-v1 is asked for. `kind: list` is an array of strings; `enum` is a fixed
+# choice. Every value except an enum must appear in the text it came from. The enum has no
+# "other": a document the model cannot type gets no type and a QC exception.
+fields:
+  date:
+    description: the date the document was sent, written or signed, or the date it takes effect
+  author:
+    description: the person who wrote, sent or signed the document
+  recipients:
+    kind: list
+    description: people the document is addressed, sent or copied to
+  doc_type:
+    description: >-
+      the kind of document: an email has From, Sent, To and Subject lines; a contract has
+      parties and terms
+    enum: [email, memo, letter, contract, delivery receipt, report]
+
+# An index row missing one of these gets a QC exception.
+required_fields: [custodian, date, doc_type]
+
+# Dates are written to the index as YYYY-MM-DD. A date value is tried against these formats
+# ("Wednesday, March 12, 2025 4:41 PM" reads as March 12, 2025). A value holding two different
+# dates, or two windows giving different values for one field, is a QC exception.
+date_formats: ["%B %d, %Y", "%B %d %Y", "%d %B %Y", "%m/%d/%Y", "%Y-%m-%d"]
+
+# The question GLiNER2.5-Decide answers, and its two options (label: description).
+privilege_question: Is this document potentially protected by attorney-client privilege or work product?
+privilege_options:
+  potentially privileged: >-
+    a lawyer gives legal advice or is asked for it, or the document was prepared for a lawsuit
+    at the request of counsel
+  not privileged: ordinary business communication, records or forms with no legal advice
+privileged_label: potentially privileged
