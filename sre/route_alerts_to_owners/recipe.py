@@ -23,7 +23,7 @@ Output:    routes.csv and routes.json in runs/<timestamp>/: per alert, the statu
 Why SIE:   One small encoder model, called only for the alerts no record places. The team list
            is the catalog itself: add a team with a description and the next run can suggest
            it, with no training. No generative model makes the decision. Nothing to host.
-Runs on:   SIE Serverless.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

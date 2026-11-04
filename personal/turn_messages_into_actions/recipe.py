@@ -32,7 +32,7 @@ Output:    proposals.json, todo.md, events.ics and messages.json in runs/<timest
 Why SIE:   Four small specialist models, each called only where it's needed; no generative
            model makes the decision. Dates, amounts, duplicates and the calendar and payee
            checks are plain Python you can read below.
-Runs on:   SIE Serverless.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

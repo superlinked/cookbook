@@ -27,7 +27,7 @@ Output:    inspections.csv (one row per photo: status, counts, where bolts are m
 Why SIE:   One model on SIE Serverless, called once per photo, finds every bolt from a text prompt,
            with no training images and no labelling. No generative model makes the decision:
            the count and the status are plain Python you can read.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

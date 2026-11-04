@@ -7,18 +7,18 @@
 Example apps built on open models served by [SIE](https://github.com/superlinked/sie), the
 Superlinked Inference Engine. Each recipe is one job a team does every week, such as redacting
 chats or triaging phishing, built from SIE model calls plus rules in plain Python and YAML that
-you can read and change. The same code runs on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or on an SIE
-you host yourself.
+you can read and change. The code runs on your machine and calls models on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or on an
+SIE you host yourself.
 
 Every recipe is its own folder with its own `pyproject.toml` and `uv.lock`, so you install only
 what that recipe needs. Copy a folder into your own project and it still runs.
 
 ## Run a recipe
 
-**Try a recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try a recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY; every recipe reads this root .env
@@ -45,7 +45,7 @@ All the data in these recipes is synthetic or comes from public datasets named i
 
 ## Recipes
 
-Run time is a warm live run on SIE Serverless, on the date in each recipe's README (2 to 4 Nov 2026
+Run time is a warm live run against SIE Serverless, on the date in each recipe's README (2 to 4 Nov 2026
 for most). A run that has to start a cold model can take several minutes longer. Calls counts the
 recipe's SIE requests (one request can carry many items).
 

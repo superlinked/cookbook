@@ -19,7 +19,7 @@ Output:    worklist.csv, one row per call with its check status, flags and callb
 Why SIE:   Two specialist models on SIE: one for speech, one for structured extraction. No
            generative model makes a decision. Checking values, comparing them with the saved
            claim and the injury and urgency rules are plain Python.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -66,9 +66,9 @@ WAIT_S = 900
 ERROR_CHARS = 200
 # Ask Parakeet for sentence segments with start and end times: they are the transcript lines.
 TRANSCRIBE_OPTIONS = {"timestamp_granularities": ["segment"]}
-# When GLiNER2 finds nothing in a window, SIE Serverless answers the output_schema call with HTTP
-# 500 and this message. We record it as "no fields found" in that window, with a note. A field that
-# is then missing can only become a callback question; it never passes a check.
+# When GLiNER2 finds nothing in a window, SIE Serverless answers the output_schema call with
+# HTTP 500 and this message. We record it as "no fields found" in that window, with a note. A
+# field that is then missing can only become a callback question; it never passes a check.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"
 # A cell starting with one of these runs as a formula in a spreadsheet.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")

@@ -43,7 +43,7 @@ Output:    handover_summary.json, handover_summary.md and masking_report.csv in
 Why SIE:   Two models on SIE Serverless: one finds account, card and ID numbers in free text, one
            writes. The masking rules, the checks against the claims system and the status are
            plain Python reading rules.yaml, so no generative model makes the decision.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

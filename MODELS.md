@@ -28,7 +28,7 @@ model card before you rely on it.
 
 ## Swaps we ran
 
-Between 31 Oct and 4 Nov 2026 (the date is in each recipe's README) we swapped one model at a time in each recipe's `rules.yaml` and ran the recipe on
+Between 31 Oct and 4 Nov 2026 (the date is in each recipe's README) we swapped one model at a time in each recipe's `rules.yaml` and ran the recipe against
 SIE Serverless with nothing else changed. A row that says a swap did not run was checked but not run.
 Each recipe README's "Try another model" section has the details. The short version:
 

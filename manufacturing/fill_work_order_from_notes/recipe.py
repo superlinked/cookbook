@@ -25,7 +25,7 @@ Output:    completion_forms.csv (one draft per order) and drafts.json (every fie
            CMMS record is saved; nothing is written to the CMMS.
 Why SIE:   Two small encoder models; no generative model fills or decides anything. The
            picklists and schema are data you edit in rules.yaml, and there is nothing to host.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

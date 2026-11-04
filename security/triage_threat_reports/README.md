@@ -255,10 +255,10 @@ run. It runs offline with hand-written strings and stand-in model replies, so yo
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -483,7 +483,7 @@ Everything below lives in `rules.yaml` or a seed unless it says otherwise.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Serverless on 4 Nov 2026 (UTC) on the eleven reports above.
+nothing else, and ran the recipe against SIE Serverless on 4 Nov 2026 (UTC) on the eleven reports above.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

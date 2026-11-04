@@ -66,7 +66,9 @@ The first call can wait minutes while SIE Serverless starts a cold model.
   `data/`, a line saying whether they're synthetic or from a public dataset and under which
   license, and what should happen to each), how the flow solves it, why each
   model, the flow as a Mermaid chart, how it's built (rules vs code, a step
-  table naming the functions), how to run it (opening with the SIE Serverless line), what came out (`### The three
+  table naming the functions), how to run it (`## Run it` opens with the SIE Serverless line:
+  copy it from any recipe and set `utm_content` to the recipe path with dashes, such as
+  `sre-route-alerts-to-owners`; `tools/check_tree.py` checks it), what came out (`### The three
   examples`, or `### The two examples`, in the same shape as `### Examples`, ending each one with a `Pass.`
   or `Miss.` verdict, then `### Results` with "N of M emails came out as
   expected" on the live run, using the recipe's own noun for emails, then
@@ -76,5 +78,7 @@ The first call can wait minutes while SIE Serverless starts a cold model.
   `## Try another model` (swaps you actually ran, with what changed) and
   `## Run it on your own SIE` (the SIE image for each model);
   `tools/check_tree.py` fails without them.
+- Recipe code runs on the reader's machine. Only the models run on SIE Serverless or on a
+  self-hosted SIE, so write "ran the recipe against SIE Serverless", not "on".
 - A new model goes in `MODELS.md` with its license and SIE image.
 - Use Conventional Commits.

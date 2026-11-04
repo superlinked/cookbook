@@ -33,7 +33,7 @@ Output:    answers.json, answers.csv and answers.md: per question quote_checked,
            and the top pages with their scores. The technician decides what to do.
 Why SIE:   The pages are searched as images, so a label inside a diagram is found without OCR.
            Both models are SIE Serverless calls; ranking, cite checks and statuses are plain Python.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

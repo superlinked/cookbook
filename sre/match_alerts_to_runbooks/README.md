@@ -262,10 +262,10 @@ data files.
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -442,7 +442,7 @@ the runbook matches.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Serverless on 31 Oct 2026, on the earlier version of this data
+nothing else, and ran the recipe against SIE Serverless on 31 Oct 2026, on the earlier version of this data
 (the same 28 production alerts as flat records, without the linked and staging alerts or the
 environment split). We haven't rerun the swaps on the 32-alert storm, and the status names were
 then `runbook` and `no_runbook` (now `runbook_suggested` and `no_confident_match`).

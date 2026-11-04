@@ -23,7 +23,7 @@ Output:    guidance.json, guidance.csv and guidance.md in runs/<timestamp>/: per
 Why SIE:   Both models run on SIE Serverless. The model answers questions; plain Python you can read
            line by line turns the answers and the policy into guidance, and no generative model
            makes the decision. Nothing to host.
-Runs on:   SIE Serverless.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

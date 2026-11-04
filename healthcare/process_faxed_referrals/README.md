@@ -274,10 +274,10 @@ every file in `data/` byte for byte.
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -348,7 +348,7 @@ fails closed (the office is only asked for something already on the fax), so it'
 doesn't fail the case. It's the one to worry about: a long free-text field is where the extraction
 model is weakest, and a reason it doesn't return turns into a call nobody needed.
 
-These ran live on SIE Serverless on 4 Nov 2026 (UTC). All eight got the status we wrote them to get, and
+These ran live against SIE Serverless on 4 Nov 2026 (UTC). All eight got the status we wrote them to get, and
 seven came out exactly as planned. Juniper Road came out `missing_info` with the priority and member
 ID item we wrote it to get, plus one item we didn't expect: GLiNER2 returned no reason for referral
 for "New leg swelling, breathless lying flat, BNP 1,240 pg/mL.", so the callback list asks the
@@ -441,7 +441,7 @@ anything is filled or anyone is called.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Serverless on 4 Nov 2026 (UTC), on the 8 packets above.
+nothing else, and ran the recipe against SIE Serverless on 4 Nov 2026 (UTC), on the 8 packets above.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

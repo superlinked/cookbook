@@ -233,10 +233,10 @@ away if you broke something.
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -399,7 +399,7 @@ not the code.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 2 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Serverless.
+at a time, changed nothing else, and ran the recipe against SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

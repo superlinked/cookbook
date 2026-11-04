@@ -252,10 +252,10 @@ name inside `data/`. [`make_data.py`](./make_data.py) draws the invoices and wri
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -423,7 +423,7 @@ ask the shop for a corrected invoice or take a closer look at the vendor or the 
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Serverless on 2026-11-04 (UTC).
+nothing else, and ran the recipe against SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

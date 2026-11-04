@@ -30,7 +30,7 @@ Output:    briefings.json, briefings.csv and briefings.md in runs/<timestamp>/: 
 Why SIE:   Both models run on SIE Serverless. The reranker reads the whole packet for every claim,
            so the LLM sees only a short list, and a loss the search finds nothing for never reaches
            it. No generative model sets the status. Nothing to host.
-Runs on:   SIE Serverless.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

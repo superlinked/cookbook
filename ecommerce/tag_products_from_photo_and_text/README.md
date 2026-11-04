@@ -234,10 +234,10 @@ offline, with hand-written strings and stand-in model replies.
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -397,7 +397,7 @@ the catalog for every listing; the recipe writes nothing back.
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped it,
-changed nothing else, and ran the recipe on SIE Serverless.
+changed nothing else, and ran the recipe against SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

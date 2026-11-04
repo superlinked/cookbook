@@ -32,7 +32,7 @@ Output:    drafts/<packet>.json per packet (status, every field with where it ca
 Why SIE:   Two models, and no generative model makes the decision. The checks, the EHR and
            directory matching, the priority wording and the checklist are plain Python reading
            rules.yaml.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

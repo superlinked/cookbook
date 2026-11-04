@@ -32,7 +32,7 @@ Output:    tags.csv (every tag with its status: in_place, out_of_stock, wrong_pr
 Why SIE:   All three models run on SIE Serverless. The vision model only picks from a list and says
            what it saw; plain Python you can audit line by line turns that, the boxes and the
            price comparison into a status, and no generative model makes the decision.
-Runs on:   SIE Serverless.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

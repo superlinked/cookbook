@@ -233,10 +233,10 @@ hand-written files.
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -390,7 +390,7 @@ guidance to write or update. Nobody else sees the gap log.
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped it,
-changed nothing else, and ran the 9 sample searches on SIE Serverless.
+changed nothing else, and ran the 9 sample searches against SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

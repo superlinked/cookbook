@@ -28,7 +28,7 @@ Output:    runs/<timestamp>/: redacted/<Bates>.txt, redaction_log.csv (Bates, li
 Why SIE:   The PII model runs on SIE Serverless and finds the values wherever they sit in the prose.
            No generative model makes the decision; the rules are plain Python you can read
            below. Nothing to host.
-Runs on:   SIE Serverless.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

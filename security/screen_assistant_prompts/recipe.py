@@ -32,7 +32,7 @@ Output:    decisions.json, decisions.csv and decisions.md: per prompt the decisi
 Why SIE:   The guard model is one SIE Serverless chat call per prompt, and reading a screenshot is
            one extract call. The rules are plain Python and data in rules.yaml, so the team can read
            them and change them.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL set.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

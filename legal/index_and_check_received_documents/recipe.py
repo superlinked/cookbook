@@ -31,7 +31,7 @@ Output:    index.csv (one load-file-style row per document with its status and r
            deficiency.
 Why SIE:   Four models, and no generative model makes a decision. Bates numbering, document
            breaks, custodians, dates, the lawyer list and every status rule are plain Python.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

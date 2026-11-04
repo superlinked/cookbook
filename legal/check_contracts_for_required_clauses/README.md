@@ -283,10 +283,10 @@ writes the contracts and the register.
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -460,7 +460,7 @@ and the vendor-risk analyst records the review in the register.
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time and
 changed nothing else. The `verdict` swap to `Qwen/Qwen3.5-4B` ran on these five packages. The
-OCR, reranker and Gemma swaps ran on SIE Serverless on 31 Oct 2026 on a smaller set: three scanned
+OCR, reranker and Gemma swaps ran against SIE Serverless on 31 Oct 2026 on a smaller set: three scanned
 contracts and 24 rows, with no register, no amendment and no unreadable page. They haven't been
 run on the five packages here.
 

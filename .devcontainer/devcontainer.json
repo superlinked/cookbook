@@ -5,7 +5,7 @@
   "secrets": {
     "SIE_API_KEY": {
       "description": "Your SIE Serverless API key. The recipes read it from the environment, so no .env is needed.",
-      "documentationUrl": "https://console.superlinked.com/console/api-keys"
+      "documentationUrl": "https://console.superlinked.com/console/keys"
     }
   },
   "customizations": {

@@ -40,7 +40,7 @@ Output:    case_summary.json, case_summary.md and masking_report.csv in runs/<ti
 Why SIE:   Two models on SIE Serverless: one finds card data in free text, one writes. The masking
            rules, the checks against the card system and the status are plain Python reading
            rules.yaml, so no generative model makes the decision.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

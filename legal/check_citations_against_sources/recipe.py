@@ -34,7 +34,7 @@ Output:    cite-check.md and cite-check.csv: one row per citation in the draft's
            names what the checks found; the associate who wrote the brief decides each fix.
 Why SIE:   Two models: the reranker reads every paragraph of the cited document, so the language
            model only reads the few closest passages. Nothing to host.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

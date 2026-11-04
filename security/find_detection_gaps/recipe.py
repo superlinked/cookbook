@@ -36,7 +36,7 @@ Why SIE:   One model finds entities and relations together. Otherwise you'd need
            plus a relation classifier, or an LLM per sentence. No generative model makes a
            decision: merging names, checking types, holding back doubtful claims and comparing
            with the catalog is plain Python you can read.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

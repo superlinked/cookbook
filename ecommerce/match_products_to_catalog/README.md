@@ -272,10 +272,10 @@ the SIE error rule, offline, with hand-written records and stand-in model replie
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -466,7 +466,7 @@ Then the steward runs the import, and the existing catalog record is always the 
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Serverless. These swaps ran before the
+at a time, changed nothing else, and ran the recipe against SIE Serverless. These swaps ran before the
 material rule, so records not named came out as in the first main run (L24, L28 and L30 linked);
 with the rule, those three go to review before any judge sees them, whatever the judge model.
 

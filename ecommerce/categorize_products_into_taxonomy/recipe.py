@@ -31,7 +31,7 @@ Output:    catalog.csv (one row per product in an import layout, with its status
 Why SIE:   Thousands of categories and no classifier to train: swap the taxonomy file and the
            same calls classify into it. No generative model makes the decision; plain Python
            reading rules.yaml does.
-Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

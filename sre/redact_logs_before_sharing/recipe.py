@@ -27,7 +27,7 @@ Output:    runs/<timestamp>/: the cleaned files under ready_for_approval/, revie
 Why SIE:   The PII model runs on SIE Serverless and finds what no log field labels: a customer named
            in the notes, a first name on its own. No generative model makes the decision; the
            rules are plain Python you can read below. Nothing to host.
-Runs on:   SIE Serverless.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

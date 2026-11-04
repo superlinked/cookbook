@@ -22,9 +22,8 @@ Output:    verdicts.csv (a content-based verdict, route auto | analyst and why),
 Why SIE:   The classifier returns a label and scores, never text, so an instruction in an
            email can't make it write anything or drop an IOC. Text can still move its scores,
            so it reads only the visible text; hidden text and instructions aimed at an AI are
-           caught in Python. Two small encoders, one SIE Serverless call per model
-           per batch.
-Runs on:   SIE Serverless.
+           caught in Python. Two small encoders, one SIE Serverless call per model per batch.
+Models on: SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

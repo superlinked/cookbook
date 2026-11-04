@@ -236,10 +236,10 @@ photos.
 
 ## Run it
 
-**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos).** You pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos), or host SIE yourself from the [SIE repo](https://github.com/superlinked/sie).
+**Try this recipe with [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos).** The code runs on your machine and the models run on SIE Serverless, so you pay per call and there are no GPUs to manage yourself. Get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos), read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos), or host SIE locally from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
-([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos)).
+([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos)).
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY
@@ -400,7 +400,7 @@ since the recipe says nothing about torque.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 2026-11-03 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Serverless on all 10 photos.
+at a time, changed nothing else, and ran the recipe against SIE Serverless on all 10 photos.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
