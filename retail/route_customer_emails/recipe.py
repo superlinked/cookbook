@@ -27,8 +27,8 @@ Output:    escalations.csv (written first), then routes.csv and routes.json: one
 Why SIE:   Two small encoder models; no generative model makes the decision. The team list is
            the routing catalog itself: add a team with a description and the next run can
            route to it, with no training. Each model is called once per batch of windows;
-           nothing to host.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+           nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

@@ -28,7 +28,7 @@ Output:    cases/<case>.json per case (status, the checklist, what to ask the cu
            what the checks found; the KYC analyst decides what happens next.
 Why SIE:   Two models, and no generative model makes a decision. The policy, the MRZ, the
            dates and every comparison are plain Python reading policy.yaml and rules.yaml.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

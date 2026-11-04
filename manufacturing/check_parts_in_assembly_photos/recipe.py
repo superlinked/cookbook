@@ -24,10 +24,10 @@ SIE pipeline:
 Output:    inspections.csv (one row per photo: status, counts, where bolts are missing and the
            reason), defects.csv, inspector.csv, detections.json (every box and why it was kept
            or ignored) and annotated/<photo>.jpg with the boxes drawn.
-Why SIE:   One model on SIE Serverless, called once per photo, finds every bolt from a text prompt,
+Why SIE:   One model on SIE, called once per photo, finds every bolt from a text prompt,
            with no training images and no labelling. No generative model makes the decision:
            the count and the status are plain Python you can read.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

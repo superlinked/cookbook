@@ -28,7 +28,7 @@ Output:    invoices/<document>.json per invoice (status, fields, line items, eve
            per failed check). The claim handler decides what happens next.
 Why SIE:   Two models, and no generative model makes the decision. The claim match, vendor
            match, arithmetic, dates and authorized amount are plain Python reading rules.yaml.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

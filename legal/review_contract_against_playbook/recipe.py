@@ -27,7 +27,7 @@ Output:    decisions.csv, one row per NDA and position: matches_position | devia
            to the approver, and when the NDA can be signed.
 Why SIE:   Two models, and no generative model makes a decision: a schema extractor returns
            fields, and plain Python reading rules.yaml compares them with the playbook.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

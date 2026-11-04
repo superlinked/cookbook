@@ -28,7 +28,7 @@ Output:    runs/<timestamp>/: extract/ (one file per note and manifest.csv), hel
 Why SIE:   The PII model finds what no EHR field holds: the daughter's name, the son-in-law's
            employer, a granddaughter's email. No generative model makes the decision; the rules
            are plain Python you can read below.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
     uv run recipe.py --request data/second_request.yaml

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 INDUSTRIES = (
@@ -65,7 +66,7 @@ RUN_LINE_LINKS = (
     "(https://superlinked.com/docs/reference/api?",
     "(https://github.com/superlinked/sie)",
 )
-UTM_CONTENT = re.compile(r"utm_content=([\w-]+)")
+LINK_URL = re.compile(r"\]\((https://[^)]+)\)")
 PYTHON = "3.12"
 FORBIDDEN = (
     b"sie-" + b"internal",
@@ -87,15 +88,21 @@ def recipes() -> list[Path]:
     return sorted(folder for folder in found if not folder.parts[-2].startswith("."))
 
 
-def readme_problems(text: str) -> list[str]:
-    """Missing headings in a recipe README, matched as whole lines outside fenced code blocks."""
-    headings: list[str] = []
+def lines_outside_fences(text: str) -> list[str]:
+    """The lines of a README outside fenced code blocks, without trailing spaces."""
+    lines: list[str] = []
     fenced = False
     for line in text.splitlines():
         if line.lstrip().startswith(("```", "~~~")):
             fenced = not fenced
-        elif not fenced and line.startswith("#"):
-            headings.append(line.rstrip())
+        elif not fenced:
+            lines.append(line.rstrip())
+    return lines
+
+
+def readme_problems(text: str) -> list[str]:
+    """Missing headings in a recipe README, matched as whole lines outside fenced code blocks."""
+    headings = [line for line in lines_outside_fences(text) if line.startswith("#")]
     found = [f"README.md needs '{h}'" for h in README_SECTIONS if h not in headings]
     found += [f"README.md needs '{label}'" for label in RESULT_LABELS if label not in text]
     if len(VERDICT.findall(text)) < MIN_VERDICTS:
@@ -114,8 +121,8 @@ def readme_problems(text: str) -> list[str]:
 
 
 def run_line_problems(text: str, rel: str) -> list[str]:
-    """Check the first line of '## Run it': its opening, its links and each link's utm_content."""
-    lines = text.splitlines()
+    """Check the first line of '## Run it': its opening, its links and their utm_content."""
+    lines = lines_outside_fences(text)
     if RUN_SECTION not in lines:
         return [f"README.md needs '{RUN_SECTION}'"]
     after = lines[lines.index(RUN_SECTION) + 1 :]
@@ -128,8 +135,9 @@ def run_line_problems(text: str, rel: str) -> list[str]:
         if link not in first
     ]
     slug = rel.replace("/", "-").replace("_", "-")
-    if any(value != slug for value in UTM_CONTENT.findall(first)):
-        found.append(f"README.md: the SIE Serverless line needs utm_content={slug}")
+    for url in LINK_URL.findall(first):
+        if "?" in url and parse_qs(urlsplit(url).query).get("utm_content") != [slug]:
+            found.append(f"README.md: {url} needs utm_content={slug}")
     return found
 
 

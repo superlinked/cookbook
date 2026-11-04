@@ -38,7 +38,7 @@ Output:    po-lines.csv (one row per PO line on the deliveries, with its fill st
 Why SIE:   Two models, no generative model makes a decision. The PO matching, quantities,
            limits, tolerances, guard bands, heat number match and qualified-inspector list are
            plain Python reading rules.yaml.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

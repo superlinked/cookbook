@@ -22,8 +22,9 @@ Output:    routes.csv and routes.json in runs/<timestamp>/: per alert, the statu
            reassigns nothing: the responder decides every reassignment.
 Why SIE:   One small encoder model, called only for the alerts no record places. The team list
            is the catalog itself: add a team with a description and the next run can suggest
-           it, with no training. No generative model makes the decision. Nothing to host.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+           it, with no training. No generative model makes the decision.
+           Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

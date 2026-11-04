@@ -28,7 +28,7 @@ SIE pipeline:
                                                  fact sends it to review
 Output:    facts.md (the to-sort-out list first, then the sheet), facts.json (every line with
            its full source passages), and what changed since the last build.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
     uv run recipe.py --ask "When is the plumber coming?"   # one question, same checks

@@ -24,8 +24,9 @@ SIE pipeline (one model, up to two calls per search):
 Output:    One search prints its page. With no question, the sample run writes runs/<timestamp>/:
            a results page per search (pages/), results.json, summary.md and gap_log.csv for the
            clinical policy coordinator.
-Why SIE:   The reranker runs on SIE Serverless; the filters and notices are plain Python below, and
+Why SIE:   The reranker runs on SIE; the filters and notices are plain Python below, and
            no generative model writes anything: the clinician reads the clinic's own words.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py                                                   # the sample searches
     uv run recipe.py "asthma action plan how often" --population pediatric   # one search

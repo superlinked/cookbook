@@ -25,10 +25,10 @@ SIE pipeline (one model):
 Output:    runs/<timestamp>/: redacted/<Bates>.txt, redaction_log.csv (Bates, line, kind,
            basis, never the value), spans.json (what to redact where, for the review platform),
            privilege_flags.csv (for the associate) and report.csv (status and reasons).
-Why SIE:   The PII model runs on SIE Serverless and finds the values wherever they sit in the prose.
+Why SIE:   The PII model runs on SIE and finds the values wherever they sit in the prose.
            No generative model makes the decision; the rules are plain Python you can read
-           below. Nothing to host.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+           below. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

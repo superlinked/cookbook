@@ -29,10 +29,10 @@ Output:    tags.csv (every tag with its status: in_place, out_of_stock, wrong_pr
            per photo), tags.json (boxes, slots, candidates, answers and OCR text), crops/ and
            annotated/ photos. A person walks to the shelf and fixes it; the recipe doesn't
            decide how.
-Why SIE:   All three models run on SIE Serverless. The vision model only picks from a list and says
+Why SIE:   All three models run on SIE. The vision model only picks from a list and says
            what it saw; plain Python you can audit line by line turns that, the boxes and the
            price comparison into a status, and no generative model makes the decision.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

@@ -32,7 +32,7 @@ Output:    proposals.json, todo.md, events.ics and messages.json in runs/<timest
 Why SIE:   Four small specialist models, each called only where it's needed; no generative
            model makes the decision. Dates, amounts, duplicates and the calendar and payee
            checks are plain Python you can read below.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -633,9 +633,7 @@ def extract_fields(
             found.questions.append(f"I could not read the details of this message ({failed}).")
             continue
         if reply.get("empty_result_error"):
-            found.notes.append(
-                f"Window {index}: no fields found (SIE Serverless answered HTTP 500)"
-            )
+            found.notes.append(f"Window {index}: no fields found (SIE answered HTTP 500)")
         data = reply["data"] if isinstance(reply["data"], dict) else {}
         for name, value in data.items():
             if name not in rules["fields"] or not isinstance(value, str):

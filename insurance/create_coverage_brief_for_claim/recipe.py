@@ -27,10 +27,10 @@ Output:    briefings.json, briefings.csv and briefings.md in runs/<timestamp>/: 
            clauses grouped as coverages, exclusions and conditions, each endorsement with the
            clause it changes, every quote marked found or not, the questions for the first call
            and the inspection, and the status. It never decides coverage: the adjuster does.
-Why SIE:   Both models run on SIE Serverless. The reranker reads the whole packet for every claim,
+Why SIE:   Both models run on SIE. The reranker reads the whole packet for every claim,
            so the LLM sees only a short list, and a loss the search finds nothing for never reaches
-           it. No generative model sets the status. Nothing to host.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+           it. No generative model sets the status. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

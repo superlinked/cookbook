@@ -177,7 +177,7 @@ writes nothing.
 ## Picking the model
 
 The one model is `superlinked/pii-redact`, through SIE's `extract` call with a list of labels.
-It's SIE Serverless's PII model: `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero` composed on
+It's SIE's PII model: `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero` composed on
 the server, spans scoring 0.6 or more kept, the two models' spans unioned. You give it the
 labels you care about and it returns spans with their offsets, so the recipe knows exactly which
 characters to redact and which line to log. Nothing generative reads the documents or makes a
@@ -270,7 +270,7 @@ hand-written strings and stand-in model replies.
 
 **Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-redact-documents-with-log), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-redact-documents-with-log) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-redact-documents-with-log).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-redact-documents-with-log) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-redact-documents-with-log). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-redact-documents-with-log)).
 
 ```bash
@@ -429,7 +429,8 @@ See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
 ## Run it using SIE Cluster or SIE Local
 
-The same code runs on your machine and uses SIE Cluster or SIE Local. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

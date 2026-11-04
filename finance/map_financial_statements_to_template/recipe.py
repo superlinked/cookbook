@@ -28,7 +28,7 @@ Why SIE:   Two models, and no generative model makes a decision. The reranker re
            amounts; Python parses the amounts docling extracted, does every sum and catches what
            doesn't add up. The analyst confirms the draft spread; the credit officer uses only an
            approved one.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

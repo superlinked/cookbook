@@ -29,10 +29,10 @@ Output:    decisions.json, decisions.csv and decisions.md: per prompt the decisi
            are masked in every output, and a screenshot that shows one has its text withheld.
            "allow" means no check objected, not that the prompt is safe. screen() only decides:
            the caller holds a "review" prompt, stops a "block" one, and never forwards on error.
-Why SIE:   The guard model is one SIE Serverless chat call per prompt, and reading a screenshot is
+Why SIE:   The guard model is one SIE chat call per prompt, and reading a screenshot is
            one extract call. The rules are plain Python and data in rules.yaml, so the team can read
            them and change them.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

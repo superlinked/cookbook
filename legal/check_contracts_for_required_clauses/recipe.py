@@ -30,7 +30,7 @@ Output:    runs/<timestamp>/report.csv (one row per contract and clause) and
            decides whether the contract meets Article 30 and what to ask the supplier for.
 Why SIE:   Four models behind one client: two readers, a reranker and an LLM. The reranker
            picks three passages per clause, so the LLM never reads a whole package.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

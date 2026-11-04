@@ -24,10 +24,10 @@ Output:    runs/<timestamp>/: the cleaned files under ready_for_approval/, revie
            report.csv (status and reasons per file), redactions.csv (what was taken out, by line,
            never the value) and private/ (the mapping back to real values and the exported
            originals; never attached).
-Why SIE:   The PII model runs on SIE Serverless and finds what no log field labels: a customer named
+Why SIE:   The PII model runs on SIE and finds what no log field labels: a customer named
            in the notes, a first name on its own. No generative model makes the decision; the
-           rules are plain Python you can read below. Nothing to host.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+           rules are plain Python you can read below. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

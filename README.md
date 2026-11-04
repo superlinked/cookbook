@@ -17,7 +17,7 @@ what that recipe needs. Copy a folder into your own project and it still runs.
 
 **Run a recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
-You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you) and an SIE API key
+You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you) and, for SIE Serverless, an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme)).
 
 ```bash
@@ -40,8 +40,8 @@ All the data in these recipes is synthetic or comes from public datasets named i
   happened when we swapped each one for another model.
 - Every recipe README has a **Try another model** section. Each model is one line in that
   recipe's `rules.yaml`, so trying one that answers in the same format is a one-line change.
-- **[SELF_HOSTING.md](SELF_HOSTING.md)** runs the recipes using SIE Cluster or SIE Local, with a `docker run`
-  command or a Helm cluster. Set `SIE_BASE_URL` in `.env`; nothing else changes.
+- **[SELF_HOSTING.md](SELF_HOSTING.md)** runs the recipes using SIE Cluster or SIE Local, with `pip install`, a
+  `docker run` command or a Helm cluster. Set `SIE_BASE_URL` in `.env`; nothing else changes.
 
 ## Recipes
 

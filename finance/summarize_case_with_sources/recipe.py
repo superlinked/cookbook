@@ -37,10 +37,10 @@ Output:    case_summary.json, case_summary.md and masking_report.csv in runs/<ti
            source and check result, and what was masked where (never the value). A status says
            what the checks found; the agent reads the summary as a reading aid and decides what
            happens, and a blocked summary goes to the team lead and is never saved.
-Why SIE:   Two models on SIE Serverless: one finds card data in free text, one writes. The masking
+Why SIE:   Two models on SIE: one finds card data in free text, one writes. The masking
            rules, the checks against the card system and the status are plain Python reading
            rules.yaml, so no generative model makes the decision.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

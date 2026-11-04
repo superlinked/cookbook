@@ -31,7 +31,7 @@ Output:    reconciliation.csv (one row per inventory item with the receipt line 
            the handler decides what proof is enough and what each item is worth.
 Why SIE:   Two models, and no generative model makes a decision. Every amount, sum, date, match
            and request is plain Python reading rules.yaml and proof_guidelines.yaml.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

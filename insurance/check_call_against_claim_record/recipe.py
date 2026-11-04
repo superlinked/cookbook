@@ -19,7 +19,7 @@ Output:    worklist.csv, one row per call with its check status, flags and callb
 Why SIE:   Two specialist models on SIE: one for speech, one for structured extraction. No
            generative model makes a decision. Checking values, comparing them with the saved
            claim and the injury and urgency rules are plain Python.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -504,8 +504,7 @@ def extract_candidates(
             continue
         if reply.get("empty_result_error"):
             check.notes.append(
-                f"Window {index}: no fields found (SIE Serverless answered HTTP 500 for the empty "
-                "result)"
+                f"Window {index}: no fields found (SIE answered HTTP 500 for the empty result)"
             )
         for name, value in reply["data"].items():
             if name in rules["fields"] and isinstance(value, str) and value.strip():

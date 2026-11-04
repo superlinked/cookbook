@@ -26,9 +26,9 @@ Output:    brief.json, brief.csv and one brief_<ticker>_FY<year>.md per filing i
            no_answer_found or needs_review), answer, quotes, passages and EDGAR links, and a
            comparison (both_years, new_this_year, missing_this_year, neither_year or
            not_compared). The analyst decides what goes into the model and the note.
-Why SIE:   Both models run on SIE; nothing to host yourself. No generative model decides a status:
-           the checks are plain Python.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Why SIE:   Both models run on SIE; nothing to host on SIE Serverless. No generative model decides a
+           status: the checks are plain Python.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

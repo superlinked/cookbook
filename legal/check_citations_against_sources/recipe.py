@@ -33,8 +33,8 @@ Output:    cite-check.md and cite-check.csv: one row per citation in the draft's
            status (support_found, check_citation, not_in_folder) and every finding. The status
            names what the checks found; the associate who wrote the brief decides each fix.
 Why SIE:   Two models: the reranker reads every paragraph of the cited document, so the language
-           model only reads the few closest passages. Nothing to host.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+           model only reads the few closest passages. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

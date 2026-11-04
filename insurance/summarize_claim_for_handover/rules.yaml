@@ -2,7 +2,7 @@
 # threshold. Thresholds are starting points, not tuned values: check them on your own claims.
 
 models:
-  # SIE Serverless's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # SIE's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
   # server (spans scoring 0.6 or more, the two models' spans unioned). Here it only looks for
   # bank account, card and ID numbers; names, addresses, phones, dates and amounts stay.
   pii: superlinked/pii-redact

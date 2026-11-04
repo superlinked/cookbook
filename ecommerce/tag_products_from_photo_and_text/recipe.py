@@ -23,8 +23,8 @@ Output:    tags.csv (one row per listing and field), review.csv (the listings to
            specialist decides what goes into the catalog.
 Why SIE:   The model reads the photo and the text together, and the lists are data, so a new
            type or color is a line in rules.yaml. No generative model makes the decision: plain
-           Python checks the model's evidence and routes. Nothing to host.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+           Python checks the model's evidence and routes. Nothing to host on SIE Serverless.
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

@@ -24,7 +24,7 @@ Output:    drafts/<note>.json and drafts/<note>.md (the draft filed with the out
 Why SIE:   No generative model writes the draft. Two specialist models on SIE; every value is
            checked against the note in Python, and the chart comparison, dose units, vital
            ranges, allergy classes and code thresholds are plain rules in rules.yaml.
-Run using: SIE Serverless, SIE Cluster or SIE Local (with SIE_BASE_URL).
+Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
 """

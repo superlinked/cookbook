@@ -183,7 +183,7 @@ On this bundle every file fits in one window, so a run makes 3 calls. Log lines 
 (a UUID is a dozen or more model tokens), so the windows sit well under the model's limit, and
 each call asks SIE to fail rather than cut a window short: a window that still doesn't fit blocks
 its file as not read. In our test SIE Serverless read a 600-word, UUID-dense text to its end, so the
-window size is a margin, not a measured limit. It's SIE Serverless's PII model: two span
+window size is a margin, not a measured limit. It's SIE's PII model: two span
 extractors, `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero`, composed on the server, with
 spans scoring 0.6 or more kept, the two models' spans unioned and person names propagated. You give it a list of labels (here its 36 default personal-data types plus
 `organization`, all in `rules.yaml`) and it returns spans with a label, offsets and a score
@@ -263,7 +263,7 @@ reply missing its key). It never calls SIE.
 
 **Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-redact-logs-before-sharing), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-redact-logs-before-sharing) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-redact-logs-before-sharing).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-redact-logs-before-sharing) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-redact-logs-before-sharing). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
-You need [uv](https://docs.astral.sh/uv/) and an SIE API key
+You need [uv](https://docs.astral.sh/uv/) and, for SIE Serverless, an SIE API key
 ([create one](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-redact-logs-before-sharing)).
 
 ```bash
@@ -443,7 +443,8 @@ See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
 ## Run it using SIE Cluster or SIE Local
 
-The same code runs on your machine and uses SIE Cluster or SIE Local. Set `SIE_BASE_URL` in `.env`; an API key
+The same code runs on your machine and uses SIE Cluster or SIE Local
+([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
 is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 

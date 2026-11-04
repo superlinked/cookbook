@@ -79,7 +79,7 @@ The first call can wait minutes while SIE Serverless starts a cold model.
   `## Run it using SIE Cluster or SIE Local` (the SIE image for each model);
   `tools/check_tree.py` fails without them.
 - Recipe code runs on the reader's machine. Only the models run on SIE Serverless, SIE Cluster or
-  SIE Local, so write "ran the recipe using SIE Serverless", not "on". Those are the only three
-  names: no "SIE Cloud", no "your own SIE".
+  SIE Local, so write "ran the recipe using SIE Serverless", not "on". Use those three
+  names, not "SIE Cloud" or "your own SIE".
 - A new model goes in `MODELS.md` with its license and SIE image.
 - Use Conventional Commits.
