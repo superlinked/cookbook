@@ -75,6 +75,37 @@ check and the condition answers raised nothing; the associate still looks at the
 decides. `inspect` and `refer` say why. The person at the desk decides every return, and a
 manager decides every `refer`.
 
+### Examples
+
+Here are three of the returns in `data/returns.jsonl`, and what should happen to each.
+
+**1. A clean return.** R-02.
+- **Input:** two photos of the HP S500 Wireless Mouse box (`opf_1944412406274_1.jpg`, front, and
+  `opf_1944412406274_5.jpg`, barcode side), against the sale `"upc": "1944412406274", "product":
+  "HP S500 Wireless Mouse", "brand": "HP", "model": "7YA11PA"`.
+- **What should happen:** OCR reads the digits under the barcode, they match the sale's UPC, and
+  the condition questions raise nothing that matters.
+- **Expected outcome:** `accept`, UPC matches, inside the 30-day window.
+
+**2. A near miss.** R-04.
+- **Input:** one photo of a Black+Decker TR1250WD toaster box (`opf_0050875827974_1.jpg`), against
+  the sale `"product": "Black+Decker 2-Slice Toaster", "brand": "Black+Decker", "model":
+  "TR1300WD"`.
+- **What should happen:** no barcode is in the photo, so the model number decides. Brand and name
+  words match, but the box shows a model number close to the sale's and not the same.
+- **Expected outcome:** `refer`, product check `mismatch` on the model number.
+
+**3. Damaged, nothing to read.** R-06.
+- **Input:** one photo of a Samsung Galaxy S2 with a shattered screen and no box
+  (`Samsung_Galaxy_S2_shattered_screen.jpg`), against the sale `"product": "Samsung Galaxy S2
+  Smartphone, Refurbished"`.
+- **What should happen:** the product check can't confirm anything, and the condition model should
+  call the cracked screen major product damage.
+- **Expected outcome:** `refer`, product damage `major`.
+
+On the live run, 5 of 7 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
+
 ## How we'll solve it
 
 Before the associate takes the item back, they photograph it and its packaging, usually one or
@@ -227,6 +258,23 @@ their metadata removed.
 
 All 7 returns came back on 30 Oct 2026; the days since the sale are counted from the sale's date.
 
+### The three examples
+
+- **R-02, the clean return:** `accept`. UPC 1944412406274 read and matched; packaging damage
+  `minor` changed nothing; 10 of 30 days. As expected.
+- **R-04, the near miss:** `refer`. "The packaging shows model TR12501WD, close to but not the
+  sale's TR1300WD." GLM-OCR misread the box's TR1250WD, but the misread was still close enough to
+  count as a different model. As expected.
+- **R-06, the damaged phone:** `refer`. The product check said `inspect` (nothing on the
+  packaging identifies the product), and the condition model's `major` product damage won. As
+  expected.
+
+### Every planted case
+
+On the live run on 2 Nov 2026, 5 of 7 planted cases came out as expected. All 7 got their
+planted guidance level, but two planted details came out differently: R-07's crumpled carton was
+called `minor` packaging damage, and R-01's shrink-wrapped pack was called `closed`, not `sealed`.
+
 | Return | What we planted | Guidance | Why |
 | --- | --- | --- | --- |
 | R-01 | A pack of Universal 3.5" diskettes in its shrink wrap, against the sale for that pack | accept | UPC 087547003503 read and matches; condition answers raised nothing; 28 of 90 days |
@@ -237,16 +285,15 @@ All 7 returns came back on 30 Oct 2026; the days since the sale are counted from
 | R-06 | A Samsung Galaxy S2 with a shattered screen, no box | refer | Product damage `major`; also no packaging and nothing to read |
 | R-07 | A crumpled shipping carton with a FRAGILE sticker, against an online order for a stoneware dinner set | inspect | Nothing on the carton identifies the product |
 
-On our live run on 2 Nov 2026 (UTC) all 7 came out as planned, with the settings as first
-written: the same 7 guidance levels as our runs before the two-barcode, other-model-number and
-opened-and-not-seen checks were added. Those checks added a reason to R-05 and R-06 and changed
-no level. Two planted details came out differently,
-and we left them that way. We planted R-07 as damaged packaging, and the condition model called
-it `minor` damage, so the `inspect` comes from the product check alone. And the condition model
-called R-01's shrink-wrapped box `closed`, not `sealed`; at a desk where sealed and closed lead
-to the same place, that changes nothing. Treat all of this as a demo that the pipeline works,
-not as a measure of accuracy: seven returns tell you the wiring is right, not how often it's
-wrong.
+On our live run on 2 Nov 2026 (UTC) all 7 got their planned guidance level, with the settings as
+first written: the same 7 guidance levels as our runs before the two-barcode, other-model-number and
+opened-and-not-seen checks were added. Those checks added a reason to R-05 and R-06 and changed no
+level. Two planted details came out differently, and we left them that way. We planted R-07 as
+damaged packaging, and the condition model called it `minor` damage, so the `inspect` comes from the
+product check alone. And the condition model called R-01's shrink-wrapped box `closed`, not
+`sealed`; at a desk where sealed and closed lead to the same place, that changes nothing. Treat all
+of this as a demo that the pipeline works, not as a measure of accuracy: seven returns tell you the
+wiring is right, not how often it's wrong.
 
 A few things worth noticing:
 
@@ -296,6 +343,14 @@ A few things worth noticing:
 The run writes the same guidance three ways: `guidance.json` for code (with the full packaging
 text per photo, the condition answers and evidence, and what the product check read),
 `guidance.csv` for a spreadsheet, and `guidance.md` with one card per return for a person.
+
+### What you do next
+
+The associate at the desk reads the return's card in `guidance.md`, with every reason listed,
+then looks at the item and decides; `accept` is not a refund approval. Every `refer` goes to the
+store manager, who decides it. If a level keeps coming out wrong for your store, the store
+operations or loss-prevention team that owns `rules.yaml` changes the policy or thresholds there,
+not the code.
 
 ## Potential improvements
 

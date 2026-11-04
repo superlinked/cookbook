@@ -39,8 +39,18 @@ REQUIRED = (
 CROSS_IMPORT = re.compile(
     rb"^\s*(?:from|import)\s+(?:sie_cloud_research|" + "|".join(INDUSTRIES).encode() + rb")\b", re.M
 )
-# Every recipe README shows how to swap a model and how to self-host it.
-README_SECTIONS = ("## Try another model", "## Run it on your own SIE")
+# Every recipe README shows worked examples, how they and the whole dataset came out, how to swap
+# a model and how to self-host it. Headings must be whole lines outside code blocks.
+README_SECTIONS = (
+    "### Examples",
+    "### Every planted case",
+    "### What you do next",
+    "## Try another model",
+    "## Run it on your own SIE",
+)
+# What came out names the examples again, under "### The two examples" or "### The three examples".
+RESULTS_SECTION = "## What came out"
+EXAMPLES_RESULT = re.compile(r"### The (?:two|three) examples")
 PYTHON = "3.12"
 FORBIDDEN = (b"sie-" + b"internal", b"sie_cloud" + b"_research", b"verified-" + b"run/")
 
@@ -55,6 +65,29 @@ def recipes() -> list[Path]:
         path.parent for name in ("recipe.py", "pyproject.toml") for path in ROOT.glob(f"*/*/{name}")
     }
     return sorted(folder for folder in found if not folder.parts[-2].startswith("."))
+
+
+def readme_problems(text: str) -> list[str]:
+    """Missing headings in a recipe README, matched as whole lines outside fenced code blocks."""
+    headings: list[str] = []
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+        elif not fenced and line.startswith("#"):
+            headings.append(line.rstrip())
+    found = [f"README.md needs '{h}'" for h in README_SECTIONS if h not in headings]
+    if RESULTS_SECTION in headings:
+        start = headings.index(RESULTS_SECTION) + 1
+        end = next(
+            (i for i in range(start, len(headings)) if re.match(r"##? ", headings[i])),
+            len(headings),
+        )
+        if not any(EXAMPLES_RESULT.fullmatch(h) for h in headings[start:end]):
+            found.append(f"README.md needs '### The three examples' under '{RESULTS_SECTION}'")
+    else:
+        found.append(f"README.md needs '{RESULTS_SECTION}'")
+    return found
 
 
 def tracked_files() -> list[Path]:
@@ -84,7 +117,7 @@ def problems() -> list[str]:
         recipe_readme = recipe / "README.md"
         if recipe_readme.is_file():
             text = recipe_readme.read_text(encoding="utf-8")
-            found += [f"{rel}: README.md needs '{h}'" for h in README_SECTIONS if h not in text]
+            found += [f"{rel}: {problem}" for problem in readme_problems(text)]
         version = recipe / ".python-version"
         if version.is_file() and version.read_text(encoding="utf-8").strip() != PYTHON:
             found.append(f"{rel}: .python-version must be {PYTHON}, the oldest Python we support")

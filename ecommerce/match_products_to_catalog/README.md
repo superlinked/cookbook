@@ -76,6 +76,34 @@ existing product ID, add it as a new child under an existing parent, or create a
 None of these merges anything. The steward approves or changes each action and runs the import,
 and the existing catalog record is always the one that stays.
 
+### Examples
+
+Here are three of the supplier records in `data/supplier_feed.csv`, and what should happen to each.
+
+**1. A size variant.** L03 against PIM product L02
+- **Input:** "AmazonBasics MFi-Certified Lightning to USB A Cable for Apple iPhone and iPad - 10
+  Feet (3 Meters) - Black", no GTIN or model number; L02 is the same cable at "6 Feet".
+- **What should happen:** no identifier settles it, so the titles and photos are compared, and
+  the size rule sees 10 feet vs 6 feet on the same brand and product line.
+- **Expected outcome:** `likely_variant`, a new child under PL-LTG-CABLE.
+
+**2. A pack count only one side states.** L45 against PIM product L06
+- **Input:** "AmazonBasics Lightning to USB A Cable - MFi Certified iPhone Charger - White,
+  6-Foot", with the 2-pack's photo; L06 is the same cable with "2-Pack" and a pack count of 2.
+- **What should happen:** the pair looks near-identical, but a pack count the supplier doesn't
+  state can't be treated as 1, so the attribute rule should stop it.
+- **Expected outcome:** `review`, pack count unknown.
+
+**3. Leather vs suede, same title.** L30 against PIM product L29
+- **Input:** "Amazon Brand - 206 Collective Women's Madison Ballet Flat, Black, 7 B US", a photo
+  of a suede flat; L29 is the leather flat with the same color and size.
+- **What should happen:** the titles agree, so this must not become a confident link; the PIM
+  states leather and the supplier states no material.
+- **Expected outcome:** `likely_variant` or `review`, never `likely_same_product`.
+
+On the live run, 10 of 14 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from what both sides already give you.** Each supplier record comes in with its ID,
@@ -282,6 +310,21 @@ fell below the low threshold, and 53 were looked at by the attribute rules or th
 records came out as 1 `same_identifier`, 3 `likely_same_product`, 8 `likely_variant`, 3
 `different` and 8 `review`.
 
+### The three examples
+
+- **L03:** `likely_variant`, a new child under PL-LTG-CABLE, reason "Feet 10 vs 6". As expected.
+- **L45:** `review`, "pack_count: 2 stated by the PIM only", at a combined 0.980. As expected,
+  and without the rule it would have cleared the high threshold.
+- **L30:** `review`, "material: leather stated by the PIM only", before the judge. As expected.
+  On the first run, before we added the material rule, it was linked to L29 as
+  `likely_same_product` (see below).
+
+### Every planted case
+
+On the live run on 4 Nov 2026, 10 of 14 planted cases came out as expected (counting each supplier
+record on its own, so a table row with two records is two cases); the four that didn't are L08,
+the second-photo shoes L24 and L28, and L01, which went to `review` for another reason.
+
 | Case | What we planted | Spec | Came out | Why |
 | --- | --- | --- | --- | --- |
 | Shared identifier | L41-L42, the same ballet flat with one model number on both records | `same_identifier`, no model call | `same_identifier`, link to L41 | "Same model number as L41." L42 was never embedded |
@@ -361,6 +404,14 @@ The run writes `proposals.csv` (one row per supplier record: status, action, the
 parent, and every reason) and `pairs.csv` (every pair the rules or the judge looked at, with
 both similarities, the attribute conflicts, the judge's answer and the reason). Pairs below the
 low threshold are left out of `pairs.csv`.
+
+### What you do next
+
+The catalog data steward works through `proposals.csv`, approving or changing each action: link
+to an existing product, add a new child under a parent, or create a new product. The `review`
+rows need the most care, with `pairs.csv` beside them for the similarities, conflicts and judge
+answer; for shoes whose supplier names no material, that means checking the material by hand.
+Then the steward runs the import, and the existing catalog record is always the one that stays.
 
 ## Potential improvements
 

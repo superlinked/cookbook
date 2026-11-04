@@ -76,6 +76,39 @@ line against the case. Each case gets a status that says what the checks found:
 The agent still talks to the customer and decides what happens. The summary is a reading aid,
 marked as generated, with a link from each line to the message it came from.
 
+### Examples
+
+The data is one case, CASE-2026-04417, and it should come out `summary_checked` as a whole. Here
+are three of the messages in `data/messages/`, and what should happen to each.
+
+**1. A dispute withdrawn.**
+
+- **Input:** `05-secure-message.txt`: "I've checked my receipts and the 23.40 at the cafe was me,
+  sorry."
+- **What should happen:** the summary has to be current, so the cafe payment is listed as
+  withdrawn, and Python matches it to the card system's transaction.
+- **Expected outcome:** Quillon Electronics 89.99 still disputed (TXN-5503, open); Copperpot Cafe
+  23.40 withdrawn (TXN-5502).
+
+**2. Card data typed into the chat.**
+
+- **Input:** `01-web-chat.txt`, 14:05: "Sorry, it's 4917 6620 5318 4421. Do you need the 3 numbers
+  on the back too? They're 731." (The card number and CVV are made up for this example.)
+- **What should happen:** the masking rules and a PII model mask the card number, and a rule removes
+  the three digits as a CVV, all before the summary model reads the chat.
+- **Expected outcome:** `XXXX XXXX XXXX 4421` and `[CVV removed]` in the masked text, and neither
+  in the summary.
+
+**3. A long number that isn't card data.**
+
+- **Input:** `03-agent-note.txt`: "Network dispute reference 8806 2144 5739 0012."
+- **What should happen:** it's 16 digits but fails the Luhn check, and the card system holds it
+  for this card, so it stays readable for the next agent to chase the dispute.
+- **Expected outcome:** kept readable in the masked note, and carried into the summary.
+
+On the live run, 6 of 7 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from the case record.** `crm.py` gives the case reference, the customer, the card on
@@ -251,6 +284,27 @@ models. A warm run makes 6 SIE calls (5 to `superlinked/pii-redact`, one per mes
 
 ## What came out
 
+### The three examples
+
+The case came out `summary_checked`.
+
+- **The withdrawn dispute** came out as planned: Quillon Electronics 89.99 (TXN-5503, open), and
+  Copperpot Cafe 23.40 withdrawn (TXN-5502), quoting "the 23.40 at the cafe was me, sorry" from
+  M5. As expected.
+- **The card number and CVV** were masked before the model read the chat, to `XXXX XXXX XXXX
+  4421` and `They're [CVV removed].` The rule found the CVV; the PII model didn't tag it. Neither
+  is in the summary. As expected.
+- **The dispute reference** stayed readable in the masked case note, but the model didn't put it
+  in the summary, so the agent finds it in the case note the summary links to. Not what we
+  planned, and no check looks for it.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 6 of 7 planted cases came out as expected. The one that
+didn't is the dispute reference, which stayed readable but didn't make it into the summary, as
+explained below the table. The table's eighth row, the wrong amount, is a stand-in reply in
+`selfcheck.py`, not part of the live run.
+
 The input is the case in [`data/`](./data):
 
 - `crm_cases.csv`: the case, CASE-2026-04417, with the customer, the card's ID and last four
@@ -281,12 +335,12 @@ came out `summary_checked`:
 | A promise made | The agent's note: "told her she'll have the refund within five working days" | Listed under what the bank told the customer, quoting the note (M3) | That's the line the next agent most needs |
 | Amount the case doesn't support | A stand-in reply (selfcheck only) that gives 98.99 for the Quillon payment | `needs_review`: "the card system has Quillon Electronics only for 8.99 GBP, 89.99 GBP", and the open dispute isn't listed | The summary is checked against the card system, not trusted |
 
-Two of these came out a little differently from the plan. The dispute reference stayed readable
-where it was written, but the model didn't put it in the summary, so the agent finds it in the
-case note the summary links to. And "names stay" holds for the masking (nothing took a name
-out) but the model chose which names to repeat: it wrote "the customer" for most lines, even with
-the prompt telling it to name people as the messages do, and the landlord didn't make the cut.
-No check looks for either, so neither changed the status.
+One of these came out differently from the plan. The dispute reference stayed readable where it was
+written, but the model didn't put it in the summary, so the agent finds it in the case note the
+summary links to. "Names stay" counts as expected: it holds for the masking (nothing took a name
+out), and the model chose which names to repeat: it wrote "the customer" for most lines, even with
+the prompt telling it to name people as the messages do, and the landlord didn't make the cut. No
+check looks for either, so neither changed the status.
 
 One thing the plan left open: the card system already shows the cafe dispute as withdrawn. That's
 how we built the seed, on the reading that the agent who processed the fifth message closed it
@@ -335,6 +389,15 @@ The run writes `case_summary.md` for the agent (each line with its source messag
 time, then the masking report), `case_summary.json` for code (every line with its check result,
 the masked messages and the card system's rows) and `masking_report.csv`, one row per thing
 masked or kept, with the line number but never the value.
+
+### What you do next
+
+The next card-services agent opens `case_summary.md`, pinned to the case, and reads it before
+replying: which payment is still disputed, what the bank already promised, and what's still
+waiting. Each line links to the message it came from, so the agent opens the source for anything
+they're about to repeat to the customer, and for the dispute reference, which is in the case note,
+not the summary. On a `needs_review` case they read the thread; a `blocked` case goes to the team
+lead. The agent still talks to the customer and decides what happens.
 
 ## Potential improvements
 

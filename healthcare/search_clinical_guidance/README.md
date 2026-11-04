@@ -78,6 +78,33 @@ Every `no_good_match` and every withdrawn or other-population-only search goes t
 the clinical policy coordinator, who reads it weekly and decides which guidance to write or
 update. Nobody else sees it.
 
+### Examples
+
+Here are three of the searches in `data/searches.json`, and what should happen to each.
+
+**1. A question the guidance answers.** Q-01, adult.
+- **Input:** "An adult's office blood pressure reads 142/88 and they have no symptoms. What does our
+  guidance say to do next?"
+- **What should happen:** three hypertension passages share its words; the reranker should put
+  G01, "repeat the measurement after five minutes of seated rest", first.
+- **Expected outcome:** `results`, G01 first.
+
+**2. A retired edition that matches better.** Q-02, adult.
+- **Input:** "How soon after a positive FIT should the diagnostic colonoscopy take place?"
+- **What should happen:** the retired 2021 edition G05 ("within 90 days") uses the question's own
+  words; the filter keeps it off the page and the notice rule says it was replaced by G04 ("within
+  60 days").
+- **Expected outcome:** `results` with G04, and a replaced notice for G05.
+
+**3. Near the topic, but no answer.** Q-04, adult.
+- **Input:** "Does our guidance recommend hypnotherapy to help patients stop smoking?"
+- **What should happen:** the tobacco passages never mention hypnotherapy, so none should clear
+  `min_score`, and the search goes to the gap log.
+- **Expected outcome:** `no_good_match`, logged.
+
+On the live run, 9 of 9 planted searches came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from the document system.** Each passage comes with section, title, population, status,
@@ -232,7 +259,17 @@ The input is three files in [`data/`](./data):
 > clinic network (Larkspur). It is not real clinical guidance and is not copied from any
 > published guideline. No US-government text was used, so there is no license to record.
 
-Our live run on 4 Nov 2026 (UTC):
+### The three examples
+
+- **Q-01** came out `results`: G01 (0.9998), then G02 (0.9968); G03 at 0.0571 stayed off. As
+  expected.
+- **Q-02** came out `results`: G04 (0.9997), with a replaced notice for G05 (0.9999). As expected,
+  even though G05 scored a hair higher; keyword search put G05 first.
+- **Q-04** came out `no_good_match`, closest G15 at 0.1687, logged. As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 9 of 9 planted cases came out as expected.
 
 | Search | What we planted | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
@@ -246,9 +283,8 @@ Our live run on 4 Nov 2026 (UTC):
 | Q-08 potassium 6.4, how fast | Critical G20 and non-urgent G21 lab passages | `results`: G20 first, sentence on the phone call picked out | `results`: G20 (0.9999), then G21 (0.8948); the phone-call sentence picked (0.9983) | Two lab passages, one urgent |
 | Q-09 HbA1c when stable at target | G10, whose one passage gives two intervals | `results`: G10, with the sentence for stable patients picked out | `results`: G10 (0.9999); the six-month sentence picked (0.9997) | The sentence pick shows the right interval, not the first one |
 
-Every case came out as planned, and four searches (Q-04, Q-05, Q-06, Q-07) went to the gap log.
-Two things in the planted guidance were worded for the demo, and no rule or threshold was fitted
-to this data:
+Four searches (Q-04, Q-05, Q-06, Q-07) went to the gap log. Two things in the planted guidance were
+worded for the demo, and no rule or threshold was fitted to this data:
 
 - G04 and G05 were worded the way real editions tend to be. Current editions don't copy the
   clinician's phrasing and retired ones often use the old shorthand, so G04 says "aim to
@@ -298,6 +334,14 @@ A few things worth noticing:
   search_id,population,question,status,notices,closest_passage,closest_score,reason,owner
   Q-07,pediatric,When should a child with type 1 diabetes have their first retinal screening?,no_good_match,other_population,G08,0.0001,"No good match: ...",clinical policy coordinator
   ```
+
+### What you do next
+
+The clinician reads `pages/Q-xx.md`: the best sentence, the full passage under it, and any
+replaced, withdrawn or other-population notice, and acts on the clinic's own words or, on a
+`no_good_match` page, goes to the national guideline or the on-call contact. The clinical policy
+coordinator reads `gap_log.csv` weekly (four lines here: Q-04, Q-05, Q-06, Q-07) and decides which
+guidance to write or update. Nobody else sees the gap log.
 
 ## Potential improvements
 

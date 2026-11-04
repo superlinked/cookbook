@@ -94,6 +94,40 @@ Article 30(2) requires in every ICT contract. It does not check 30(2)(i) (taking
 bank's security training) or the extra 30(3) terms for critical or important functions. A contract the register marks as critical or
 important gets a note saying those are unchecked.
 
+### Examples
+
+Here are three of the contract packages in `data/`, and what should happen to each.
+
+**1. A clean contract.**
+- **Input:** `nimbusline-cloud-hosting.pdf` (`EB-ICT-0117`, text layer), with all eight clauses
+  plainly worded, for example "6.1 When an ICT incident related to the Services occurs, the Supplier
+  shall provide the Customer with all reasonable assistance to contain, investigate and recover from
+  it, at no additional cost to the Customer."
+- **What should happen:** docling reads the pages, the reranker puts each clause's paragraph at the
+  top, and every quote checks out word for word.
+- **Expected outcome:** `found` on all eight clauses.
+
+**2. Assistance that's only discretionary.**
+- **Input:** `tallowmere-analytics.pdf` (`EB-ICT-0142`): "6.1 When an ICT incident related to the
+  Services occurs, the Supplier may, at its discretion, provide such assistance as it considers
+  reasonable. Any assistance is charged at the Supplier's then-current time-and-materials rates."
+- **What should happen:** The clause is there but weaker than Article 30(2)(f) asks. The model
+  should say so, and if it doesn't, the review terms "at its discretion" and "then-current" in
+  `rules.yaml` send the row to review anyway.
+- **Expected outcome:** `incident_assistance` `needs_review`, the other seven `found`.
+
+**3. A clean clause, changed by a scanned amendment.**
+- **Input:** Brindlecote's agreement (`EB-ICT-0076`) says "The Customer may also terminate for
+  convenience on six (6) months' written notice." The scanned `brindlecote-amendment-1.pdf`, signed
+  in 2025, adds to clause 9.2 that such a termination "is subject to a termination fee equal to the
+  fees payable for the six (6) months following the date of termination."
+- **What should happen:** Read alone, clause 9.2 is a `found`. The amendment check should find the
+  later document naming clause 9.2 and hold the row for the lawyer.
+- **Expected outcome:** `termination_rights` `needs_review`, with both passages cited.
+
+On the live run, 5 of 5 planted contracts came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from the register and the bank's checklist.** The clause list, with each clause's
@@ -265,6 +299,23 @@ warm, our run on 2026-11-04 (UTC) took 90 s for its 96 calls.
 
 ## What came out
 
+### The three examples
+
+1. **Nimbusline:** 8 x `found`. As expected.
+2. **Tallowmere:** `incident_assistance` `needs_review`, the other seven `found`. The model said
+   `needs_review` itself, quoting "the Supplier may, at its discretion, provide such assistance". As
+   expected.
+3. **Brindlecote:** `termination_rights` `needs_review`, citing Amendment No. 1 p1 with clause 9.2
+   on p2 as "Read with". As expected. The contract also got one row we didn't plant:
+   `incident_assistance` `needs_review`, because the model shortened its quote with "..." (more on
+   that below).
+
+### Every planted case
+
+On the live run on 2026-11-04 (UTC), 5 of 5 planted contracts came out as expected (27 `found`, 11
+`needs_review`, 2 `not_found` across the 40 rows), with one unplanted row on Brindlecote sent to
+review.
+
 The input is five contract packages in [`data/`](./data) and the register that points at them:
 
 - `register_contracts.csv`: the register of information, one row per contract: contract ID,
@@ -292,14 +343,11 @@ The input is five contract packages in [`data/`](./data) and the register that p
 | `EB-ICT-0076` Brindlecote (text layer, scanned amendment) | A compliant termination clause (9.2), then Amendment No. 1 in 2025 adding a termination fee | `termination_rights` `needs_review` with both passages cited; `incident_assistance` `needs_review` too (not planted, see below); the other six `found` | The original wording alone would read as `found` |
 | `EB-ICT-0051` Brackwater (scan) | The schedules page blurred past reading; the agreement pages hold every clause | All eight `needs_review`; the model said `found` on all eight | The lost page could hold a qualifier, so `found` is held back as well as `not_found` |
 
-On our live run on 2026-11-04 (UTC), every planted case came out as planned: 27 `found`, 11
-`needs_review`, 2 `not_found` across the 40 rows. One row went to review that we didn't plant:
-Brindlecote's `incident_assistance`, where the model shortened its quote with "...". The three
-critical-or-important contracts (Nimbusline, Tallowmere, Brindlecote) got the note that the
-Article 30(3) terms are unchecked.
-Treat that as a demo that the wiring works, not as a measure of accuracy: five synthetic
-contracts built from one template tell you each path through the checks runs, not how often a
-real supplier's drafting gets past it.
+The unplanted review row is Brindlecote's `incident_assistance`, where the model shortened its quote
+with "...". The three critical-or-important contracts (Nimbusline, Tallowmere, Brindlecote) got the
+note that the Article 30(3) terms are unchecked. Treat that as a demo that the wiring works, not as
+a measure of accuracy: five synthetic contracts built from one template tell you each path through
+the checks runs, not how often a real supplier's drafting gets past it.
 
 A few things worth noticing:
 
@@ -353,6 +401,14 @@ A few things worth noticing:
   Supplier may, at its discretion, provide such assistance". If it had said `found`, the review
   terms in `rules.yaml` ("at its discretion", "then-current", "time-and-materials") would have
   sent the row to review anyway; `selfcheck.py` has that case.
+
+### What you do next
+
+The lawyer opens each contract's gap list in `gaps/`, reads the passage and reason for every
+`not_found` and `needs_review` clause, and decides whether the contract meets Article 30 and what to
+ask the supplier for. A `not_found` means the lawyer checks the package first, including any missing
+schedule the gap list notes, before asking for anything. Procurement sends the amendment request,
+and the vendor-risk analyst records the review in the register.
 
 ## Potential improvements
 

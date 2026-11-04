@@ -89,6 +89,40 @@ The analyst reads the brief, opens the passages that matter, and decides what go
 and the note. The recipe doesn't say whether a change is good or bad news, and it doesn't give
 investment advice.
 
+### Examples
+
+Here are three of the standing questions in `data/questions.yaml`, the passages in `data/` they
+meet, and what should happen to each.
+
+**1. Apple's manufacturing purchase obligations (AAPL-1).**
+
+- **Input:** P06 in the FY2025 10-K: "As of September 27, 2025, the Company had manufacturing
+  purchase obligations of $56.2 billion, with $55.4 billion payable within 12 months." Next to
+  it, P07 gives "other purchase obligations of $14.8 billion" in the same shape of sentence.
+- **What should happen:** the reranker puts both near the top, the answer model cites P06, and
+  Python checks the quote is in P06 and both figures are in it as billions for 2025.
+- **Expected outcome:** `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months.
+
+**2. Vision Pro revenue (AAPL-4).**
+
+- **Input:** the question "How much revenue did Apple Vision Pro generate in fiscal 2025?" The
+  passages that mention Vision Pro, such as P12 in Item 1, describe the product and give no
+  figure.
+- **What should happen:** no passage scores high enough to answer, so the answer model has
+  nothing to guess from.
+- **Expected outcome:** `no_answer_found` in both years, compared as `neither_year`.
+
+**3. Target's tax rate, with two years in one sentence (TGT-2).**
+
+- **Input:** P28: "Our 2025 effective income tax rate was 22.3 percent compared with 22.2 percent
+  in 2024."
+- **What should happen:** the year check has to tie 22.3 to 2025 and 22.2 to 2024, so an answer
+  calling 22.2 percent the 2025 rate fails.
+- **Expected outcome:** `draft_answer` from P28, 22.3 percent.
+
+On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from what's structured.** The analyst's standing questions per company are in
@@ -235,6 +269,21 @@ EDGAR asks every client to identify itself) and run `uv run fetch_data.py`.
 
 ## What came out
 
+### The three examples
+
+- **AAPL-1** came out `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months, and
+  last year's P33 gave $53.0 billion with $52.9 billion (`both_years`). P07 scored 0.9961 against
+  P06's 0.9998 and the answer model still cited P06. As expected.
+- **AAPL-4** came out `no_answer_found` in both years (best P12 at 0.16, P39 at 0.14),
+  `neither_year`. As expected.
+- **TGT-2** came out `draft_answer` from P28, 22.3 percent, with last year's P52 at 22.2 percent
+  (`both_years`). The model wrote "22.3 percent, up from 22.2 percent in fiscal 2024" and the year
+  check agreed on both figures. As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 8 of 8 planted cases came out as expected.
+
 The input is two companies' standing questions in [`data/questions.yaml`](./data/questions.yaml)
 (four each) and 56 passages from four 10-K filings: Apple FY2025 (16) and FY2024 (14), Target
 FY2025 (15) and FY2024 (11). They are real paragraphs from Item 1 (Business), Item 1A (Risk
@@ -257,7 +306,7 @@ Here's our live run on 4 Nov 2026 (UTC), with the settings as written:
 | TGT-3 why inventory changed | Other year-end balances, the inventory accounting estimate (P44, P55) | `draft_answer`: P30 | `draft_answer`: P54, with its two bullets | `both_years` | A "why" that only MD&A answers |
 | TGT-4 manufacturing purchase obligations | Only a general paragraph that points to the notes | `no_answer_found` (best P26, 0.06) | `no_answer_found` (best P50, 0.04) | `neither_year` | The next step is in the notes, and the brief shows P26 saying so |
 
-All eight came out as planted. No row came out `new_this_year` or `missing_this_year`:
+No row came out `new_this_year` or `missing_this_year`:
 Apple and Target answered the same standing questions in both years, which is what you'd hope
 from two consecutive 10-Ks and also why we couldn't plant one from real filings. The near miss
 the data can't hold, an answer that quotes the right sentence but says "$56.2 million", is in
@@ -302,6 +351,14 @@ A few things worth noticing:
 The run writes the brief three ways: `brief.json` for code (with every passage's score, the
 quotes, the full cited passages and the closest passages read), `brief.csv` for a spreadsheet
 (one row per question, both years side by side), and one Markdown brief per filing for a person.
+
+### What you do next
+
+The analyst opens the Markdown brief for the new filing and reads any `new_this_year` or
+`missing_this_year` rows first (none this time). For each `draft_answer` they read the full
+passage next to it before using the figure; for each `no_answer_found` they check the source,
+often the notes the passage points to, as TGT-4 shows. Then they decide what goes into the
+financial model and the note.
 
 ## Potential improvements
 

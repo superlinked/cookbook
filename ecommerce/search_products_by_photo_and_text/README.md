@@ -91,6 +91,33 @@ What this recipe doesn't do: it doesn't know prices, sizes or brands beyond the 
 tell the exact product from a lookalike in the same color, and an embedding doesn't understand
 "not". Those are covered under Potential improvements.
 
+### Examples
+
+Here are three of the searches in `data/queries.csv`, and what should happen to each.
+
+**1. A photo cropped to the lamp.** Q07, department LAMP
+- **Input:** a room shot from `query-photos.jpg` with the P11 lamp in the corner, cropped by the
+  shopper to the lamp.
+- **What should happen:** the photo is compared with every catalog photo in the department, and
+  the lamp it shows should clear the photo bar first.
+- **Expected outcome:** `results`, P11 first.
+
+**2. Something the store doesn't sell.** Q04, no department
+- **Input:** "cordless power drill"
+- **What should happen:** the nearest product is still returned by the search, but nothing should
+  clear the bar, so the shopper sees "no close match" and the search goes in the gap log.
+- **Expected outcome:** `no_good_match`, logged.
+
+**3. This, but with a wood base.** Q11, department LAMP
+- **Input:** the same cropped lamp photo as Q07, plus "but the base should be dark wood". The
+  catalog has the same faux wood lamp in espresso dark brown (P34) and oak (P35).
+- **What should happen:** a result has to clear both bars, the photo and the words, so the words
+  should change the answer that the photo alone gives.
+- **Expected outcome:** `results`, P34 only, and the chrome P11 not shown.
+
+On the live run, 13 of 13 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from the catalog and the facet.** Product ID, category, title, color, main photo and
@@ -258,6 +285,17 @@ The input is four files in [`data/`](./data):
 > amazon.com listing from Amazon Berkeley Objects (see Data and licenses below). The words
 > searches were written for this recipe, and the availability flag is made up.
 
+### The three examples
+
+- **Q07:** `results`, P11 first (0.876), then four more lamps above 0.70. As expected.
+- **Q04:** `no_good_match`, logged; the best product was P05, a recliner, at 0.013. As expected.
+- **Q11:** `results`, P34 only (photo 0.774, words 0.098); the chrome P11 not shown. As expected,
+  though by a thin margin (see below).
+
+### Every planted case
+
+On the live run on 4 Nov 2026, 13 of 13 planted cases came out as expected.
+
 The planted cases, from our live run on 4 Nov 2026 (UTC):
 
 | Case | What we planted | Came out | Why |
@@ -275,7 +313,7 @@ The planted cases, from our live run on 4 Nov 2026 (UTC):
 | Words the catalog can't meet | Q12, the worn messenger bag photo plus "in brown leather"; the catalog has only the grey fabric one | `no_good_match`, logged with the words; P17 words score 0.041 | Showing the grey bag as a match ignores what the shopper asked; the buyer sees the request |
 | Exact match unavailable | Q13, another ABO photo of the P15 rug, which the PIM marks unavailable; P16 is the same pattern in grey | `results`: P16 (0.738); P15 never shown; logged as a close style | A shopper can't buy the closest match if it's out of stock |
 
-All 13 came out as planned, with the rules as committed. The thresholds were fitted to this
+That's with the rules as committed. The thresholds were fitted to this
 data (the comments in `rules.yaml` say from which numbers), so treat
 this as a demo that the wiring works, not as a measure of accuracy. Thirteen searches tell you
 the plumbing is connected, not how often a shopper gets the right lamp.
@@ -319,6 +357,13 @@ A few things worth noticing:
 The run writes `results.json` for code (every search with its status, reason, shown results,
 candidates and color check), `results.csv` with one row per shown result, and
 `search_gap_log.csv` for the search team.
+
+### What you do next
+
+The shopper only ever sees the product cards or the "no close match" page. The search and
+merchandising team reads `search_gap_log.csv` once a week, not per search, and sorts each row:
+a facet fix (the stale SANDAL department), a photo fix, or a request for the buyer (black
+Madison flats, a brown leather messenger bag).
 
 ## Potential improvements
 

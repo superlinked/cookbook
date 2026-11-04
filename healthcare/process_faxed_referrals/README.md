@@ -96,6 +96,34 @@ None of this signs anything off. `checks_passed` means the checks found nothing,
 referral is approved or the patient is ready to schedule; the coordinator still confirms it, and
 insurance authorization is a separate step this recipe doesn't touch.
 
+### Examples
+
+Here are three of the fax packets in `data/`, and what should happen to each.
+
+**1. A complete packet.** `fax-1021-brightwater-family-medicine.pdf`
+- **Input:** three image-only pages (cover, signed referral order, clinic note) for Delphine
+  Arkwright, a new patient, with a member ID, a reason and "Routine" on the order.
+- **What should happen:** every required field is read after its own label and checked, the EHR
+  finds no chart, so she's new, and nothing is left to chase.
+- **Expected outcome:** `checks_passed`, requested priority routine.
+
+**2. A signature on the wrong page.** `fax-1021-quarry-hill-medical-group.pdf`
+- **Input:** a referral order for Rosalind Teague with a blank signature line, and a clinic note
+  behind it that is electronically signed.
+- **What should happen:** the signature check only counts a signer on the order page, so the
+  note's e-signature is set aside and the signed order goes on the callback list.
+- **Expected outcome:** `missing_info`: signed referral order.
+
+**3. A blank the chart can fill.** `fax-1021-millbrook-community-health.pdf`
+- **Input:** a packet for Corwin Ashdown, DOB 05/30/1972, with the member ID left blank. The EHR
+  has him with a member ID on file, and his son with the same name and another date of birth.
+- **What should happen:** the EHR lookup matches on name and date of birth, not the name alone,
+  so it finds exactly one chart and fills the member ID from it instead of calling.
+- **Expected outcome:** `checks_passed`, member ID `SHC-417730-1` from chart MRN-100231.
+
+On the live run, 8 of 8 planted cases came out as expected, Juniper Road with one callback item
+we didn't plant; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from what you already know.** The EHR and the provider directory are lookups the
@@ -276,6 +304,22 @@ referral order, clinic note), plus the two lookup seeds: `ehr_patients.csv` (6 c
 > header line on top, no text layer and no document info, so the recipe has to OCR it like a
 > real fax.
 
+### The three examples
+
+- **Brightwater** came out `checks_passed` with requested priority routine. As expected.
+- **Quarry Hill** came out `missing_info` with one callback item, "Signed referral order (provider
+  signature)", to Quarry Hill Medical Group at (555) 010-7730. As expected; the note's
+  e-signature didn't count.
+- **Millbrook** came out `checks_passed`, with the member ID filled from the chart and marked as
+  such: `"member_id": {"value": "SHC-417730-1", "source": "ehr", "mrn": "MRN-100231"}`, and the
+  son's chart noted. As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 8 of 8 planted cases came out as expected. Juniper Road also
+got one callback item we didn't plant, "Reason for referral". It fails closed (the office is only
+asked for something already on the fax), so it's named here and doesn't fail the case.
+
 | Case | What we planted | Came out | Why |
 | --- | --- | --- | --- |
 | Brightwater | Complete packet, new patient | `checks_passed`; requested priority routine | The clean case |
@@ -287,14 +331,15 @@ referral order, clinic note), plus the two lookup seeds: `ehr_patients.csv` (6 c
 | Cobble Lane | The referral is for "Ann Lee"; the attached clinic note is for "Joann Lee" with a different date of birth | `review`: the pages disagree on the patient's name and date of birth; the EHR isn't searched | Similar names must not merge, and review wins over a callback |
 | Orchard Bend | Helena Marchetti, member ID blank; the EHR has her as Helena Voss, her maiden name, same date of birth and phone, with a member ID on file | `review`: EHR possible match to MRN-100689; nothing filled from that chart | A close match is someone's call, not the recipe's |
 
-These ran live on SIE Cloud on 4 Nov 2026 (UTC). Seven of the eight came out exactly as planned.
-Juniper Road came out `missing_info` as planned, but with one item more than we planted: GLiNER2
-returned no reason for referral for "New leg swelling, breathless lying flat, BNP 1,240 pg/mL.",
-so the callback list asks the office for a reason that's printed on page 2. We left it that way
-rather than shorten the planted reason; it's the long-free-text weakness from Picking the models,
-on a packet where the clinical reviewer would want the reason most. Treat all of this as a demo
-that the wiring works, not as a measure of accuracy: eight packets tell you the checks fire on
-the cases they were built for, not how often they're wrong on yours.
+These ran live on SIE Cloud on 4 Nov 2026 (UTC). All eight got their planted status, and seven came
+out exactly as planned. Juniper Road came out `missing_info` with the planted priority and member ID
+item, plus one item we didn't plant: GLiNER2 returned no reason for referral for "New leg swelling,
+breathless lying flat, BNP 1,240 pg/mL.", so the callback list asks the office for a reason that's
+printed on page 2. We left it that way rather than shorten the planted reason; it's the
+long-free-text weakness from Picking the models, on a packet where the clinical reviewer would want
+the reason most. Treat all of this as a demo that the wiring works, not as a measure of accuracy:
+eight packets tell you the checks fire on the cases they were built for, not how often they're wrong
+on yours.
 
 A few things worth noticing:
 
@@ -342,6 +387,15 @@ nickname with the same DOB (`possible_match`), a "not urgent" form with the mode
 surname with no NPI whose practice and numbers aren't the directory's (`possible_match`, nothing
 filled), a two-digit birth year "03/14/61" (read as 1961, not 2061), a window too long for the
 extractor (review, never read cut short), and a cover that says 4 pages when 3 arrived (review).
+
+### What you do next
+
+The coordinator confirms each draft in `drafts/<packet>.json` and enters the referral, and works
+`callback-list.csv` by phone or fax to the referring office, using the numbers on each row. Every
+packet, whatever its status, is in `clinical-review-queue.csv` with urgent and time-bound packets
+first, and the clinical reviewer decides how soon the patient is seen. The `review` packets
+(Cobble Lane, Orchard Bend) need someone to look at the pages and the chart by hand before
+anything is filled or anyone is called.
 
 ## Potential improvements
 

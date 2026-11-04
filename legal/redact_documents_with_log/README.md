@@ -104,6 +104,38 @@ coding.
 This is the producing side of discovery. `index_and_check_received_documents` is the receiving
 side: it checks the volume the other side sends you.
 
+### Examples
+
+Here are three of the documents in `data/text/`, and what should happen to each.
+
+**1. A crew member's personal data in an insurance email.**
+- **Input:** `PMS0000002.txt`: "Tomas (date of birth 3 March 1991) has been with us since April.
+  ..." and then "SSN: 666-52-1187" and "Home address: 9 Gull Lane, Marshfield, MA 02050".
+- **What should happen:** The three listed items come out, each with its own log line, and
+  everything else stays readable, including Tomas Reyna's name and the delivery date "12 June 2026"
+  in the same paragraph.
+- **Expected outcome:** `redactions_checked`, three log lines.
+
+**2. The client asks the firm's lawyer for advice.**
+- **Input:** `PMS0000004.txt`, an email from Osric Pellham to Priya Okonjo at Hollis & Crane: "Can I
+  hold that back until they pay the invoice in full, or does that put us in breach of the lease?"
+  Under it, the forwarded email from Kittering's Corwin Ashdale.
+- **What should happen:** The paragraph sits in a message to a lawyer on the list, so it's flagged
+  for the associate and not redacted yet. The forwarded email has no lawyer in it and stays
+  readable.
+- **Expected outcome:** `privilege_flag` on Osric's paragraph only.
+
+**3. A claim number shaped like an SSN.**
+- **Input:** `PMS0000003.txt`, a wire confirmation: "Credit account: 4471900321" and, four lines
+  down, "Memo: cargo claim 404-18-2210".
+- **What should happen:** The account number has its label and comes out down to the last four
+  digits. The claim reference has no SSN label, so nothing redacts it, but the sweep sees an SSN
+  shape still readable and hands it to a person.
+- **Expected outcome:** `needs_review` for line 10, with the account shown as "account ending 0321".
+
+On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
+
 ## How we'll solve it
 
 1. **Start from the review platform and the matter.** The export of the volume (Bates number,
@@ -250,6 +282,19 @@ starts the PII model. A warm run makes 6 SIE calls, one per document, and takes 
 
 ## What came out
 
+### The three examples
+
+1. **PMS0000002:** `redactions_checked`; the date of birth, SSN and home address redacted, one log
+   line each (lines 8, 11, 12), "Tomas Reyna" and "12 June 2026" readable. As expected.
+2. **PMS0000004:** `privilege_flag` on lines 6 to 8 only, reason "in a message to or from Priya
+   Okonjo"; the forwarded email from Kittering readable. As expected.
+3. **PMS0000003:** `needs_review`: "line 10: an SSN-shaped number is still readable", and the
+   account masked as "account ending 0321". As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 8 of 8 planted cases came out as expected.
+
 The input is one fictional matter, Pellham Marine Supply LLC v. Kittering Marine Holdings, with
 Hollis & Crane LLP for Pellham:
 
@@ -263,7 +308,7 @@ Hollis & Crane LLP for Pellham:
 > **All of it is synthetic.** Every person, company, firm, bank, number and address is invented.
 > Emails use reserved `.example` domains; the SSN starts with 666, which is never issued.
 
-On our live run on 4 Nov 2026 (UTC), every planted case came out as planned:
+Case by case:
 
 | Case | What we planted | Came out | Why |
 | --- | --- | --- | --- |
@@ -321,6 +366,14 @@ The run writes `redacted/<Bates>.txt`, `redaction_log.csv`, `privilege_flags.csv
 (status, designation, counts and reasons per document) and `spans.json` (character offsets into
 the extracted text, the replacement and how each span was found, for litigation support). None of
 them holds a redacted value.
+
+### What you do next
+
+The associate opens `privilege_flags.csv`, decides each flag in the `associate_decision` column, and
+clears every `needs_review` document by hand (here, whether `404-18-2210` really is a claim
+reference). Confirmed privilege lines are copied into `redaction_log.csv`. The associate signs off
+the set, litigation support applies the redactions from `spans.json` to the page images in the
+review platform, and the set goes to the other side with the log.
 
 ## Potential improvements
 

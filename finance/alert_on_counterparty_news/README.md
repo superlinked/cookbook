@@ -81,6 +81,39 @@ still goes out, and the unclear name still lands in the review queue. The credit
 what the alert means for the loan. The recipe doesn't rate the borrower, change a risk grade or
 contact anyone outside the bank.
 
+### Examples
+
+Here are three of the articles in `data/news.jsonl`, and what should happen to each.
+
+**1. A borrower misses a payment.**
+
+- **Input:** N-01: "Pellridge Foods Ltd missed a scheduled interest payment on its term loan at
+  the end of October, according to a notice sent to its lenders..."
+- **What should happen:** the full legal name links to the counterparty list, and the event
+  model reads the sentences that name it as a missed payment.
+- **Expected outcome:** `alert` to the borrower's credit officer, Saoirse Mallin, for a missed
+  payment.
+
+**2. A name two borrowers share.**
+
+- **Input:** N-04: "Northwind has lost its largest customer, a national parcel carrier that
+  accounted for about a third of its revenue..."
+- **What should happen:** "Northwind" is an alias of two counterparties and nothing else in the
+  article settles which one, so the link step refuses to guess.
+- **Expected outcome:** `review`, listing both CP-1004 and CP-1005.
+
+**3. A warning about the borrower's competitor.**
+
+- **Input:** N-09: "Elmstead Creameries, a cheese and butter maker, entered administration on
+  Wednesday... Ferncastle Dairy Ltd, which competes with Elmstead in the regional cheese market,
+  said its own supply contracts and finances were unaffected..."
+- **What should happen:** only Ferncastle is a borrower, and the event model reads only the
+  sentences about Ferncastle, so Elmstead's administration doesn't land on it.
+- **Expected outcome:** Ferncastle `filed`, no alert.
+
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from what's already structured.** Each item comes with source, URL, time and
@@ -221,6 +254,17 @@ articles' windows, six GLiNER2.5-Decide calls, one per linked borrower) and take
 
 ## What came out
 
+### The three examples
+
+- **N-01** came out `alert` to Saoirse Mallin: missed payment 0.85. As expected.
+- **N-04** came out `review` with CP-1004 and CP-1005 both listed. As expected.
+- **N-09** came out Ferncastle `filed`: none 0.93, no alert. As expected; given the whole article
+  instead of Ferncastle's sentences, the event model said insolvency 0.84 (more on that below).
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 10 of 10 planted cases came out as expected.
+
 The input is [`data/news.jsonl`](./data/news.jsonl): ten short articles as the news queue holds
 them (source, URL, time, headline, body), and
 [`data/counterparties.csv`](./data/counterparties.csv): nine borrowers, two of which share the
@@ -242,11 +286,10 @@ domains) are synthetic, written for this recipe. No real company or person is na
 | N-09 | A competitor's administration in the same story as Ferncastle Dairy, which is "unaffected" | Ferncastle `filed`: none 0.93; no alert | The warning is about the competitor, not the borrower |
 | N-10 | "Halden" the town, in a story about a flood warning, with no company named | `not_a_borrower`: both mentions read as a place | A borrower's alias that's also a place name |
 
-On our live run on 4 Nov 2026 (UTC) all ten came out as planned: 3 `alert`, 3 `filed`, 2 `review`
-and 2 `not_a_borrower`, two alert messages (Saoirse Mallin with two stories, Teodor Brask with
-one) and three review rows. Treat this as a demo that the
-wiring works, not as a measure of accuracy: ten articles tell you the rules fire, not how often
-the models get a real news queue right.
+In all the run gave 3 `alert`, 3 `filed`, 2 `review` and 2 `not_a_borrower`, two alert messages
+(Saoirse Mallin with two stories, Teodor Brask with one) and three review rows. Treat this as a
+demo that the wiring works, not as a measure of accuracy: ten articles tell you the rules fire,
+not how often the models get a real news queue right.
 
 A few things worth noticing:
 
@@ -296,6 +339,14 @@ A few things worth noticing:
 
   Northwind says the downgrade doesn't affect its bank facilities. The bank whose facilities they
   are may want to check that for itself.
+
+### What you do next
+
+Each credit officer reads their message in `alerts/` and decides what the story means for the loan;
+nothing on the loan file has changed. The stories in `filed.csv` are saved against the counterparty
+for the next annual review, and nobody is pinged about them. The credit analyst who used to read the
+whole queue now reads only `review.csv` (here three rows) and settles which borrower, if any, each
+unclear name means.
 
 ## Potential improvements
 

@@ -84,6 +84,34 @@ product or asks for a new tag. The recipe doesn't decide which, and it never cha
 A promotion on the tag (`HEALTHY SAVINGS $5.99`, `BUY ONE, GET ONE Free!`) is noted in the
 output, never compared, and never a status on its own.
 
+### Examples
+
+Here are three of the tags in the photos in `data/`, and what should happen to each.
+
+**1. A tag with its own product above it.** T01 on `granola-shelf-141418.webp`.
+- **Input:** a Grandy Organics bag above the tag for catalog row
+  `0648960035153,Grandy Organics,Ancient Grain Granola,7.99`.
+- **What should happen:** the vision model picks the tag's own product, the detector finds a
+  package box in the slot, and the tag's price agrees with the catalog.
+- **Expected outcome:** `in_place`.
+
+**2. The wrong product above the tag.** T02 on the same photo.
+- **Input:** a Grandy Ancient Grain bag above the tag for
+  `0850021228453,Blue Stripes,Whole Cacao Granola Peanut Butter Banana,7.99`.
+- **What should happen:** the vision model picks the Grandy granola from the candidate list, and
+  the detector finds a box in the slot.
+- **Expected outcome:** `wrong_product`, naming Grandy Organics Ancient Grain Granola.
+
+**3. An empty slot.** T06 on `frozen-desserts-141402.webp`.
+- **Input:** nothing on the shelf above the tag for
+  `0811271001616,truwhip,Original Whipped Topping,5.99`, with a stack of Truwhip tubs next door.
+- **What should happen:** the vision model should say `none`, and the detector should find no
+  package box in the slot.
+- **Expected outcome:** `out_of_stock`.
+
+On the live run, 3 of 4 planted cases came out as expected, and 14 of the 20 tags;
+[What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Find the tags and the packages.** A text-prompted object detector looks for "price tag",
@@ -283,7 +311,23 @@ US, on 2026-10-25 and uploaded by the Open Prices user `doby` (see Data and lice
 in `data/`, unmodified. [`data/catalog.csv`](./data/catalog.csv) (`upc`, `brand`, `product`,
 `regular_price`) holds the 20 products Open Prices recorded for these photos, with one planted
 change. The photos are a fixed public dataset, so the planted shelf problems are ones that were
-already on the shelf that day:
+already on the shelf that day.
+
+### The three examples
+
+- **Granola T01:** `in_place`. The model read "GRANDY ORGANICS" and "ANCIENT GRAIN GRANOLA". As
+  expected.
+- **Granola T02:** `wrong_product`. The model picked Grandy Organics Ancient Grain Granola, and
+  the price was fine. As expected.
+- **Freezer T06:** `review`, not `out_of_stock`. The model still picked this tag's Truwhip, from
+  "tru" on the edge of the stack next door, but the detector found no box in the slot, so the
+  reason says to check the slot. A miss, but a safe one: it's on the associate's list instead of
+  a false `in_place`.
+
+### Every planted case
+
+On the live run on 2 Nov 2026, 3 of the 4 planted cases came out as expected, and 14 of the 20
+tags came out as we expected in the table below.
 
 | Photo | Tag | What's on the shelf | Expected | Got | Why |
 | --- | --- | --- | --- | --- | --- |
@@ -308,23 +352,21 @@ already on the shelf that day:
 | beet-juice-141410 | T03 Lakewood Organic Super Beet Juice | Lakewood Organic Pure Beet bottles | `in_place` | `review` | `cant_tell`: the model read "Lakewood Organic Pure Beet" and said none of the listed names match (see below) |
 | beet-juice-141410 | T04 Lakewood Organic Beet Ginger Turmeric | Beet Ginger Turmeric bottle | `in_place` | `in_place` | Model read "Lakewood ORGANIC GINGER TURMERIC" |
 
-On our run of 2026-11-02 (UTC), 3 of the 4 planted cases came out as planned, and 13 of the 20
-tags came out as expected. The planted empty slot didn't come out `out_of_stock`: the model
-still says Truwhip Original is there, from the edge of the neighbor's stack. Before the box rule
-that was a false `in_place`; now the detector's empty slot sends it to `review` with "check the
-slot". The model didn't say `none`. Three more tags got a false `wrong_product` (T03 and T05 in
-the freezer, and the Gluten Free Muesli); all three slots do hold a package box, just not the
-one the model named. Before the box rule we ran the recipe twice, a minute apart, and got the
-same 20 statuses and picks both times; after it, one run, in which only T06 changed. Then we
-added the prompt's line about text in the photo, the padded candidate list, the slot-width
-box rule and the name check, and ran once more. The new box rule took a box out of two slots
-(beet juice T03, freezer T03) that still hold others, so no status moved for it; the list,
-name and orientation changes don't touch these photos. One status did move: T05 went from
-`cant_tell` (`review`) to a false `wrong_product`, with the same slot picture and the same
-candidate list, so the prompt line is the only input that changed. We didn't tune anything to
-win it back. Treat this as a demo that
-the wiring works, not as a measure of accuracy: twenty tags on four photos tell you the
-pipeline is right, not how often the models get a shelf wrong.
+The planted empty slot didn't come out `out_of_stock`: the model still says Truwhip Original is
+there, from the edge of the neighbor's stack. Before the box rule that was a false `in_place`; now
+the detector's empty slot sends it to `review` with "check the slot". The model didn't say `none`.
+Three more tags got a false `wrong_product` (T03 and T05 in the freezer, and the Gluten Free
+Muesli); all three slots do hold a package box, just not the one the model named. Before the box
+rule we ran the recipe twice, a minute apart, and got the same 20 statuses and picks both times;
+after it, one run, in which only T06 changed. Then we added the prompt's line about text in the
+photo, the padded candidate list, the slot-width box rule and the name check, and ran once more. The
+new box rule took a box out of two slots (beet juice T03, freezer T03) that still hold others, so no
+status moved for it; the list, name and orientation changes don't touch these photos. One status did
+move: T05 went from `cant_tell` (`review`) to a false `wrong_product`, with the same slot picture
+and the same candidate list, so the prompt line is the only input that changed. We didn't tune
+anything to win it back. Treat this as a demo that the wiring works, not as a measure of accuracy:
+twenty tags on four photos tell you the pipeline is right, not how often the models get a shelf
+wrong.
 
 A few things worth noticing:
 
@@ -399,6 +441,14 @@ granola-shelf-141418.webp,checked,17,4,7,4,2,0,0,4,0,
 
 A package that isn't in any slot stands on the shelf below the last tag row (its tag is out of
 frame) or mostly left of the first tag on its edge.
+
+### What you do next
+
+The associate or brand rep works through `findings.csv`, which lists every tag that isn't
+`in_place`: restock the empty slot, move the product back above its tag, or ask for a new tag.
+A `review` row means walk over and look; the model's `evidence` and `reason` say what to look
+for, and `annotated/` and the slot pictures in `crops/` show what the recipe saw. The recipe
+never changes a price; for a `price_mismatch`, the associate asks for a new tag.
 
 ## Potential improvements
 

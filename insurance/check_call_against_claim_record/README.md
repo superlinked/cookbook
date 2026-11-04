@@ -92,6 +92,38 @@ it's ambiguous; a missed injury costs more than a second look.
 Nothing is changed in the claims system, and nobody is called automatically. The reviewer fixes
 the claim, approves the callback, or hands the flagged claim to an adjuster.
 
+### Examples
+
+Here are three of the inputs in `data/`, and what should happen to each.
+
+**1. A complete call.**
+- **Input:** `fnol-1021-quintero.wav`, a call where the caller gives every field ("It's H M 4 4 7 1
+  2 0 9 3.", "On Tuesday night, October 20th, around nine o'clock.", "No, nobody was hurt."), and
+  the saved claim `CLM-26-104417,HM44712093,Marisol Quintero,(415) 555-0141,2026-10-20,"214 Alder
+  Creek Road, Millbrook",Hail and wind,No`.
+- **What should happen:** every required field is in the claim and the call agrees, so nothing
+  needs fixing and no flag goes up.
+- **Expected outcome:** `checks_passed`, no flag.
+
+**2. An injury the claim lost, and a date nobody asked for.**
+- **Input:** `fnol-1021-vellanki.wav`, where the caller says "My husband cut his arm on the broken
+  glass when he went out to look. We took him to urgent care and he needed stitches." The saved
+  claim `CLM-26-104419` has injuries "No" and a blank date of loss, and the agent never asks when
+  it happened.
+- **What should happen:** the injury compare finds the claim and the call disagree and raises the
+  injury flag; the date of loss is in neither, so it becomes a callback question.
+- **Expected outcome:** `callback_needed` (date of loss), injuries `differs`, `injury_reported`.
+
+**3. A near miss on the injury rule.**
+- **Input:** `fnol-1021-okafor.wav`, where the caller says "My son was out on the porch. He was
+  hurt but he didn't need an ambulance." The saved claim `CLM-26-104420` has injuries "No".
+- **What should happen:** the sentence rule has to see that the "didn't" is about the ambulance,
+  not the injury, so the flag goes up and says the sentence is ambiguous.
+- **Expected outcome:** `differs` on injuries, `injury_reported (ambiguous)`.
+
+On the live run, 7 of 7 planted cases came out as expected; [What came out](#what-came-out) has each
+one.
+
 ## How we'll solve it
 
 1. **Start from the saved claim and the intake requirements.** The recipe looks the claim up in
@@ -251,6 +283,19 @@ The first calls can wait a few minutes while SIE Cloud starts the speech and ext
 
 ## What came out
 
+### The three examples
+
+- **Quintero, the complete call:** `checks_passed`, no flag. As expected.
+- **Vellanki, the lost injury:** `callback_needed` with "date_of_loss: On what date, and at about
+  what time, did the damage happen?", plus "injuries: claim 'No', call 'Yes' [00:26]" and
+  `injury_reported`. As expected.
+- **Okafor, the near miss:** `differs` with "injuries: claim 'No', call 'Yes' [00:36]" and
+  `injury_reported (ambiguous)`. As expected.
+
+### Every planted case
+
+On the live run on 2026-11-04 (UTC), 7 of 7 planted cases came out as expected.
+
 The input is five synthetic calls in [`data/`](./data) (16 kHz mono WAV, 39 to 44 s each) and
 [`data/claims.csv`](./data/claims.csv), the five claims the intake agent saved from them.
 
@@ -272,8 +317,8 @@ Here's what we planted and what the run on 2026-11-04 (UTC) gave:
 | Okafor | Near miss: "He was hurt but he didn't need an ambulance"; the claim says no injury | `differs`: injuries, `injury_reported`, marked ambiguous | `differs`: claim "No", call "Yes" at 00:36; `injury_reported (ambiguous)` | The negation is about the ambulance, not the injury |
 | Delacroix | Near miss: a complete call where the caller says rain is still coming through the ceiling and they're staying with family; the claim has every field | `checks_passed`, `urgent_assistance` | `checks_passed`, `urgent_assistance` | Every field filled in, and it still can't wait two business days |
 
-Every planted case came out as planned. Seven planted cases on five calls show the wiring works
-end to end; they don't measure accuracy, and your calls will find things these don't.
+Seven planted cases on five calls show the wiring works end to end; they don't measure accuracy, and
+your calls will find things these don't.
 
 - **The worklist reads the way a reviewer works.** Here are its first two rows, the two injury
   claims, ahead of everything else:
@@ -318,6 +363,13 @@ end to end; they don't measure accuracy, and your calls will find things these d
   and Delacroix uses `Tessa`. Spelled-out letters and unusual street names in synthetic speech are
   a weak spot. `say` output can change between macOS versions; the committed WAVs are the inputs
   of record.
+
+### What you do next
+
+The reviewer opens `worklist.csv`, where the injury and urgent claims sit at the top. They copy
+`fill_from_call` values into the claim, check each `differs` by jumping to the transcript line
+and second in `claims/<recording>.json`, approve the callback questions, and hand flagged claims
+to an adjuster today. Nothing changes in the claims system and nobody is called until they do.
 
 ## Potential improvements
 

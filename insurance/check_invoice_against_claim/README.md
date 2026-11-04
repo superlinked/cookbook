@@ -81,6 +81,37 @@ Nothing is paid, denied or booked automatically. The claim handler decides what 
 pay, ask the shop for a corrected invoice, or take a closer look at a vendor or an amount. The
 recipe doesn't decide coverage, set reserves or judge whether a repair price is fair either.
 
+### Examples
+
+Here are three of the inputs in `data/`, and what should happen to each.
+
+**1. A clean roofing invoice.**
+- **Input:** page 1 of `repair-invoices.pdf`, a Brightwater Roofing & Gutters Ltd invoice for
+  claim `CLM-26-104817,open,HO-2026-004817,Homeowners,Dana Whitcombe,2026-10-04,"41 Fernhollow
+  Lane, Ashby Vale, CO 80911"`, with an authorized estimate of 3650.00.
+- **What should happen:** every check runs and passes: the claim match, the vendor, the line
+  arithmetic, the date and the total against the authorized amount.
+- **Expected outcome:** `checks_passed`, ready for the payment queue.
+
+**2. A total over what was authorized.**
+- **Input:** page 7 of `repair-invoices.pdf`, a Ridgeway Restoration Services invoice for
+  `CLM-26-612077` with a total of 6,800.00; `authorizations.csv` has
+  `CLM-26-612077,estimate,6262.48,2026-10-11` and no supplement.
+- **What should happen:** the invoice belongs to the claim and adds up, but the amount check
+  fails and shows the difference.
+- **Expected outcome:** `review`, `authorized_amount`, over by 537.52.
+
+**3. A near miss: right shop, right amount, wrong customer.**
+- **Input:** page 9 of `repair-invoices.pdf`, from Brightwater Roofing & Gutters Ltd (the vendor on
+  `CLM-26-118206`), with the same total as the claim's 2033.08 estimate, but billed to Margit
+  Allanby at a different address and with no claim number.
+- **What should happen:** the claim match runs first and fails, so the vendor and amount checks,
+  which would both pass, never get the chance.
+- **Expected outcome:** `review`, `claim_match`.
+
+On the live run, 9 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from the claim record.** The claims system gives us, per claim: the claim number,
@@ -236,6 +267,21 @@ Cloud starts the OCR and extraction models. On 2026-11-04 (UTC) a run that waite
 
 ## What came out
 
+### The three examples
+
+- **`clm-01`, the clean invoice:** `checks_passed`, in the payment queue as
+  `clm-01,CLM-26-104817,Dana Whitcombe,Brightwater Roofing & Gutters Ltd,BRG-10442,2026-10-12,3394.00,203.64,3597.64,3650.00`.
+  As expected.
+- **`clm-07`, over the authorized amount:** `review`, `authorized_amount`, by 537.52. As
+  expected.
+- **`clm-09`, the wrong customer:** `review`, `claim_match`, with "no claim number read on the
+  invoice; billed to 'Margit Allanby', not the insured". As expected.
+
+### Every planted case
+
+On the live runs on 2026-11-04 (UTC), 9 of 10 planted cases came out as expected. The one that
+didn't is `clm-08`, covered below.
+
 The input is ten invoices waiting on ten open claims, in [`data/`](./data):
 
 - `claims.csv`: one open claim per row: claim number, policy number, line of business, named
@@ -266,10 +312,9 @@ The input is ten invoices waiting on ten open claims, in [`data/`](./data):
 | `clm-09` | Near miss: an invoice from the right shop, with the same total as the claim's estimate, billed to a different customer at a different address and with no claim number | `review`: claim match | `review`: `claim_match` | The invoice that would get paid on the wrong claim if you only compared shop and amount |
 | `clm-10` | Near miss: the total is 1,180.00 above the original estimate, and the claim record has an approved supplement for exactly that | `checks_passed` | `checks_passed` | Supplements are normal. The total is compared with what's authorized now, not with the first estimate |
 
-On our live runs on 2026-11-04 (UTC), nine of the ten came out as planned, the same on both
-runs. Treat that as a demo that the pipeline works, not as a
-measure of accuracy: ten invoices tell you each path through the checks runs, not how often a
-real scan gets misread. The tenth is the interesting one.
+Both runs gave the same results. Treat that as a demo that the pipeline works, not as a measure
+of accuracy: ten invoices tell you each path through the checks runs, not how often a real scan
+gets misread. The one that didn't, `clm-08`, is the interesting one.
 
 A few things worth noticing:
 
@@ -321,6 +366,13 @@ A few things worth noticing:
   finds it. On the auto
   invoices it sometimes offered the shop's address instead, which Python dropped because it
   isn't on a "Vehicle" line. That's the labelled-line rule earning its keep.
+
+### What you do next
+
+The claim handler works two files. `payment-queue.csv` has the invoices that passed, with the
+invoice number, date and total ready to key into the payment screen; they still approve each
+one. `exceptions-queue.csv` has one row per failed check with the reason, and from there they
+ask the shop for a corrected invoice or take a closer look at the vendor or the amount.
 
 ## Potential improvements
 

@@ -92,6 +92,39 @@ These name what the checks found, not what's true. Jordan reads the to-sort-out 
 calendar or calls whoever is needed, and decides what to share. A one-off question still works
 (`--ask "..."`) and goes through the same checks.
 
+### Examples
+
+Here are three of the inputs in `data/`, and what should happen to each.
+
+**1. The furnace filter, written down once.**
+
+- **Input:** `notes.md`: "Furnace filter size is 16x25x1, MERV 11. Change it every three months..."
+- **What should happen:** the note is the only source and nothing replaces it, so the value comes
+  straight from those words and the checks find them in the file.
+- **Expected outcome:** `found`, 16x25x1, MERV 11, citing `notes.md`.
+
+**2. The eye exam that moved.**
+
+- **Input:** `notes.md` (15 Sep): "Booked an eye exam with Dr. Haldane at Clearview Optometry for
+  Thursday, October 22 at 9:30 am." Then the transcript of `memo-2026-10-05.wav`: "My eye exam
+  with Doctor Haldane is moved to Monday, October 26th, at 2:15 in the afternoon." The calendar
+  still has "Eye exam, Dr. Haldane" at 2026-10-22 09:30.
+- **What should happen:** the memo says "moved to" and is dated later, so it replaces the note.
+  Then the calendar check sees the one matching event disagrees.
+- **Expected outcome:** `conflict`, at the top of the to-sort-out list: Mon Oct 26 at 2:15 PM
+  against the calendar's Thu Oct 22 at 9:30 AM.
+
+**3. The plumber, in a memo nobody can hear.**
+
+- **Input:** `memo-2026-10-27.wav`, nine seconds of wind, titled "Plumber, kitchen sink" in the
+  voice memo app, with no transcript. No other file mentions the visit.
+- **What should happen:** the memo reads empty and goes on the unread list. Its title names the
+  plumber, so the fact can't honestly be `not_found`.
+- **Expected outcome:** `needs_review`, naming the memo as unread.
+
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from what's already structured.** The fact list comes from `facts.yaml` (the fact, how
@@ -291,6 +324,19 @@ from scratch took 26 s and the cached one 17 s.
 
 ## What came out
 
+### The three examples
+
+- **The furnace filter** came back `found`, citing `notes.md`. As expected.
+- **The eye exam** came back `conflict`, with the value "Monday, October 26th, at 2:15 in the
+  afternoon", the note shown as replaced, and the reason ending "the calendar still says Thu Oct
+  22 at 9:30 AM (Eye exam, Dr. Haldane)." As expected; the full record is below.
+- **The plumber's visit** came back `needs_review`, naming the wind memo as unread. Its best
+  passage scored 0.009, so without the unread rule it would have been `not_found`. As expected.
+
+### Every planted case
+
+On the live runs on 2026-11-04 (UTC), 10 of 10 planted cases came out as expected.
+
 The input is one fictional household's files in [`data/`](./data):
 
 - `notes.md`: 18 short notes, one per `## YYYY-MM-DD` heading.
@@ -329,11 +375,10 @@ empty.
 | Car registration cost | A note says it's due by November 30, not the cost | `not_found` | A near miss: the topic matches, the fact isn't there |
 | Plumber's visit | A memo that reads empty (wind noise), and the visit is in no other file | `needs_review`, naming the memo as unread | "Not found" would be a lie when a file was never read |
 
-On our live runs on 2026-11-04 (UTC), all ten came out as planned, with the settings as first
-written: once from scratch and once from the cache, with the same statuses and values both
-times. The second run's sheet says "Nothing changed since the build of 20261104T045112Z." Treat
-that as a demo that the pipeline works, not as a measure of accuracy: ten facts show each path
-through the checks runs, not how often a real memo gets misheard.
+We ran it twice with the settings as first written: once from scratch and once from the cache, with
+the same statuses and values both times. The second run's sheet says "Nothing changed since the
+build of 20261104T045112Z." Treat that as a demo that the pipeline works, not as a measure of
+accuracy: ten facts show each path through the checks runs, not how often a real memo gets misheard.
 
 A few things worth noticing:
 
@@ -378,6 +423,14 @@ A few things worth noticing:
 - **The wifi password is the one change the sheet can make on its own.** The September note says
   "is now", it's dated later, and nothing else holds a wifi password, so the line reads
   `juniper-lantern-77 (was copper-kettle-42)` and stays off the to-sort-out list.
+
+### What you do next
+
+Jordan opens `facts.md` and reads the unread files and the to-sort-out list first. Here that
+means checking which eye exam time is right and fixing the calendar, checking
+the plumber memo, and writing down the facts that came back `not_found`. Then Jordan decides what
+to share with a partner or the neighbour; `facts.json` has the full cited passages for any line
+worth a second look.
 
 ## Potential improvements
 

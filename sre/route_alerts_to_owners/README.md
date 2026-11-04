@@ -84,6 +84,34 @@ PagerDuty, and the team that runs the catalog decides what to do about `ownerles
 recipe also doesn't do Alertmanager's job: it doesn't group, silence or deduplicate alerts, and
 it only sees the ones that already fell through.
 
+### Examples
+
+Here are three of the alerts in `data/alerts.json`, and what should happen to each.
+
+**1. A label the route didn't know (AL-02).**
+- **Input:** `"app": "Frontend"`, "p99 page latency 4.1s over 10m (threshold 2s)".
+- **What should happen:** the route wanted `service=web-frontend`, but the catalog lookup checks
+  `app` too, ignores case and knows `Frontend` as an alias, so the model is never asked.
+- **Expected outcome:** `owner_in_catalog`, storefront.
+
+**2. Kafka in the text, but not a Kafka problem (AL-04).**
+- **Input:** `"service": "loyalty-points"` (not in the catalog), the summary "Kafka consumer group
+  loyalty-points is 85,000 messages behind on topic order-events" and the description "Consumer lag
+  has grown for 20 minutes; partitions 3 and 7 have no active consumer."
+- **What should happen:** nothing structured names an owner, so the model reads the text. The
+  consumer is down, not the broker, so the owner should be loyalty, not the streaming team.
+- **Expected outcome:** `team_suggested`, loyalty.
+
+**3. A certificate that reads like two teams' (AL-05).**
+- **Input:** `"namespace": "edge"` (not in the records), "TLS certificate for shop.larkspur.example
+  expires in 6 days".
+- **What should happen:** the namespace isn't in the records, and the model should split between
+  platform and storefront closely enough to miss the margin limit.
+- **Expected outcome:** `no_clear_owner`.
+
+On the live run, 11 of 11 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from what the alert and the records already say.** The input is the alerts as the
@@ -215,6 +243,17 @@ the records can't place, and takes about 2 seconds.
 
 ## What came out
 
+### The three examples
+
+- **AL-02:** `owner_in_catalog`, storefront. As expected.
+- **AL-04:** `team_suggested`, loyalty at 0.83, streaming the runner-up at 0.15. As expected.
+- **AL-05:** `no_clear_owner`, platform 0.54 vs storefront 0.38, margin 0.16 under 0.20 (the row is
+  quoted below). As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026, 11 of 11 planted cases came out as expected.
+
 The input is [`data/alerts.json`](./data/alerts.json): 11 alerts shaped like the alerts in an
 Alertmanager webhook (labels plus `summary` and `description`), the ones no route matched. The
 catalog has 8 teams and 13 services (one with no owner); the inventory has 8 hosts and 6
@@ -237,11 +276,10 @@ this recipe.
 | AL-10 | `service=checkout-v3` (unknown) and `app=checkout-ui` (known) | `owner_in_catalog`: storefront, from `app` | Near miss: an unknown first label must not hide a known second one |
 | AL-11 | No service label, Kafka broker with under-replicated partitions, `instance` of a host not in the inventory | `team_suggested`: streaming 0.56, margin 0.37 | The other half of AL-04: a broker problem really is the streaming team's |
 
-On our live run on 4 Nov 2026 (UTC) all 11 came out as planned: 5 `owner_in_catalog`, 1
-`ownerless_service`, 4 `team_suggested` and 1 `no_clear_owner`, with the limits as first
-written. Two warm runs gave the same scores. Treat this as a demo that the wiring works, not as
-a measure of accuracy: eleven alerts tell you the rules fire, not how often the model's
-suggestion is the right team.
+The run gave 5 `owner_in_catalog`, 1 `ownerless_service`, 4 `team_suggested` and 1 `no_clear_owner`,
+with the limits as first written. Two warm runs gave the same scores. Treat this as a demo that the
+wiring works, not as a measure of accuracy: eleven alerts tell you the rules fire, not how often the
+model's suggestion is the right team.
 
 A few things worth noticing:
 
@@ -276,6 +314,14 @@ A few things worth noticing:
   ```
 
   The fix here isn't a better model, it's adding `edge` to the namespace records.
+
+### What you do next
+
+The responder on the fallback queue reads `routes.csv`. An `owner_in_catalog` row gets reassigned to
+that team's escalation policy in PagerDuty; a `team_suggested` row gets checked against its reason
+first; a `no_clear_owner` row they investigate from scratch. Then the fixes get filed so the next
+alert routes itself: the missing alias or a route on `app`, `edge` in the namespace records, and
+`legacy-reports` to whoever runs the catalog to find it an owner.
 
 ## Potential improvements
 

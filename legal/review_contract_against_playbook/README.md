@@ -97,6 +97,39 @@ lawyer's sign-off, and when the NDA can be signed. The recipe checks the playboo
 and nothing else: it doesn't read the definition of confidential information, the purpose, or
 anything outside the five positions.
 
+### Examples
+
+Here are three of the NDAs in `data/`, and what should happen to each.
+
+**1. Our own paper.**
+- **Input:** `nda-brackenridge-analytics.docx`, a mutual NDA on our template: "This Agreement and
+  the obligations in it last for two (2) years from the date of this Agreement." and "This Agreement
+  is governed by the laws of the State of Delaware, ..."
+- **What should happen:** The extractor finds the term, the law and the carve-outs, and each meets
+  the playbook. There's no non-solicit or residuals clause to find.
+- **Expected outcome:** term, law and disclosures `matches_position`; non-solicit and residuals
+  `not_found`.
+
+**2. Two clauses we never accept.**
+- **Input:** `nda-quillfeather-logistics.docx`: "neither party shall directly or indirectly solicit
+  for employment or hire any employee of the other party ..." and "Nothing in this Agreement
+  restricts either party from using Residuals for any purpose." Its term is "three (3) years from
+  the date above".
+- **What should happen:** Both forbidden clauses are found and deviate, each with the playbook's
+  standard wording and approver. The term sits exactly on the three-year limit, so it passes.
+- **Expected outcome:** non-solicit and residuals `deviates`; term `matches_position`.
+
+**3. Two clocks, three sections apart.**
+- **Input:** `nda-corrin-fabrication.docx`: Section 4 says the agreement "continues for two (2)
+  years", and Section 7 says "The obligations of confidentiality in this Agreement survive for five
+  (5) years after this Agreement expires or is terminated."
+- **What should happen:** Python adds the survival period to the term instead of taking the longer
+  of the two, so confidentiality lasts seven years, over the limit.
+- **Expected outcome:** term `deviates`, with the agreement term reported as two years.
+
+On the live run, 6 of 6 planted NDAs came out as expected; [What came out](#what-came-out) has each
+one.
+
 ## How we'll solve it
 
 1. **Start from the intake record and the playbook.** `clm.py` looks each open request up in
@@ -260,6 +293,23 @@ took 34 s on ours.
 
 ## What came out
 
+### The three examples
+
+1. **Brackenridge:** term, law and disclosures `matches_position`; non-solicit and residuals
+   `not_found`. As expected; the two `not_found` rows still go to the lawyer.
+2. **Quillfeather:** non-solicit and residuals `deviates`, term `matches_position`. As expected. The
+   non-solicit row carries "Delete the clause. Our NDAs place no restriction on hiring or engaging
+   people." for the Head of People and General Counsel.
+3. **Corrin:** term `deviates`, "Confidentiality lasts 7 years (five (5) years after an agreement
+   term of 2 years), longer than 3 years". As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 6 of 6 planted NDAs came out as expected on the positions we
+planted. The extractor also missed three clauses we didn't plant as misses (Lowfield Ridge's New
+York law, and the permitted disclosures of Orlaith and Velloway), each `not_found` with its sections
+cited.
+
 The input is six NDA requests: `data/clm_intake.csv` (one intake record per request) and the six
 drafts it points at in [`data/`](./data). Five are on the counterparty's paper; Brackenridge is
 on ours.
@@ -320,6 +370,13 @@ things worth noticing:
   "England" in Velloway's and "UNILATERAL" in Orlaith's title were all marked and all ignored
   (noted in the per-NDA JSON) because those sections don't use governing-law or term wording.
   A company's state of incorporation is not its choice of law, however confidently it's marked.
+
+### What you do next
+
+The lawyer reads `decisions.csv` and each NDA's `reviews/<nda>.json`. For each `deviates` row they
+paste the standard wording into Track Changes, or get sign-off from the named approver to accept the
+counterparty's wording. Every `not_found` and `unclear` row means reading the sections listed before
+anything passes. The marked-up draft then goes back to the counterparty.
 
 ## Potential improvements
 

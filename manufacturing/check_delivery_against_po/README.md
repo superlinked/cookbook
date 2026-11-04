@@ -118,6 +118,35 @@ plate itself: the same heat number on the delivery note, the certificate and the
 the paperwork agrees, not that the stamp on the steel says the same thing. The inspector still
 looks at the plate. Nothing is scrapped, returned, booked or released automatically.
 
+### Examples
+
+Here are three of the twelve delivered lots in `data/`, and what should happen to each.
+
+**1. A clean, full delivery.** `lot-01`.
+- **Input:** PO line `PO-48213,1,41212,Harrowgate Steelworks Ltd,S355J2+N,12,2000,6000,6,0`;
+  line 1 of delivery note DN-26-0712 (page 1 of `delivery-notes.pdf`) delivers 6 plates of heat
+  A41873, with its certificate and inspection form on page 1 of the other two PDFs.
+- **What should happen:** the line matches its PO line and fills it; every certificate value and
+  every reading is inside its limit.
+- **Expected outcome:** `filled` and `checks_passed`.
+
+**2. Steel below the grade.** `lot-05`.
+- **Input:** the certificate on page 5 of `mill-certificates.pdf` gives a yield strength of
+  341 MPa for S355J2+N 12 mm plate, against PO-48230 line 1.
+- **What should happen:** the strength check compares the yield with the grade's 355 minimum for
+  that thickness and fails it.
+- **Expected outcome:** `filled` and `nonconforming`, on `yield_strength`.
+
+**3. A failing row left off the form.** `lot-11`.
+- **Input:** the inspection form on page 11 of `inspection-reports.pdf`, for 15 mm plate, lists
+  Thickness T1, T2 and T4, width and length, all passing; the T3 row (14.38 mm) isn't there.
+- **What should happen:** the inspection plan check notices Thickness T3 is missing, so the lot
+  can't pass on the rows that are left.
+- **Expected outcome:** `filled` and `review`, on `dimensions`.
+
+On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from what the ERP already knows.** The PO lines come in structured: item, grade,
@@ -312,6 +341,20 @@ The input is four deliveries and twelve delivered lots in [`data/`](./data):
 > tolerance table but not the EN 10029 Class A values. Both are starting points, so check them
 > against the current standards and your purchase spec.
 
+### The three examples
+
+- **`lot-01`:** `filled` and `checks_passed`. The quantity matched the order and every check had
+  a reading inside its limit. As expected.
+- **`lot-05`:** `filled` and `nonconforming` on `yield_strength`, below the grade minimum for
+  12 mm. As expected.
+- **`lot-11`:** `filled` and `review` on `dimensions`, with the detail "Thickness T3 not read"
+  (the JSON is below). As expected.
+
+### Every planted case
+
+On the live run on 3 Nov 2026, 12 of 12 planted cases came out as expected, both fill status and
+check status.
+
 | Lot | What we planted | Fill status | Check status | Why |
 | --- | --- | --- | --- | --- |
 | `lot-01` | Full delivery: 6 of 6 ordered, nothing received before; documents consistent, S355J2+N 12 mm | `filled` | `checks_passed` | Quantity matches the order and every check has a reading inside its limit |
@@ -327,8 +370,7 @@ The input is four deliveries and twelve delivered lots in [`data/`](./data):
 | `lot-11` | New near miss: a 14.38 mm T3 reading like `lot-07`'s, with the T3 row left off the form; T1, T2, T4, width and length all pass | `filled` | `review`: `dimensions` | Thickness T3 is on the inspection plan and wasn't read. Before this change, the lot passed |
 | `lot-12` | New near miss: S355J2+N with yield and tensile inside the limits, but no impact energy box on the certificate | `filled` | `review`: `impact_energy` | A J2 grade needs a Charpy result; strength alone isn't enough. Before this change, the lot passed |
 
-On our live runs on 2026-11-03 (UTC), all 12 lots came out as planned, both fill status and
-check status, with the settings as first written. Two warm reruns gave the same 12 results, the
+That's with the settings as first written. Two warm reruns gave the same 12 results, the
 last one after the delivery note table check went in; all four delivery notes added up (four,
 two, two and four lines read, matching the scan batches and each note's total).
 Treat that as a demo that the pipeline works, not as a measure of accuracy: twelve lots tell
@@ -377,6 +419,15 @@ A few things worth noticing:
   the grade span on one certificate ran over a line break into the next box's label
   ("S235JR\nStandard"), which is why Python cuts every span at its first line break. Neither run
   on 2026-11-03 hit SIE Cloud's empty-result error or dropped a span.
+
+### What you do next
+
+The buyer reads `po-lines.csv`: chase the open plates on a `partially_filled` line, decide
+whether to keep or send back the extra on an `over_delivered` one, and sort out a `no_po_line`
+with the supplier. The quality engineer works from `review-queue.csv` and `lots/<lot>.json`:
+quarantine a `nonconforming` lot, confirm it and raise the NCR, and look at each `review` reason
+before anything else happens. A `checks_passed` lot still needs the quality engineer's release,
+and the inspector still checks the stamp on the plate itself.
 
 ## Potential improvements
 
