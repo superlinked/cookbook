@@ -94,6 +94,38 @@ filing. A `support_found` row means the checks passed, not that the argument is 
 associate still reads the passage. The recipe doesn't check citation format (Bluebook style),
 page pin cites, or anything in the brief that isn't a citation.
 
+### Examples
+
+Here are three of the citations in `data/draft_brief.docx`, and what should happen to each.
+
+**1. An exact quote.**
+- **Input:** "A covenant not to compete is enforceable only to the extent it is reasonable in
+  duration and geographic scope and necessary to protect a legitimate business interest such as
+  customer goodwill or confidential information." Ardley v. Brightfield Supply Co., 214 Westm. 2d
+  377, 381 (2019).
+- **What should happen:** Ardley is in the folder and good law, the quoted words are in its majority
+  opinion word for word, and the model finds that passage.
+- **Expected outcome:** `support_found`, from a majority paragraph.
+
+**2. One word changed.**
+- **Input:** Restrictions of this kind are enforced where they are "reasonably necessary to protect
+  a legitimate business interest such as customer goodwill or confidential information." Ardley, 214
+  Westm. 2d at 381.
+- **What should happen:** The case says "necessary", not "reasonably necessary", so the draft's
+  quoted words check fails even though the passage is on point.
+- **Expected outcome:** `check_citation`: quoted words not in the authority, with the closest
+  passage shown.
+
+**3. A dissent cited as the holding.**
+- **Input:** Westmark courts recognize that an employer's long-standing client relationships justify
+  a restriction of up to three years. Pell v. Drayton Insurance Agency, 141 Westm. App. 90, 97
+  (2008).
+- **What should happen:** Only Judge Varga's dissent says three years. The reranker and the model
+  may both like that paragraph; the part check in Python should refuse it.
+- **Expected outcome:** `check_citation`: support only in the dissent.
+
+On the live run, 9 of 9 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from what's structured.** The filing's court comes from the docket, and the research
@@ -260,6 +292,22 @@ already warm, took 19 s.
 
 ## What came out
 
+### The three examples
+
+1. **Ardley, exact quote:** `support_found`, P3 (majority) at 0.9999. As expected.
+2. **Ardley, one word changed:** `check_citation`. The model said P3 supports the sentence, and
+   `check_draft_quotes` flagged the draft's quote and showed the closest words: "and necessary to
+   protect a legitimate business interest such as customer goodwill or confidential information." As
+   expected.
+3. **Pell, dissent cited as the holding:** `check_citation`, "The only support the model found is in
+   the dissent (P6), not the majority opinion or the statute's text." The model did read the dissent
+   as support; the part check caught it. As expected.
+
+### Every planted case
+
+On the live run on 2026-11-04 (UTC), 9 of 9 planted cases came out as expected (the table below).
+The draft's 3 ordinary statute citations also came out `support_found`.
+
 The input is one draft and the matter's files, in [`data/`](./data):
 
 - `draft_brief.docx`: Plaintiff's Motion for Preliminary Injunction in Quellmark Instruments, Inc.
@@ -334,6 +382,13 @@ A few things worth noticing:
   its forty-five-day deadline by sending its statement on day thirty-eight. The 2022 amendment
   the citator points to gives the landlord twenty-one days and adds double damages, so the
   sentence defends Quellmark with the rule that now says it was seventeen days late.
+
+### What you do next
+
+The cite checker sends `cite-check.md` (or the CSV) back to the associate who wrote the brief, who
+fixes each `check_citation` row using the finding and the passage on it. The cite checker pulls each
+`not_in_folder` authority from Westlaw or Lexis and checks it by hand. A `support_found` row still
+needs the associate to read its passage before the partner signs the filing.
 
 ## Potential improvements
 

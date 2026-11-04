@@ -77,6 +77,37 @@ conflicting, and the supplier's own words around it), so the specialist sends on
 sheet instead of one per product. Nothing is imported automatically, and no generative model
 makes a decision: the statuses come from plain Python reading `rules.yaml`.
 
+### Examples
+
+Here are three of the rows in `data/supplier-products.csv`, and what should happen to each.
+
+**1. A clear row.** TT-A02, "Womens High Rise Skinny Jean INDIGO 28"
+- **Input:** "High-rise skinny jeans with five pockets. Material: stretch denim (98% cotton, 2%
+  elastane). Color: indigo. Size: 28."
+- **What should happen:** *Jeans* wins the category pick with a clear lead, and size, color and
+  material are all read out of the description.
+- **Expected outcome:** `checks_passed`, category *Jeans*.
+
+**2. A missing size.** TT-A04, "Merino Crew Sweater - Charcoal"
+- **Input:** "Fine-knit crew neck sweater with ribbed cuffs and hem. Material: 100% merino wool.
+  Color: charcoal grey."
+- **What should happen:** the category is easy, but clothing needs a size and there isn't one, so
+  the attribute check fires and the supplier gets a question.
+- **Expected outcome:** `review`, size not found, and a row in `questions.csv`.
+
+**3. An accessory that names its host.** TT-E13, "Replacement Ear Cushions for Aurivox AV-H700
+Headphones"
+- **Input:** "Brand: Aurivox. Genuine replacement ear cushions for the Aurivox AV-H700 over-ear
+  headphones, one pair. ..."
+- **What should happen:** the title is full of headphone words, but the pick has to be a cushion
+  category, and AV-H700 only ever follows "for", so a rule that checks what follows "for" or
+  "fits" should catch it as the headphones' model number.
+- **Expected outcome:** `review`, category *Headphone Cushions & Tips*, never *Headphones*, with
+  the reason that the model number follows "for".
+
+On the live run, 10 of 12 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from what's already structured.** The supplier sheet, the store's taxonomy file,
@@ -254,6 +285,22 @@ accessories, audio, computers, kitchen & dining, beverages, food items), in Shop
 On our live run on 4 Nov 2026 (UTC), 51 rows came back as 33 `checks_passed`, 17 `review` and
 1 `in_pim`, and the duplicate-SKU sheet stopped before any SIE call.
 
+### The three examples
+
+- **TT-A02 jeans:** `checks_passed`, *Jeans*. As expected.
+- **TT-A04 sweater:** `review`, size not found, and the questions file has
+  `TT-A04,Merino Crew Sweater - Charcoal,size,missing,...`. As expected.
+- **TT-E13 cushions:** `review`, category *Headphone Cushions & Tips*, never *Headphones*. Right
+  status and category, but for other reasons: the reranker couldn't separate it from *Headphone
+  Replacement Parts*, and the extract call got SIE's empty-result HTTP 500, so the model number
+  was never read and the "for" rule didn't run. Not the outcome we planned.
+
+### Every planted case
+
+On the live run on 4 Nov 2026, 10 of 12 planted cases came out as expected (counting each of the
+five clear rows on its own, and the duplicate-SKU pair as one case); TT-F07 and the cushions
+(TT-E13) are the two that didn't.
+
 | Case | What we planted | Came out | Why |
 | --- | --- | --- | --- |
 | Clear rows | TT-A02 jeans, TT-A09 sneakers, TT-E01 headphones, TT-H05 French press, TT-F01 coffee beans: one obvious category, every required attribute in the text | `checks_passed`, as planned: *Jeans*, *Sneakers*, *Over-Ear Headphones*, *French Presses*, *Coffee Beans & Ground Coffee* | The rows the specialist should only have to glance at |
@@ -320,6 +367,13 @@ The run writes `catalog.csv` (every row, one column per attribute), `review.csv`
 check, with the supplier's description, the best and runner-up paths, their scores and the
 margin), `questions.csv` and `rows.json` (every retrieved path with its cosine, every reranked
 path with its score, and the notes).
+
+### What you do next
+
+The onboarding specialist opens `review.csv` first, with the supplier's own text beside the best
+and runner-up paths, and approves or corrects each pick; the `checks_passed` rows in
+`catalog.csv` only need a glance. Then they send the supplier one email from `questions.csv` and
+import the batch into the PIM. Nothing is imported automatically.
 
 ## Potential improvements
 

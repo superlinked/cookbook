@@ -86,6 +86,34 @@ comes from the photo alone; **`review`** otherwise, with the reasons. Neither is
 specialist decides what to write back to the catalog, for every listing; the recipe writes
 nothing back.
 
+### Examples
+
+Here are three of the listings in `data/`, and what should happen to each.
+
+**1. A listing that's already right.** P01
+- **Input:** "AmazonBasics Carry-On Travel Backpack - Black", type BACKPACK, color Black, material
+  polyester; bullet 1 says "...made of durable polyester"; photo `P01.jpg`.
+- **What should happen:** the text and the photo agree with every current field, so nothing
+  changes and no one needs to look.
+- **Expected outcome:** `checks_passed`, every tag `same`.
+
+**2. A material tag that's wrong.** P11
+- **Input:** "Amazon Basics Faux Leather Rectangular Storage Ottoman, Dark Chocolate", material
+  field Leather; bullet 4 says "Faux leather upholstery with a dramatic tufted finish...".
+- **What should happen:** the text names faux leather, a photo can't tell the two apart, so the
+  text wins and the old tag is shown next to the new one.
+- **Expected outcome:** material faux leather, `from_text`, `changed` from Leather.
+
+**3. "Leather" that isn't leather.** P18
+- **Input:** "...Ravenna Home Chic Vegan Leather Storage Ottoman, 50"W, Black", empty material
+  field; bullet 3 says "...stylish vegan leather upholstery...".
+- **What should happen:** the word "leather" is in the text, but the quote check reads it where
+  it stands, so it has to map to faux leather, never leather.
+- **Expected outcome:** faux leather or `not_found`, never leather.
+
+On the live run, 11 of 14 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from the listing.** Current fields (product type, color, standardized color,
@@ -238,7 +266,23 @@ the title. For the negated material, ABO has no listing that says "leather-free"
 we searched; the closest real one is P18, a Ravenna Home storage ottoman whose title and third
 bullet point say "vegan leather" and whose material field is empty.
 
-On our live run on 4 Nov 2026 (UTC), 13 listings came back `checks_passed` and 5 `review`:
+On our live run on 4 Nov 2026 (UTC), 13 listings came back `checks_passed` and 5 `review`.
+
+### The three examples
+
+- **P01:** `checks_passed`, every tag `same` and `text_and_photo`. As expected.
+- **P11:** material faux leather, `from_text`, `changed` from Leather; the photo said `unclear`.
+  As expected.
+- **P18:** faux leather, `from_text`, `filled`, quote "vegan leather"; the photo said `unclear`.
+  As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026, 11 of 14 planted cases came out as expected (counting each of the
+four clear listings on its own). P12 came out
+`checks_passed` with color black instead of a photo color for review. P17 and P04 got the tag we
+wanted, but as `text_and_photo` rather than `from_text`, and both listings went to `review` for
+their color.
 
 | Case | What we planted | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
@@ -303,6 +347,14 @@ A few things worth noticing:
   material field but nothing about material in the title or bullets, so the only reading is the
   photo's. It agrees with the field (`same`) and still goes to review, because a photo of a boot
   can't tell you it isn't polyurethane. The same rule caught P15's cable as plastic.
+
+### What you do next
+
+The catalog operations specialist opens `review.csv` and works through the five listings with
+their reasons: a color conflict on P08, a dropped quote on P04 and P17, a photo-only material on
+P14 and P15 to confirm against the supplier's spec sheet, and P15's type that isn't on the list. `tags.csv` has every tag with its old
+and new value side by side. The specialist decides what to write back to the catalog for every
+listing; the recipe writes nothing back.
 
 ## Potential improvements
 

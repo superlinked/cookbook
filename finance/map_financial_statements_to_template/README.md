@@ -74,6 +74,41 @@ fixes any mapping and approves it; the credit officer uses the approved spread, 
 line is in the row the analyst would pick. Two lines of the same kind swapped on the same side
 (receivables spread as cash, say) add up just as well, and no tie-out can see that.
 
+### Examples
+
+Here are three of the inputs in `data/`, and what should happen to each.
+
+**1. A new current loan for a returning borrower (Harbour Lane, `BRW-20417.pdf`).**
+
+- **Input:** the balance sheet's "Creditors: amounts falling due within one year" lists "Bank
+  loans 120,000", new this year; "Creditors: amounts falling due after more than one year" lists
+  "Bank loans 480,000", mapped by the analyst last year.
+- **What should happen:** the 480,000 takes last year's confirmed row with no model call. The
+  120,000 is a new label under its heading, so the reranker suggests a row, and a check that the row
+  is in the group the heading names keeps it out of long-term debt.
+- **Expected outcome:** `current_portion_long_term_debt` 120,000, long-term debt 480,000, spread
+  `checks_passed`.
+
+**2. A subtotal that doesn't add up (Northfield, `BRW-18820.pdf`).**
+
+- **Input:** "Accounts payable 3,412 / Accrued liabilities 1,876 / Current portion of long-term
+  debt 2,250 / Total current liabilities 7,598", in thousands of U.S. dollars.
+- **What should happen:** Python adds the lines (7,538), compares with the printed total, and
+  writes an exception instead of trusting the statement.
+- **Expected outcome:** spread `review`, with a `subtotal` exception and a broken tie-out.
+
+**3. A sign the wrong way round (Mesa Verde, `BRW-31186.pdf`).**
+
+- **Input:** "Other (income) expense: / Interest expense 22,400 / Other income -8,700 / Total
+  other (income) expense 13,700".
+- **What should happen:** the line is placed as filed, never flipped quietly, so the tie-out
+  breaks by twice the amount and the exception names the line.
+- **Expected outcome:** spread `review`, `other_income_expense` -8,700, net income breaking by
+  17,400.
+
+On the live run, 7 of 7 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from what the bank knows.** The template, its tie-outs and thresholds come from
@@ -235,6 +270,24 @@ docling and the reranker.
 
 ## What came out
 
+### The three examples
+
+- **Harbour Lane** came out `checks_passed` with 0 exceptions: `current_portion_long_term_debt`
+  120,000 (score 0.97, margin 4.41), long-term debt 480,000 from last year's mapping. As
+  expected.
+- **Northfield** came out `review`, with the `subtotal` exception "add up to 7538; the statement
+  prints 7598" and `current_liabilities` breaking by 60. As expected; it also had two exceptions
+  we didn't plant, from "Other assets" (below).
+- **Mesa Verde** came out `review`, with `other_income_expense` -8,700 and `net_income` breaking
+  by 17,400: "The difference is twice 'Other income' (-8700)". As expected; it also had six
+  exceptions from labels the reranker couldn't place (below).
+
+### Every planted case
+
+On the live run on 2026-11-04 (UTC), 7 of 7 planted cases came out as expected. Northfield and
+Mesa Verde also had exceptions we didn't plant, from labels the reranker couldn't place; each
+only adds to a spread already in `review` (see below).
+
 The input is four borrowers in [`data/`](./data):
 
 - `statements/<borrower id>.pdf`: each borrower's income statement and balance sheet, one page
@@ -304,6 +357,15 @@ A few things worth noticing:
 - **The scan read cleanly enough.** docling's OCR profile read all 26 of Kestrel's lines, with a
   couple of spacing slips in labels, and every tie-out held. The only thing wrong with Kestrel's
   spread is that it's for the wrong year.
+
+### What you do next
+
+The credit analyst takes each draft spread and confirms the period and units against the loan
+system, then works down `exceptions.csv`: Kestrel's wrong year, Northfield's subtotal and "Other
+assets", and Mesa Verde's sign and the three labels to place. They fix any mapping, approve the
+spread, and pass it to the credit officer, who works out the ratios from the approved spread,
+not the draft. A `checks_passed` spread like Harbour Lane's still gets a look for two lines of
+the same kind swapped on the same side, which no tie-out can see.
 
 ## Potential improvements
 

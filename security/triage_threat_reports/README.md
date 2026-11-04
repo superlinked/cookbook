@@ -71,6 +71,27 @@ behind an unknown actor name.
 The analyst and the system owner decide what to do; the recipe doesn't patch, block or close
 anything.
 
+### Examples
+
+Here are three of the reports in `data/reports.jsonl`, and what should happen to each.
+
+**1. A patch summary (R-08).**
+- **Input:** "The IT team applied the March updates to 412 laptops and retired two legacy file servers. No incidents were attributed to any threat group this quarter..."
+- **What should happen:** no CVE, no product we run, no indicator and nothing to review, so nobody gets pinged.
+- **Expected outcome:** `filed`.
+
+**2. A CVE that's open on our VPN gateway (R-01).**
+- **Input:** "Ashen Heron gained access to a Fenwick Freight file server through CVE-2099-41077 in the Corvane VPN gateway."
+- **What should happen:** "Corvane VPN gateway" matches an inventory alias, and the scanner shows the CVE open on `vpn-gw-02` and patched on `vpn-gw-01`.
+- **Expected outcome:** `affects_us`, one ticket to the `network` team for `vpn-gw-02`.
+
+**3. A product with almost our name (R-11).**
+- **Input:** "Ashen Heron is exploiting CVE-2099-61840 in the Corvane VPN Concentrator, a separate hardware appliance line."
+- **What should happen:** it shares a vendor and the words "Corvane VPN" with what we run, but it isn't the same product. The near-miss rule should send it to a person instead of the hunt list, and no ticket goes out.
+- **Expected outcome:** `review`, not `affects_us`.
+
+On the live run, 10 of 11 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from what's structured.** The scanner export (host, CVE, status), the asset inventory
@@ -259,7 +280,17 @@ tools (Mimikatz, PsExec, AdFind, rclone, PowerShell, vssadmin, Chisel) are real,
 documented admin and offensive-security tools.
 
 The scanner shows CVE-2099-41077 open on `vpn-gw-02` and patched on `vpn-gw-01`, and
-CVE-2099-50213 patched on both. Our live run was on 4 Nov 2026 (UTC):
+CVE-2099-50213 patched on both. Our live run was on 4 Nov 2026 (UTC).
+
+### The three examples
+
+- **R-08:** `filed`. As expected.
+- **R-01:** `affects_us`, one ticket to `network` for `vpn-gw-02`, with `vpn-gw-01` noted as patched (the ticket is quoted below). As expected.
+- **R-11:** `review`, no ticket, with the reason "close to the inventory's Corvane VPN Gateway but not the same name". As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026, 10 of 11 planted cases came out as expected. R-05 is the one that didn't: it came out `review` instead of `hunt`, for tagging reasons explained below. R-10 counts as expected with one unplanned extra review reason, "mail gateway" tagged as a tool.
 
 | Report | What we planted | Should come out | Result on our live run | Why |
 | --- | --- | --- | --- | --- |
@@ -348,6 +379,10 @@ A few things worth noticing:
   `user@example.com`) stays as written in the excerpt, and a Markdown viewer may make it a link.
 The title and the quoted sentence are written as code spans, so a Markdown link in a report
 (`[advisory](//evil.example/fix)`) shows as text, not as a link.
+
+### What you do next
+
+The network team gets `tickets/network.md` and decides what to do about `vpn-gw-02`. The SOC takes `hunt.csv` and searches the logs for those seven indicators. The CTI analyst clears the `review` reports from `tags.json`, and once they clear R-05, its IP can go on the hunt list too. Nothing is patched, blocked or closed by the recipe.
 
 ## Potential improvements
 

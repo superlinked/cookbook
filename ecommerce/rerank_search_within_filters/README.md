@@ -78,6 +78,33 @@ no matter how many queries hit it. The shopper still gets their results right aw
 decides whether to fix the record. None of the statuses is a decision about the store: the
 relevance engineer and the merchandiser decide whether to switch the reranker on.
 
+### Examples
+
+Here are three of the searches in `data/queries.json`, and what should happen to each.
+
+**1. A wordy query.** Q-02
+- **Input:** "i want a warm jacket with a hood and that is waterproof and black or dark coloured
+  like navy", filters black or navy, in stock.
+- **What should happen:** the filters keep the black and navy jackets in stock, and the reranker
+  puts the waterproof hooded one first, which keyword ranking gets wrong.
+- **Expected outcome:** `ranked`, the waterproof hooded jacket first.
+
+**2. Products with no color in the catalog.** Q-04
+- **Input:** "all white boots for girls", filter white, in stock. Two Dr. Martens "Optical White"
+  boots have an empty color field in `pim.csv`.
+- **What should happen:** the shopper gets the boots the filters can check; the two boots are
+  held, never shown, and go on the data gap list for the catalog owner.
+- **Expected outcome:** `ranked`, both boots on the data gap list.
+
+**3. The only match is past hit 20.** Q-08
+- **Input:** "black running shoes", filters black, size women 8.5, in stock.
+- **What should happen:** the first 30 keyword hits fail the filters or are held, so the filter
+  has to keep walking the hits instead of cutting at 20 first.
+- **Expected outcome:** `ranked`, with that later hit.
+
+On the live run, 8 of 10 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## Where this runs, and what the output is for
 
 This isn't a batch job or data labeling. The code below is the reranking step inside your search
@@ -259,6 +286,18 @@ The input is three seeds in [`data/`](./data):
 
 Our live run on 4 Nov 2026 (UTC):
 
+### The three examples
+
+- **Q-02:** `ranked`, the Wantdo jacket first at 0.982. As expected.
+- **Q-04:** `ranked`; the boots scored 0.9071 and 0.8149, both would rank 4, and both are on the
+  data gap list for the catalog owner. As expected.
+- **Q-08:** `ranked`, the 8.5 sneaker from keyword hit 31 at 0.6544. As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026, 8 of 10 planted cases came out as expected; Q-01 came out
+`no_good_match` instead of `ranked`, and so did Q-06.
+
 | Case | What we planted | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
 | Sold out in the size | Q-01 "women s black tennis shoes size 8": two sneakers that fit, one sold out in 8, one in every size | `ranked`; both dropped | Both dropped. The status was `no_good_match`, not `ranked` | A filter is a fact; the model never sees them as options |
@@ -321,6 +360,14 @@ A few things worth noticing:
   `min_score`. Add `--size-system women` and it's gone. A size facet without its system isn't
   the filter the shopper meant. (`--size-system` without `--size` is refused: a sizing system
   alone filters nothing.)
+
+### What you do next
+
+The relevance engineer and the merchandiser read the before-and-after page for each query in
+`runs/<timestamp>/` and decide whether to switch the reranker on; there are no labels and no
+score, they read the pages. The data gap list goes to people as work: the inventory owner gets
+the sock missing from the stock feed, and the catalog owner gets the two boots with no color,
+and each decides whether to fix the record.
 
 ## Potential improvements
 

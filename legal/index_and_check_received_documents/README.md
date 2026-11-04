@@ -93,6 +93,35 @@ redacting your client's documents before they go out, with the redaction log.
 If the volume came with a load file that matches the images, load that instead. Your review
 platform already does this job, and the recipe would be rebuilding what you were given.
 
+### Examples
+
+Here are three of the documents in `data/TFL-VOL001/`, and what should happen to each.
+
+**1. A plain business memo.**
+- **Input:** `scans.pdf` page 1, a scanned memo stamped TFL0000001: "From Monday 10 March, Kestrel
+  Supply Co. loads move to the 06:00 slot at Bay 4."
+- **What should happen:** OCR reads the page, Python reads the stamp and custodian from the footer,
+  no lawyer is named and the privilege score stays low.
+- **Expected outcome:** `no_exception`.
+
+**2. The other side's General Counsel, sent by mistake.**
+- **Input:** `scans.pdf` pages 2 and 3, a scanned letter stamped TFL0000002-0003, "Page 1 of 2" and
+  "Page 2 of 2": "You asked whether we can serve notice of termination on Kestrel Supply Co. now ...
+  My advice is that we should not serve notice yet." Signed "Owen Achterberg, General Counsel,
+  Tollerby Freight Ltd."
+- **What should happen:** The page numbering joins the two pages into one document, and the lawyer
+  list catches Owen Achterberg whatever the score says.
+- **Expected outcome:** `possible_privilege`, naming Owen Achterberg.
+
+**3. "Legal" that isn't legal advice, under a duplicate stamp.**
+- **Input:** `emails.pdf` page 3, stamped TFL0000006, the same number as page 2: "the legal entity
+  name on the invoice should read "Kestrel Supply Co.", not "Kestrel Supplies"."
+- **What should happen:** No lawyer is named and the word "legal" shouldn't move the score much, but
+  the Bates check should flag the stamp used twice.
+- **Expected outcome:** `qc_exception` for the duplicate stamp, with a low privilege score.
+
+On the live run, 12 of 12 planted documents came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from the matter system.** `matter.py` looks the volume up in the production log (the
@@ -272,6 +301,21 @@ the models already warm, took 23 s.
 
 ## What came out
 
+### The three examples
+
+1. **TFL0000001, the memo:** `no_exception`, privilege score 0.045. As expected.
+2. **TFL0000002-0003, the General Counsel's letter:** one document, `possible_privilege`, names Owen
+   Achterberg, scored 0.766 (page 1, the advice; page 2 scored 0.456). As expected.
+3. **TFL0000006 (emails.pdf p3), the near miss:** `qc_exception` for the duplicate, score 0.090. The
+   Bates check says "TFL0000006 is stamped on 2 pages: emails.pdf p2, emails.pdf p3". As expected.
+
+### Every planted case
+
+On the live run on 2026-11-04 (UTC), 12 of 12 planted documents came out as expected (the
+unnumbered letter TFL0000011-0012 counts as the two documents the recipe is planted to split it
+into). TFL0000013 also picked up QC reasons we didn't plant (a date it couldn't read, windows
+disagreeing on author and type); they only add to a row already going to the lawyer.
+
 The input is one volume, `TFL-VOL001`, in [`data/TFL-VOL001/`](./data/TFL-VOL001), received by
 Kestrel Supply Co.'s counsel from Tollerby Freight Ltd. in a fictional dispute:
 
@@ -352,6 +396,14 @@ A few things worth noticing:
   gets a QC exception. The date reads "or the date it takes effect"; without it, the contract's
   date is its reference to the 2023 agreement it amends. We tried these wordings on this volume
   only, so test yours on your own documents.
+
+### What you do next
+
+A lawyer works through `privilege-review.csv` and decides whether to notify Tollerby and set each
+document aside. Litigation support takes the `qc_exception` rows in `index.csv`, fixes the
+boundaries and fields a person has to confirm, and turns the findings in `bates-check.json` into the
+deficiency letter: here, the duplicate TFL0000006 and the missing TFL0000008. Then they load the
+index into the review platform.
 
 ## Potential improvements
 

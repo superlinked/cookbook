@@ -93,6 +93,37 @@ The adjuster decides coverage, after the call and the inspection. A disputed rea
 whoever handles coverage questions in your company. The recipe never denies, and never
 says covered either.
 
+### Examples
+
+Here are three of the claims in `data/claims.csv`, and what should happen to each.
+
+**1. A sudden leak.**
+- **Input:** CLM-01, `WATER`: "On Sunday morning the braided supply hose to our dishwasher split
+  while it was running. Water sprayed across the kitchen for about twenty minutes before we shut
+  the valve..."
+- **What should happen:** the reranker shortlists the water clauses, the LLM reads the sudden
+  discharge coverage as applying and the 14-day seepage exclusion as not, and every quote is
+  found.
+- **Expected outcome:** `quotes_checked`; COV-05 `applies`, EXC-03 `does_not_apply`.
+
+**2. The same room, the opposite answer.**
+- **Input:** CLM-03, `WATER`: "...the contractor found that the drain pipe under the sink has
+  been dripping for what looks like many months. The subfloor underneath is rotten and there is
+  black mold..."
+- **What should happen:** the same intake code as CLM-01, but the months of dripping should put
+  the seepage exclusion in front of the adjuster, not the coverage.
+- **Expected outcome:** `quotes_checked`; EXC-03 `applies`, COV-05 `does_not_apply`.
+
+**3. A near miss nobody can settle from the description.**
+- **Input:** CLM-10, `WATER`: "...We noticed a stain on the hallway floor about two weeks ago and
+  thought it was spilled detergent..."
+- **What should happen:** "about two weeks" sits on the exclusion's 14-day line, so the reading
+  should be unclear and the gap should become a question for the insured.
+- **Expected outcome:** `quotes_checked`; EXC-03 `unclear`, with a fact to establish about the
+  14 days.
+
+On the live run, 8 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from the claim and its policy packet.** The claims system (`claims_system.py`) gives
@@ -237,6 +268,22 @@ and 9 `chat_completions` calls, since CLM-08 never reaches the LLM) and took abo
 
 ## What came out
 
+### The three examples
+
+- **CLM-01, the sudden leak:** `quotes_checked`; COV-05 `applies`, EXC-03 `does_not_apply`. As
+  expected.
+- **CLM-03, months of dripping:** `quotes_checked`; EXC-03 `applies` (EXC-04 too), COV-05
+  `does_not_apply`. As expected.
+- **CLM-10, about two weeks:** `quotes_checked`; EXC-03 `unclear`, with "Was the water leaking
+  continuously or repeatedly for at least 14 days prior to the date of loss?" to establish. As
+  expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 8 of 10 planted cases came out as expected. CLM-06 and CLM-09
+got the status and the clauses we planted, but not the detail: CLM-06 asked only half the question
+we expected, and CLM-09 didn't read EXC-02 as printed. Both are explained below the table.
+
 The inputs are in [`data/`](./data):
 
 - `claims.csv`: the claims system seed, 10 claims with claim and policy number, date of loss,
@@ -269,7 +316,7 @@ Our live run on 4 Nov 2026 (UTC), with the settings as committed:
 | CLM-09 | Near miss: a floor drain backs up into the basement; this policy carries a water backup endorsement | `quotes_checked`; EXC-02 and WB-01 shown together, WB-01 `applies` | Read on its own, the exclusion says no. The endorsement gives it back |
 | CLM-10 | Near miss: a leak behind the washing machine; the insured "noticed a stain about two weeks ago" | `quotes_checked`; EXC-03 `unclear`, with "Was the water leaking continuously or repeatedly for at least 14 days prior to the date of loss?" to establish | The exclusion starts at 14 days, and "about two weeks" doesn't settle it |
 
-Every case came out as we planted it, with two details worth knowing. On CLM-06 we expected
+Every claim got the status we planted, but two missed the detail they were planted for. On CLM-06 we expected
 the question "was heat maintained or the water shut off?". The model asked only the second half;
 the insured had already said they turned the heating off. And on CLM-09 the model didn't read
 EXC-02 as printed, as the prompt asks: it read it as `does_not_apply`, "deleted and replaced by
@@ -316,6 +363,14 @@ A few things worth noticing:
   four sentences, as the words that decide it. That's in the text, so it passes. It also tells
   the adjuster nothing about which sentence matters, which is the kind of thing the quote check
   can't see.
+
+### What you do next
+
+The desk adjuster opens their claim's card in `briefings.md`, question list first, and reads
+each shortlisted clause with its quotes and full wording. The facts to establish go into the
+call with the insured and the inspection; a clause marked `quote_not_found`, or a claim marked
+`no_clause_retrieved`, means they read the wording themselves. They write the coverage
+assessment, and a disputed reading goes to whoever handles coverage questions.
 
 ## Potential improvements
 

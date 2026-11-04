@@ -83,6 +83,30 @@ scores so a person can check the runners-up:
 
 The recipe never decides what to do with the machine. The technician does, from the cited page.
 
+### Examples
+
+Here are three of the questions in `data/questions.jsonl`, and what should happen to each.
+
+**1. An answer that's only on a drawing.** Q2, unit CH-03, revision C.
+- **Input:** "Which valve do I open to drain the coolant reservoir?"
+- **What should happen:** the page search finds the piping diagram, the reader names the valve
+  tag, and Python finds the quote printed on that page.
+- **Expected outcome:** `quote_checked`, page 4, valve V3.
+
+**2. A question the manual doesn't answer.** Q8, unit CH-03, revision C.
+- **Input:** "What torque should the pump impeller nut be tightened to?"
+- **What should happen:** no revision C page should score high enough, so no page is read and
+  nothing is generated.
+- **Expected outcome:** `no_reliable_match`.
+
+**3. The same question, two manual revisions.** Q6, unit CH-03, revision C.
+- **Input:** "What torque do the strainer cover bolts need?"
+- **What should happen:** the revision B strainer page gives another torque; the revision filter
+  must drop it before the shortlist, so only the revision C page is read.
+- **Expected outcome:** `quote_checked`, page 8 revision C, 20 N m.
+
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Index the manual as page images.** Every page of the PDF is rendered to an image and
@@ -229,7 +253,21 @@ embedding and answer models.
 > only metadata is its file name as the title and a fixed date (29 Oct 2026); no author or
 > software tags.
 
-**The planted cases**, from the live run on 2026-11-03 14:31 UTC (`runs/20261103T143143Z`):
+### The three examples
+
+From the live run on 2026-11-03 14:31 UTC (`runs/20261103T143143Z`):
+
+- **Q2:** `quote_checked`, page 4: "Open valve V3 to drain the coolant reservoir." The contents
+  page scored a hair higher and was read first; the reader said it doesn't answer, so the recipe
+  read the piping diagram next. As expected.
+- **Q8:** `no_reliable_match`. The best revision C page scored 0.496, under the 0.50 threshold.
+  As expected.
+- **Q6:** `quote_checked`, page 8 revision C, 20 N m. The revision B strainer page scored 0.664
+  and was never read. As expected.
+
+### Every planted case
+
+On the live run on 3 Nov 2026, 10 of 10 planted cases came out as expected.
 
 | Question | Unit (revision) | Planted | Planned | Came out | Why |
 | --- | --- | --- | --- | --- | --- |
@@ -314,6 +352,14 @@ server-side MaxSim either. `score` on this model fails the same way (`missing ra
 operation="score"`) and its model config declares no score task, so the ranking runs
 `sie_sdk.scoring.maxsim` on the client, the SDK's encode-once, score-many pattern. See the SIE task
 page for [visual document search](https://superlinked.com/visual-document-search?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-answer-from-equipment-manual).
+
+### What you do next
+
+The technician reads the answer in `answers.md` and then the cited page itself before touching
+the machine: `quote_checked` means the quote is in the manual, not that the answer is right. A
+`review` row has no answer, only the pages to check, and `no_reliable_match` means page through
+the manual or call engineering, as they would today. The recipe never decides what to do with
+the machine; the technician does, from the page.
 
 ## Potential improvements
 

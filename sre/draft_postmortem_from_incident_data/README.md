@@ -86,6 +86,27 @@ Neither is approval. The postmortem owner reviews every draft: confirms the impa
 request metrics or support data, checks the cause, and confirms each owner actually accepted
 their action item before the tickets are filed.
 
+### Examples
+
+Here are three of the incident channels in `data/`, and what should happen to each.
+
+**1. A bad deploy, rolled back (INC-0101).**
+- **Input:** "checkout v2.14.0 went out at 13:52, a few minutes before the errors started." then "Decision: roll back checkout to v2.13.4. Dev, go ahead." and, next morning, "Final count from support for yesterday's checkout errors: 63 tickets."
+- **What should happen:** the model names the deploy as the cause and quotes the line it came from, the impact numbers all appear in the lines cited, and the "Action items:" message gives Dev, Sam and Jules an item each.
+- **Expected outcome:** `checks_passed`, with the alert window computed in Python.
+
+**2. Nobody found the cause (INC-0104).**
+- **Input:** "Latency is back to normal on its own and the alert resolved. We still don't know what caused it."
+- **What should happen:** the root cause should come back `unknown` rather than a guess, and that alone sends the draft to a person.
+- **Expected outcome:** `needs_review`, root cause not established.
+
+**3. A deploy in the middle of the outage (INC-0103).**
+- **Input:** "Gateway v3.8.1 just rolled out. Could it be the deploy?" then "Found it: the certificate for api.larkspur.example expired at 09:00:00 UTC."
+- **What should happen:** the deploy closest to the outage is a near miss. The root cause should cite the certificate message; citing the deploy (it started after the alerts did) or the question about it would fail the cause check.
+- **Expected outcome:** `checks_passed`, root cause on the expired certificate.
+
+On the live run, 9 of 9 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Look things up in the systems that already have them.** The incident tool gives the
@@ -233,6 +254,16 @@ took 37 seconds on our run.
 
 ## What came out
 
+### The three examples
+
+- **INC-0101:** `checks_passed`, 36.0 min alert window. The impact claim cites S11 and A02 and every number in it checks out (quoted below). As expected.
+- **INC-0104:** `needs_review` with "Root cause not established in the record.", quoting "We still don't know what caused it." (S04). As expected.
+- **INC-0103:** `checks_passed`, 43.5 min alert window, root cause citing only S04 (the certificate) and never the deploy D01. As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026, 9 of 9 planted cases came out as expected.
+
 The input is the six seeds in [`data/`](./data), written by `make_data.py`:
 
 - `incidents.csv`: 7 incidents, each with a title, its Slack channel and the affected services
@@ -311,6 +342,10 @@ A few things worth noticing:
 The run writes `reports.json` for code (every claim with `citations`, `quote`, `checks_passed`
 and `problems`, next to the numbered `timeline` it cites) and `reports.md`, one section per
 incident with the alert window, the review reasons, the draft and the timeline.
+
+### What you do next
+
+The postmortem owner opens `reports.md`, reads every draft whatever its status, and starts with the review reasons. They confirm the impact against request metrics or support data, check the cause against the cited lines, and confirm each owner actually accepted their action item before filing the tickets and taking the draft to the review meeting.
 
 ## Potential improvements
 

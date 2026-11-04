@@ -70,6 +70,33 @@ phrases, in its subject or body, to escalate, so an injury told in other words g
 (E-11 below is planted to show exactly that). And everything here is English: the phrases, the
 team descriptions and the planted emails.
 
+### Examples
+
+Here are three of the emails in `data/emails.json`, and what should happen to each.
+
+**1. A routine question.** E-01.
+- **Input:** "Hi, my order LK-204517 was supposed to arrive on Tuesday and the tracking page still
+  says label created. Can you tell me where it is?"
+- **What should happen:** no safety or legal phrase, so the team model picks a team, and the order
+  number passes the `LK` + 6 digits check.
+- **Expected outcome:** `orders-delivery` by `model`, order `LK-204517`.
+
+**2. A safety report.** E-03.
+- **Input:** "The space heater I bought at the Cedar Falls store started sparking last night and
+  my son burned his hand on the front grille. Order LK-199402. Has this model been recalled?"
+- **What should happen:** the safety phrases fire before any model call, and the email is in
+  `escalations.csv` even if SIE never answers. The order and store are still read.
+- **Expected outcome:** `product-safety` by `escalation`, on `burned`, `sparking`, `recalled`.
+
+**3. A near miss.** E-05, subject "Thank you to Sue".
+- **Input:** "Just wanted to say Sue at the Maple Grove store was so helpful finding the right
+  stain for my fence."
+- **What should happen:** "Sue" is a name, and bare "sue" isn't a legal phrase, so it must not
+  escalate. The team model picks a team.
+- **Expected outcome:** `store-experience` by `model`, not `legal-escalations`.
+
+On the live run, 8 of 12 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Escalate on phrases first, in Python.** Safety phrases (burn, sparking, choking, recall...)
@@ -198,6 +225,17 @@ the thread. `method` says what picked the team: `escalation` (a safety or legal 
 failed, and `suggested_team` still shows its guess). `escalations` lists every escalation that
 matched, and `also_send_to` the queues after the first.
 
+### The three examples
+
+- **E-01:** `orders-delivery`, model, score 0.98. As expected.
+- **E-03:** `product-safety`, escalation, on `burned`, `sparking`, `recalled`, with the order and
+  store still read. As expected.
+- **E-05:** `store-experience`, model, score 0.98, and no legal escalation. As expected.
+
+### Every planted case
+
+On the live run on 2 Nov 2026, 8 of 12 planted cases came out as expected.
+
 | Email | Planted | Route on our live run | Why |
 | --- | --- | --- | --- |
 | E-01 | Where is order LK-204517 | `orders-delivery`, model (0.98) | Plain delivery question |
@@ -256,6 +294,15 @@ A few things worth noticing:
   orders, say "product questions, even for items bought in a store"), or require a higher
   margin. E-10 was added after the first live run, because no email had reached the general
   queue.
+
+### What you do next
+
+The named people watching `product-safety` and `legal-escalations` open `escalations.csv`
+first; it's there even when the models never answered. The care lead (or whoever owns the inbox
+on that shift) goes through `routes.csv`, confirms or corrects each route, or imports it into
+the ticket tool and lets agents correct it there. Rows that landed in `customer-care-general`
+still show the model's guess, and a note about a missing order number or an unknown store tells
+the agent what to ask the customer.
 
 ## Potential improvements
 

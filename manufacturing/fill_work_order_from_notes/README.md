@@ -89,6 +89,32 @@ The recipe assumes one work order per failure event. If your CMMS splits one inc
 inspection, a repair and a follow-up order, each draft is filled on its own, and anything counted
 later counts that incident more than once.
 
+### Examples
+
+Here are three of the work orders in `data/work_orders.csv`, and what should happen to each.
+
+**1. Parts and hours, all in the note.** WO-26102, conveyor CV-203.
+- **Input:** "CV-203 tail pulley bearing worn, excessive play. Replaced 2 x bearing 6205-2RS and
+  1 x lip seal LS-35. Labor 3.5 h."
+- **What should happen:** the codes come from the picklists, both part numbers are in the
+  catalog with their quantities, and 3.5 h fits the time the order was open.
+- **Expected outcome:** `checks_passed`, with `6205-2RS x2; LS-35 x1` and 3.5 h.
+
+**2. A part number one digit off.** WO-26104, pump F-403.
+- **Input:** "Fitted new impeller 44-0918 and 1 x wear ring WR-150. Labor 4 h."
+- **What should happen:** the catalog has 44-0919, not 44-0918, so the exact catalog match flags
+  the impeller and keeps the wear ring.
+- **Expected outcome:** `review`, parts used flagged: "44-0918 is not in the parts catalog".
+
+**3. A leak that wasn't there.** WO-26106, pump P-105.
+- **Input:** "Operator reported a leak at the P-105 seal. Ran the pump and checked, seal dry, no
+  leak found."
+- **What should happen:** the word "leak" is in the note, but there's no leak. The problem code
+  must be no-fault or flagged, never leak.
+- **Expected outcome:** `review`, problem set to `NOF` because the note says "no leak", and flagged.
+
+On the live run, 7 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from the work order the CMMS already has.** The input is one row per order: `wo_id`,
@@ -226,6 +252,21 @@ check.
 Our run on 2026-11-03 (UTC) drafted 10 forms: 2 `checks_passed` and 8 `review`, with 19 fields
 flagged between them.
 
+### The three examples
+
+- **WO-26102:** `checks_passed`, with `6205-2RS x2; LS-35 x1`, 3.5 h, and codes `WEAR` / `WEAR` /
+  `REPL`. As expected.
+- **WO-26104:** `review`: "44-0918 is not in the parts catalog", with `WR-150 x1` kept. Actions
+  were also flagged, since none were found. As expected for the part.
+- **WO-26106:** `review`. The model picked leak at 0.567, clearing both limits, and the "no leak"
+  cue set `NOF` and flagged it (the row is below). As expected.
+
+### Every planted case
+
+On the live run on 3 Nov 2026, 7 of 10 planted cases came out as expected. WO-26107 counts, with
+remedy and component flagged on top (not planted; they only add to its review). WO-26108 and
+WO-26110 came out only partly as planned, and WO-26101 not as planned.
+
 | Planted | Order | Expected | What came out | Why |
 | --- | --- | --- | --- | --- |
 | Clean note | WO-26101, P-103 flange gasket | codes, component, actions, part filled; `checks_passed` | Not as planned. `review`: problem leak scored 0.436, under 0.50. Cause `AGE`, remedy `REPL`, `FG-100 x1`, 1.5 h filled | Everything the form needs is in the notes; the model was less sure than we were |
@@ -234,13 +275,13 @@ flagged between them.
 | Part not in the catalog | WO-26104, impeller 44-0918 (catalog has 44-0919) | part flagged | As planned. "44-0918 is not in the parts catalog"; `WR-150 x1` kept. Actions also flagged: none found | A neighbouring part number is a different part |
 | Different asset | WO-26105, booked to P-102, notes say P-104 | form flagged | As planned. "the notes name P-104 but the order is booked to P-102". Parts used also flagged: replaced, no part booked | The CMMS asset wins; a person decides which one is wrong |
 | Suspected leak, none found | WO-26106, P-105 seal dry | problem no-fault or flagged, never leak | As planned. The model said leak (0.567 vs no fault found 0.279); the "no leak" cue set `NOF` and flagged it. Remedy (0.483) and actions also flagged | The word "leak" is in the notes and there's no leak |
-| Follow-up needed | WO-26107, GB-501, 238 words | two windows; vibration; 2.5 h down; follow-up filled | Mostly. Two windows; `VIB`, `MISAL`; downtime 2.5 h from "03:10 to 05:40"; labor 7 h from "2 x 3.5 h"; follow-up "vibration reading". Remedy flagged (adjust 0.492), component flagged ("output shaft; coupling") | The long note, the downtime and the follow-up the planner must not miss |
+| Follow-up needed | WO-26107, GB-501, 238 words | two windows; vibration; 2.5 h down; follow-up filled | As planned, plus two unplanned flags. Two windows; `VIB`, `MISAL`; downtime 2.5 h from "03:10 to 05:40"; labor 7 h from "2 x 3.5 h"; follow-up "vibration reading". Remedy flagged (adjust 0.492), component flagged ("output shaft; coupling") | The long note, the downtime and the follow-up the planner must not miss |
 | Fault found on a PM visit | WO-26108, F-402 preventive | breakage; follow-up filled | Partly. `BRK` filled; follow-up still not extracted, but now flagged by the "follow-up" cue. Cause flagged (aging 0.318 vs wear 0.306), actions flagged, parts used flagged (remedy `REPL`, no part) | The work type says preventive; the notes say something broke |
 | Electrical trip | WO-26109, P-106 | electrical; replace; 0.75 h down | As planned. `checks_passed`: `ELF`, `OVLD`, `REPL`, `CT-40 x1`, 0.75 h from "45 min" | A short note that still fills most of the form |
 | Part with no quantity | WO-26110, "Replaced drive belts" | part matched, quantity flagged | Partly. gliner2 still returned no parts span, but parts used is now flagged: "remedy REPL says a part went in, but no part is booked". Cause also flagged (0.499) | A part without a count can't be booked out of the storeroom |
 
-The planted cases show the wiring working, not accuracy. Ten orders is a demo: 6 came out as
-planned, 3 partly (WO-26107, WO-26108, WO-26110) and 1 not (WO-26101). We left the thresholds
+The planted cases show the wiring working, not accuracy. Ten orders is a demo: 7 came out as
+planned (WO-26107 with two extra flags), 2 partly (WO-26108, WO-26110) and 1 not (WO-26101). We left the thresholds
 alone and wrote down what happened.
 
 - **The confident wrong answer is the one to worry about.** WO-26106 says "seal dry, no leak
@@ -270,6 +311,15 @@ alone and wrote down what happened.
 - **Three thresholds, three near misses of their own.** Remedy scored 0.492 on WO-26107 and
   0.483 on WO-26106, and cause 0.499 on WO-26110, all just under 0.50. They're starting values,
   not tuned ones, and we didn't move them to make the table look better.
+
+### What you do next
+
+The technician, or their supervisor, reads each draft in `completion_forms.csv` (with the
+evidence for every field in `drafts.json`), fills the gaps, fixes anything wrong and saves the
+record in the CMMS; nothing is written back for them. On a `review` form, the `reasons` column
+says which fields to look at. A `checks_passed` form only means less to read, and once the codes
+stop being blank, the reliability engineer can count failures per asset, the storeroom can book
+the parts and the planner can raise the follow-up.
 
 ## Potential improvements
 

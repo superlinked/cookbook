@@ -91,6 +91,32 @@ Who decides next:
 
 The model never closes a ticket on its own.
 
+### Examples
+
+Here are three of the ten photos in `data/inspection-photos.jpg`, and what should happen to each.
+
+**1. A complete flange.** FL-101.
+- **Input:** `FL-101,WO-4101,pipe_flange_8,...`, a drawn 8-bolt flange with all 8 bolts fitted.
+- **What should happen:** the photo passes the sharpness and brightness check, the detector finds the
+  flange and 8 sure bolts on it, and no empty hole.
+- **Expected outcome:** `all_bolts_seen`, 8 of 8.
+
+**2. One bolt missing.** FL-102.
+- **Input:** `FL-102,WO-4102,pipe_flange_8,...`, the same flange with 1 bolt missing and its
+  hole empty.
+- **What should happen:** the count comes up one short, and one empty hole is seen to prove it.
+- **Expected outcome:** `defect`, with the clock position of the empty hole.
+
+**3. A loose bolt lying over the empty hole.** FL-107.
+- **Input:** `FL-107,WO-4107,pipe_flange_8,...`, 1 bolt missing, with a loose bolt lying on the
+  flange across the empty hole.
+- **What should happen:** the count looks complete (8 bolts), but a sure bolt and a sure hole sit
+  on the same spot, so the recipe calls it a conflict and sends it to a person instead of letting
+  the higher score win.
+- **Expected outcome:** `inspector`, with the conflict's position.
+
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 One model, SAM 3 (`facebook/sam3`), called once per photo through SIE's `extract`, finds the
@@ -248,6 +274,18 @@ The input is in [`data/`](./data):
 
 This is from the live run on 2026-11-03 (UTC), `runs/20261103T142629Z`.
 
+### The three examples
+
+- **FL-101:** `all_bolts_seen`, 8 of 8 bolts on the part, no empty hole. As expected.
+- **FL-102:** `defect`, hole at 6 o'clock: one empty hole (0.90) for the one missing bolt. An
+  unsure bolt (0.33) on it was dropped. As expected.
+- **FL-107:** `inspector`, conflict at 8 o'clock: the loose bolt (0.81) and the hole under it
+  (0.79) on the same spot. As expected.
+
+### Every planted case
+
+On the live run on 3 Nov 2026, 10 of 10 planted cases came out as expected.
+
 | Photo | Assembly | What we planted | Status | Why |
 | --- | --- | --- | --- | --- |
 | FL-101 | 8-bolt flange | complete | `all_bolts_seen` | 8 of 8 bolts on the part, no empty hole |
@@ -308,6 +346,14 @@ A few things worth noticing:
 - **FL-104 and FL-106 are the near misses from the first version.** The spare bolt on the bench
   scored 0.83, higher than any fitted bolt, and was ignored only because it lies outside the
   flange. The rag photo went to the inspector because there was no hole to prove a bolt missing.
+
+### What you do next
+
+For a `defect`, the line lead or quality inspector opens the annotated photo, holds the assembly
+and sends it for rework; `defects.csv` can open the rework ticket. `inspector.csv` is the queue
+for an inspector, who looks at the photo or the part at the position the reason names, or asks
+for a retake. An `all_bolts_seen` photo is signed off as today, alongside the tightening record,
+since the recipe says nothing about torque.
 
 ## Potential improvements
 

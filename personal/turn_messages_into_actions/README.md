@@ -86,6 +86,38 @@ calendar, the to-do app or the banking app. One message gives one action: a mess
 for a reply and also books something comes out as whichever the model scores higher, or as a
 question when the two are close.
 
+### Examples
+
+Here are three of the inputs in `data/`, and what should happen to each.
+
+**1. The paper water bill.**
+
+- **Input:** `bill-1028-bayview-water-power.png`, a photo of a Bayview Water & Power bill: amount
+  due $84.17, due November 12, 2026, with a $5.00 late fee printed on the page.
+- **What should happen:** OCR reads the page, the action type is `pay`, and Python takes the
+  amount from the "amount due" line (not the late fee), checks the bill's summary adds up, and
+  finds the payee in the payee list.
+- **Expected outcome:** `checks_passed`, pay $84.17 to Bayview Water & Power, due Nov 12.
+
+**2. Coffee, sometime.**
+
+- **Input:** msg-07 from Theo Marsh: "let's grab coffee sometime next week to plan the community
+  garden plot."
+- **What should happen:** the date check sees a vague time and refuses to pick a day.
+- **Expected outcome:** `question`: "'next week' is not a date".
+
+**3. A cancellation sitting on top of the original.**
+
+- **Input:** msg-15 from Hillcrest PTA: "Sorry, Saturday's book-fair shift is cancelled..." and
+  below it, the earlier email: "> Thanks for signing up for the book fair! Your shift is
+  Saturday, November 7 at 10 AM..."
+- **What should happen:** Python splits off the earlier email, so its 10 AM is never read as a
+  new booking. The new text is a `change` that has to match the one calendar entry that day.
+- **Expected outcome:** `checks_passed`, a `change` removing the book-fair shift (`cal-06`), and
+  no hold at 10 AM.
+
+On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from what the apps already export.** Messages come in with sender, sent time and
@@ -245,6 +277,21 @@ GLiNER2.5-Decide, 13 to gliner2-large-v1, one each to parakeet and LightOnOCR) a
 
 ## What came out
 
+### The three examples
+
+- **The water bill** came out `checks_passed`: `pay` $84.17 to Bayview Water & Power, due Nov
+  12, with `pay` at 0.84 and the note "Checked: $79.40 - $79.40 + $84.17 = $84.17, the amount
+  due." As expected.
+- **Coffee** came out `question`: "'next week' is not a date". As expected.
+- **The cancellation** came out `checks_passed`, a `change` removing `cal-06` with `"cancel":
+  true`, and no hold at 10 AM. gliner2-large-v1 found no fields at all, so the recipe worked from
+  the sentence itself (the full item is below). As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 12 of 12 planted cases came out as expected (13 items from
+15 messages).
+
 The input is [`data/inbox.jsonl`](./data/inbox.jsonl): 15 messages from October 26 to
 November 1, 2026 (emails, texts, one line per memo or photo), each with its sent time and UTC
 offset, plus `memo-1028-registration.wav`, `memo-1029-vet.wav` (16 kHz mono) and
@@ -324,6 +371,14 @@ A few things worth noticing:
   (0.85). The memo gives no time, and the date ("due by November 20th") is in the next sentence,
   so the recipe asks "What is the date and time for 'Book a vet appointment'?" instead of
   inventing one.
+
+### What you do next
+
+Jordan opens `todo.md`, answers the questions at the top first (the vet appointment's time, a day
+for coffee with Theo), and reads the source sentence under each item before approving it. Then
+Jordan (or the assistant, once Jordan says yes) does the approved items in each app: imports the
+tentative holds from `events.ics`, edits or removes the changed calendar entries, sends the reply,
+adds the to-dos, and pays the bill in the banking app. Nothing is sent, booked or paid until then.
 
 ## Potential improvements
 

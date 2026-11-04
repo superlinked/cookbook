@@ -104,6 +104,32 @@ Each note gets a status that names what the checks found:
 Nothing is released by the recipe. The honest broker (or the privacy officer, depending on how your
 organization splits it) signs off on the extract, and only then does it go to the requester.
 
+### Examples
+
+Here are three of the notes in `data/notes/`, and what should happen to each.
+
+**1. A clean discharge summary.** `01-discharge-summary.txt`, filed under Teodora Vance.
+- **Input:** "Patient: Teodora Vance MRN: 00482913 DOB: 04/22/1959 Address: 27 Quillfeather Lane,
+  Harrowgate, MA 02134 ... Admitted: 09/03/2026 Discharged: 09/08/2026"
+- **What should happen:** the name, MRN, address, phone, daughter and employer are replaced, the
+  DOB removed, the dates shifted by her offset, ZIP cut to three digits; the attending stays.
+- **Expected outcome:** `checks_passed`, with admission and discharge still five days apart.
+
+**2. A name that fits two people.** `02-referral-letter.txt`
+- **Input:** "Ms. Vance lives with her daughter, who drives her to appointments; please call the
+  daughter at (508) 555-0164 to schedule."
+- **What should happen:** "Ms. Vance" could be the patient or her daughter Ines Vance, so it gets
+  its own placeholder and the honest broker decides whose it is.
+- **Expected outcome:** `review`: a name that could be `[PATIENT_1]` or `[PERSON_1]`.
+
+**3. A fax filed under the wrong patient.** `04-lab-fax.txt`, filed under Teodora Vance.
+- **Input:** "Patient: Hollis Merriweather MRN: 00993021 DOB: 1971-11-02 Collected: 2026-10-01"
+- **What should happen:** the identity check sees a patient field and an MRN that aren't
+  Teodora's, so the dates are removed instead of shifted and the note is held out.
+- **Expected outcome:** `escalate`, held out of the extract.
+
+On the live run, 12 of 13 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from the approved request and the EHR.** The request gives the cohort, the note types,
@@ -268,7 +294,22 @@ request (RS-2026-044, IRB-2026-0219) for the same cohort. The EHR seeds are
 > and so is the facility. Phone numbers use the 555-01xx range and emails a reserved `.example`
 > domain.
 
-The run of QI-2026-031 on 2026-11-04 (UTC) made 4 SIE calls and came out like this:
+The run of QI-2026-031 on 2026-11-04 (UTC) made 4 SIE calls.
+
+### The three examples
+
+- **01** came out `checks_passed` with 17 replacements, admission and discharge moved by +11 days
+  to `[DATE 2026-09-14]` and `[DATE 2026-09-19]`, `[ZIP 021]`, and the attending kept. As expected.
+- **02** came out `review` with 11 replacements: `a name that could be [PATIENT_1], [PERSON_1];
+  replaced as [PERSON_5]`. As expected.
+- **04** came out `escalate` with 7 replacements, dates removed as `[DATE_1]`, `[DATE_2]`, and held
+  out of the extract. As expected.
+
+### Every planted case
+
+On the live run on 2026-11-04 (UTC), 12 of 13 planted cases came out as expected. The bracketed
+emergency contact in 03 is the one that didn't: its phone was replaced, but by the regex, so the
+sweep inside brackets that we planted it for never ran (more below).
 
 | Case | What we planted | Came out | Why |
 | --- | --- | --- | --- |
@@ -286,8 +327,8 @@ The run of QI-2026-031 on 2026-11-04 (UTC) made 4 SIE calls and came out like th
 | 04 | The export files the lab fax under Teodora Vance, but the fax names a different patient and MRN | `escalate`, 7 replacements: the patient field and the MRN (another EHR patient's) don't match; dates removed as `[DATE_1]`, `[DATE_2]`; held out of the extract | A note under the wrong patient would get the wrong offset, and the wrong patient's text would go out |
 | Two requests | The same cohort run under RS-2026-044 | Study IDs S-94XC3V and S-K88AMZ in the first extract, S-2Y44HQ and S-TQRZ7M in the second; offsets +11 and -26 days in the first, -39 and -32 in the second, so the discharge is `2026-09-19` in one manifest and `2026-07-31` in the other | Two extracts handed to different teams can't be joined on their pseudonyms |
 
-Every planted case came out as planned. They show the wiring works; they don't measure accuracy.
-Thirteen cases in four notes tell you each path through the flow does what it says, not how often
+Every planted case came out with the output we planned, one of them for a different reason. They
+show the wiring works; they don't measure accuracy. Thirteen cases in four notes tell you each path through the flow does what it says, not how often
 a real note slips past it.
 
 A few things worth noticing:
@@ -327,6 +368,15 @@ A few things worth noticing:
 - **The patient numbering is drawn, and on both runs it happened to come out the same.** With two
   patients there's a one-in-two chance of that. In the model swap below it came out the other way
   round, with Bartholomew Quill as `[PATIENT_1]`.
+
+### What you do next
+
+The honest broker opens each note in `extract/` and `held/` next to its original, using
+`note-status.csv` and `replacement-log.csv` to see what was replaced and why each note was flagged.
+They pick the right person for each `review` note, fix or drop the `escalate` notes (the lab fax
+stays out until someone sorts out whose it is), and check the initials and first names the
+recipe can leave readable. Then they or the privacy officer sign off the extract, and the
+requester gets `extract/` without `private/key.json`.
 
 ## Potential improvements
 

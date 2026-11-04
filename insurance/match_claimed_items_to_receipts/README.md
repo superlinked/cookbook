@@ -99,6 +99,36 @@ Neither status is a decision. `checks_passed` means the paperwork lines up. The 
 decides what proof is enough and what each item is worth under the policy, and nothing is paid
 or denied automatically.
 
+### Examples
+
+Here are three of the claims in `data/`, and what should happen to each.
+
+**1. A mixed receipt.**
+- **Input:** `CLM-26-1001`, a handwritten inventory (page 1 of `inventories.pdf`) that writes
+  "Nimbus 55in TV", and two receipt photos (pages 1 and 2 of `receipt-photos.pdf`), one with
+  "NIMBUS 55IN 4K TV" and an HDMI cable that's no longer on the inventory.
+- **What should happen:** each item finds its receipt line despite the different wording, and the
+  cable is listed as a line nobody claimed, which sends nothing to review.
+- **Expected outcome:** `checks_passed`; 4 `matched`, the cable `not_claimed`.
+
+**2. Two items with no receipt.**
+- **Input:** `CLM-26-1005`, a handwritten inventory (page 5 of `inventories.pdf`) that adds
+  headphones (279.00) and a doormat (24.00) that are on no receipt; the claims system's amount,
+  1325.15, includes both.
+- **What should happen:** both items come out `no_receipt`, and the guideline's proof threshold
+  decides that only the headphones are worth asking about.
+- **Expected outcome:** `review`; headphones `no_receipt` on the request list, the doormat
+  `no_receipt` and not asked for.
+
+**3. Same price, different thing.**
+- **Input:** `CLM-26-1008`, a portal inventory: `CLM-26-1008,1,Walnut bar stool,2,64.00` and
+  `CLM-26-1008,2,TV stand,1,39.99`, against a receipt photo (page 10) with "TV WALL MOUNT 39.99".
+- **What should happen:** the stools match; the stand has the price and one word in common with
+  the mount, and that isn't enough to call it proof.
+- **Expected outcome:** `review`; TV stand `ambiguous`, nothing asked; the stools `matched`.
+
+On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from the claims system and the guideline.** Per claim, the claims system gives the
@@ -289,6 +319,21 @@ already warm.
 
 ## What came out
 
+### The three examples
+
+- **`CLM-26-1001`, the mixed receipt:** `checks_passed`, four matches and one line marked
+  `not_claimed`. As expected.
+- **`CLM-26-1005`, the missing receipts:** `review`, with one request: "For the Aurora wireless
+  headphones (279.00): we couldn't find it on the receipts you sent." The doormat is listed as
+  "Not asked for (no receipt, at or below 100.00): Doormat (24.00)". As expected.
+- **`CLM-26-1008`, the stand and the mount:** `review`; the TV stand `ambiguous` ("same price as
+  receipt 1 line 2 'TV WALL MOUNT', but the words don't agree"), the stools `matched`. As
+  expected.
+
+### Every planted case
+
+On the live run on 2026-11-04 (UTC), 8 of 8 planted cases came out as expected.
+
 The input is eight contents claims:
 
 - `data/claims.csv`, `data/attachments.csv` and `data/portal_inventory.csv`: the claims
@@ -371,6 +416,13 @@ A few things worth noticing:
   tax, made its written total. If GLiNER2 skipped a line like "Mixing bowls (2)", the inventory
   line check would name that line and the total check would show the gap, so the claim couldn't
   come out clean on the items that were read.
+
+### What you do next
+
+The contents claims handler opens `reconciliation.csv` for the item-by-item picture and, for
+each claim in review, its `requests/<claim>.md`. They check the request list and send it
+through the portal message or the letter, and the claim waits for the answer. The `ambiguous`
+and `after_loss` items are theirs to judge, and valuation under the policy comes after.
 
 ## Potential improvements
 

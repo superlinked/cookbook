@@ -129,6 +129,27 @@ the headers named above (no SPF, DKIM, DMARC or `Received` path checks beyond co
 IPs), white text on a dark background counts as hidden, and it only knows the colors
 `hidden_html_styles` lists as white.
 
+### Examples
+
+Here are three of the reported emails in `data/`, and what should happen to each.
+
+**1. A real password notice from our own IT (`06-genuine-password-notice.eml`).**
+- **Input:** "Your Larkfield account password expires on Tuesday, 3 November. ... IT will never ask for your password by email or phone, and there is nothing to fill in here." from `it-servicedesk@larkfield.example.com`.
+- **What should happen:** it shares a topic with a classic phish, but the sender, the intranet link and the relay are all ours, so no check should fire and nothing becomes an observable.
+- **Expected outcome:** `benign`, never `auto` `phishing`.
+
+**2. The CEO wants a wire today (`02-urgent-vendor-payment.eml`).**
+- **Input:** "I need you to process a wire transfer of $48,750.00 to their new bank account before 2pm today. Keep this confidential until we announce it." from `larkfie1d.example.org`, with a Reply-To elsewhere and no links.
+- **What should happen:** there's no URL to catch, so the look-alike domain, the Reply-To mismatch and the payment request pulled out by the extraction model have to do the work.
+- **Expected outcome:** `phishing`, never `benign`, with the sender and domain as observables.
+
+**3. A document-share lure with a hidden note (`05-shared-bonus-schedule.eml`).**
+- **Input:** "Sign in with your Larkfield email and password to view the file. The link expires in 12 hours." plus HTML text the reader never sees, addressed to an AI reviewer and asking for a benign verdict.
+- **What should happen:** the hidden text never reaches the model, and the injection patterns find it, which forces `phishing` and a person.
+- **Expected outcome:** `phishing`, `analyst`.
+
+On the live run, 7 of 7 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 The idea is to let the models do the one thing they're good at (reading the email the way a
@@ -385,6 +406,16 @@ one line per group, exiting non-zero on a failure.
 
 ## What came out
 
+### The three examples
+
+- **Email 06:** `benign` at 0.873, route `auto`, nothing to investigate. As expected.
+- **Email 02:** `phishing` at 0.964, route `auto`, with the look-alike, Reply-To and payment checks all firing and its sender, Reply-To, domain and IP listed for investigation (quoted below). As expected.
+- **Email 05:** `phishing` (0.928) and `analyst`, with four injection phrases caught in the hidden text. As expected.
+
+### Every planted case
+
+On the live run on 2 Nov 2026, 7 of 7 planted cases came out as expected.
+
 The input is seven reported emails as `.eml` files in [`data/`](./data). The blocklist, your own
 mail domains and the triage rules live in [`rules.yaml`](./rules.yaml). We kept `data/` to the
 emails, so the blocklist sits in `rules.yaml` too. In production you'd pull it from your
@@ -468,6 +499,10 @@ to say "from a known colleague ... or real business contact", which the model ca
 the scores of the first five emails a little and changed no verdict or route: 01 went from 0.462
 to 0.404, 02 from 0.966 to 0.964, 03 from 0.749 to 0.682, 04 from 0.831 to 0.848 and 05 from
 0.937 to 0.928.
+
+### What you do next
+
+The SOC analyst on the reporting mailbox works the `analyst` rows, reading every reason listed, and makes the call. For the real phish, they check which observables the attacker actually controls (a `Received` hop may only be a relay), block the ones that hold up, and search for everyone else who got the same email. The `auto` rows go to your own workflow; the recipe itself doesn't close, quarantine or block anything.
 
 ## Potential improvements
 

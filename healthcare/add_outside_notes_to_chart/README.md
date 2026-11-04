@@ -90,6 +90,34 @@ The outside notes are PHI, and they reach SIE as they are, so SIE has to be an a
 for PHI (self-hosted inside your network, or with a BAA where required) before you run real notes
 through it.
 
+### Examples
+
+Here are three of the outside notes in `data/`, and what should happen to each.
+
+**1. A clean follow-up.** `note-01.txt`, filed in Marisol Quenby's chart.
+- **Input:** "Medications: - Metformin 500 mg PO twice daily - Lisinopril 10 mg PO once daily ...
+  1. Type 2 diabetes mellitus without complications. ... 2. Essential hypertension, controlled."
+- **What should happen:** both doses are read after their own drug and match the intake form,
+  and both problems get a clear code.
+- **Expected outcome:** `checks_passed`, both medications `matches_chart`, E11.9 and I10 suggested.
+
+**2. An allergy the note contradicts.** `note-04.txt`, filed in Caius Wendell-Moore's chart.
+- **Input:** "Allergies: Penicillin (hives). ... 1. Streptococcal pharyngitis. Start amoxicillin
+  500 mg PO three times daily for 10 days."
+- **What should happen:** amoxicillin is active and in the penicillin class, so the allergy check
+  fires.
+- **Expected outcome:** `clinical_review` for an allergy class conflict; J02.0 suggested.
+
+**3. A stop that comes after the list.** `note-09.txt`, filed in Tobias Renfrew's chart.
+- **Input:** "Medications: - Lisinopril 10 mg daily ... Stop lisinopril because of a dry cough.
+  Start losartan 50 mg daily."
+- **What should happen:** the last mention decides, so lisinopril is discontinued even though the
+  medication list has it, and losartan is compared with the intake form, which already lists it.
+- **Expected outcome:** `checks_passed`, lisinopril discontinued, losartan active and
+  `matches_chart`.
+
+On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from the chart.** The EHR gives you the outside notes filed in each chart, the
@@ -271,6 +299,21 @@ charts through [`data/ehr_documents.csv`](./data/ehr_documents.csv). The charts 
 nine intake-form medications, one charted allergy (sulfa drugs) and one nurse blood-pressure
 visit. The code set is [`data/icd10cm-subset.tsv`](./data/icd10cm-subset.tsv), 73 ICD-10-CM codes.
 
+### The three examples
+
+- **note-01** came out `checks_passed`, metformin and lisinopril both `matches_chart`, E11.9 and
+  I10 suggested. As expected.
+- **note-04** came out `clinical_review` with the allergy class conflict, and J02.0 suggested.
+  As expected.
+- **note-09** came out `checks_passed`: lisinopril discontinued, losartan active and
+  `matches_chart` (the intake form already has it). As expected; the later "stop" won.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 10 of 10 planted cases came out as expected. note-08 also got
+one review item we didn't plant (a heart rate it couldn't trust, below); that only adds to a review
+it was getting anyway.
+
 > **The notes and charts are synthetic.** [`make_data.py`](./make_data.py) writes them; every
 > patient, clinician and clinic (Larkspur Family Practice, Harrow Creek Medical Group, Bellwether
 > Internal Medicine) is invented. No real patient data.
@@ -325,6 +368,15 @@ A few things worth noticing:
   only "3 months" as note-01's follow-up. The recipe records route and frequency but only requires
   a dose (`required_medication_fields`), and the outside clinic's follow-up is context, not a
   requirement (`require_follow_up: false`).
+
+### What you do next
+
+The draft for each note, `drafts/<note>.md`, is filed with the outside note in the chart, so the
+clinician has it open at the new-patient visit and reconciles the medication and allergy lists
+with the patient. `review-queue.csv` splits the rest by who picks it up: the clinician takes the
+`clinical_review` items (the unit slip, the HR 720, the penicillin conflict), and the coder
+confirms every suggested code and picks one for each problem sent to them with the top three.
+Nothing goes into the chart's structured lists without that reconciliation.
 
 ## Potential improvements
 

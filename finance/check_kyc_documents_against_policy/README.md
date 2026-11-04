@@ -85,6 +85,39 @@ Nothing is approved or rejected automatically. The recipe doesn't check that a d
 genuine (security features, photo, liveness), screen names against sanctions or PEP lists, or rate
 the customer's risk; those are separate steps in the same onboarding.
 
+### Examples
+
+Here are three of the cases in `data/`, and what should happen to each. All three were received
+on 26 October 2026.
+
+**1. A bill that words things differently (`kyc-02`).**
+
+- **Input:** the form row "kyc-02,2026-10-26,Okafor-Bell,Tobias James,1979-11-02,2,114,Harbour
+  Road,Port Ellery,UT 40381,...", the ID card on page 2 of `id-documents.pdf`, and a bill on page
+  2 of `address-documents.pdf` that drops the middle name, adds "Mr", writes "Flat 2, 114 Harbour
+  Rd" and is 89 days old.
+- **What should happen:** the name, address and date checks should see the same person at the
+  same flat, inside three months.
+- **Expected outcome:** `checks_passed`.
+
+**2. A bill that's too old (`kyc-05`).**
+
+- **Input:** the bill on page 5 of `address-documents.pdf`, dated 12 May 2026.
+- **What should happen:** the address document has to be dated on or after 26 July 2026, so the
+  age check fails and the customer is asked for a newer one.
+- **Expected outcome:** `review`, with `address_age` not met.
+
+**3. Same words, different flat (`kyc-09`).**
+
+- **Input:** the form says flat 2, house number 114, Harbour Road; the bill on page 9 of
+  `address-documents.pdf` says "Flat 114, 2 Harbour Road".
+- **What should happen:** the address is taken apart into flat, house number and street before
+  it's compared, so the swap shows.
+- **Expected outcome:** `review`, with `address_matches` not met.
+
+On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has
+each one.
+
 ## How we'll solve it
 
 1. **Start from the policy and the application.** [`policy.yaml`](./policy.yaml) is what
@@ -246,6 +279,21 @@ run with both warm took 89 s.
 
 ## What came out
 
+### The three examples
+
+- **`kyc-02`** came out `checks_passed`: same person, same flat, inside three months. As
+  expected.
+- **`kyc-05`** came out `review` with `address_age` not met. As expected.
+- **`kyc-09`** came out `review` with `address_matches` not met, and the reason in
+  `checklist.csv` reads "house number '2', application '114'; flat '114', application '2'". As
+  expected.
+
+### Every planted case
+
+On the live runs on 2026-11-04 (UTC), 12 of 12 planted cases came out as expected, with the
+planted status and the planted requirement; `kyc-06` also had one extra requirement not met (see
+below).
+
 The input is twelve personal-account cases, all received on 26 October 2026, in
 [`data/`](./data):
 
@@ -329,6 +377,14 @@ A few things worth noticing:
   Eastbrook"), not the address, so Python dropped it with a note in the case file and used the
   labelled address line instead. Neither run hit SIE Cloud's empty-result error, and no field
   was read two ways.
+
+### What you do next
+
+The KYC analyst opens each case in the onboarding system with the checklist next to it. A
+`checks_passed` case still needs their decision before it's passed on. For a `review` case they
+look at the items under "For the analyst to look at first" in `requests.md` (an MRZ failure like
+`kyc-06`'s has no customer ask), then write to the customer for what's on the "Please send us"
+list.
 
 ## Potential improvements
 

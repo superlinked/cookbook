@@ -96,6 +96,36 @@ reading aid with a link from each line to the note or email it came from.
 The raw file does reach SIE's models, so SIE has to be a processor your company has already
 approved for claim data.
 
+### Examples
+
+The committed claim, CLM-2026-004417, has five documents in `data/documents/`. Here are three
+of the things planted in them, and what should happen to each.
+
+**1. A promise the new adjuster has to keep.**
+- **Input:** `04-claim-note.txt` (D4): "Told Ilona the plumber's emergency call-out ($385.00,
+  Cascade Rooter & Plumbing, paid on Tibor's card) will be reimbursed, and that the contents
+  adjuster will call her by October 16 to set up the contents inventory."
+- **What should happen:** both promises land under what the insurer told or promised the
+  insured, each quoting D4, and the quote check finds the words in the file.
+- **Expected outcome:** both listed under promises; the claim comes out `summary_checked`.
+
+**2. A bank account in an email.**
+- **Input:** `03-insured-email.txt` (D3): "For the direct deposit please use our joint account
+  at Cedar Ridge Credit Union, account number 0081 4472 9310."
+- **What should happen:** the account rule and the PII model mask it before the LLM reads the
+  email, so it can't reach the summary; if it did, the final sweep would block the summary.
+- **Expected outcome:** masked to `XXXX XXXX 9310`, nowhere in the summary.
+
+**3. A health reason, without the diagnosis.**
+- **Input:** D4 again: "The reason is Tibor's asthma: the dust and the dehumidifiers have set it
+  off twice this week. Approved a hotel stay under Coverage D."
+- **What should happen:** the summary says a health reason was given for the hotel and never
+  names the condition; a line that does goes to review with its text withheld.
+- **Expected outcome:** a line that says "a health reason", with a quote that doesn't name it.
+
+On the live run, 8 of 9 planted cases came out as expected (a tenth is checked only in the
+selfcheck); [What came out](#what-came-out) has each one.
+
 ## How we'll solve it
 
 1. **Start from the claim record.** `claims_system.py` gives the claim and policy numbers, the
@@ -257,6 +287,23 @@ models. A warm run makes 6 SIE calls (5 to `superlinked/pii-redact`, one per doc
 
 ## What came out
 
+### The three examples
+
+- **The promise:** the plumber reimbursement and the contents adjuster's call by October 16 are
+  both listed under promises, quoting D4. As expected, though the model left them out of the
+  open items (see below).
+- **The bank account:** masked to `XXXX XXXX 9310` before the model read it, found by both the
+  rule and the PII model, and not in the summary. As expected.
+- **The health reason:** "A hotel stay was approved for the insureds under Coverage D due to a
+  health reason.", quoting a sentence that doesn't name it. As expected.
+
+### Every planted case
+
+On the live run on 4 Nov 2026 (UTC), 8 of the 9 planted cases the run covers came out as
+expected; the tenth row in the table, the wrong reserve, is a stand-in reply in the selfcheck
+only. The one that didn't is the plumber reimbursement, which was planted as promised and open
+and came out as promised only.
+
 The input is the claim in [`data/`](./data):
 
 - `claims.csv`: the claim, CLM-2026-004417, on policy HO-4481207, with the insureds Ilona and
@@ -348,6 +395,14 @@ result, each source document's kind, author and time, and the claims system's re
 payments; not the documents themselves) and
 `masking_report.csv`, one row per number masked or kept, with the line number but never the
 value.
+
+### What you do next
+
+Solveig, the new adjuster, reads `handover_summary.md` before she rings the insured: what
+happened, what's paid and reserved, what Marisol promised, and what's open and with her. Each
+line links to the note or email it came from, so she reads the source wherever it matters, and
+a `needs_review` line means reading the file for that part. A `blocked` summary isn't saved
+anywhere and goes to the claims supervisor instead.
 
 ## Potential improvements
 

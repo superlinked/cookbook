@@ -39,8 +39,15 @@ REQUIRED = (
 CROSS_IMPORT = re.compile(
     rb"^\s*(?:from|import)\s+(?:sie_cloud_research|" + "|".join(INDUSTRIES).encode() + rb")\b", re.M
 )
-# Every recipe README shows how to swap a model and how to self-host it.
-README_SECTIONS = ("## Try another model", "## Run it on your own SIE")
+# Every recipe README shows worked examples, how they and the whole dataset came out, how to swap
+# a model and how to self-host it.
+README_SECTIONS = (
+    "### Examples",
+    "### Every planted case",
+    "### What you do next",
+    "## Try another model",
+    "## Run it on your own SIE",
+)
 PYTHON = "3.12"
 FORBIDDEN = (b"sie-" + b"internal", b"sie_cloud" + b"_research", b"verified-" + b"run/")
 
