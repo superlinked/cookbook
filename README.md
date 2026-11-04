@@ -51,10 +51,10 @@ recipe's SIE requests (one request can carry many items).
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Categorize products into your taxonomy and fill in the required attributes](ecommerce/categorize_products_into_taxonomy) | Qwen3-Embedding-4B, Qwen3-Reranker-4B, gliner2-large-v1 | 118 | 1 min |
-| [Match products to your catalog: same product, variant or new](ecommerce/match_products_to_catalog) | siglip-so400m-patch14-384, Qwen3-Embedding-4B, Qwen3.8-27B-FP8 | 15 | 17 s |
-| [Tag products from their photo and text against your tag lists](ecommerce/tag_products_from_photo_and_text) | Qwen3.8-27B-FP8 | 18 | 37 s |
-| [Search products by photo, by words, or both](ecommerce/search_products_by_photo_and_text) | siglip-so400m-patch14-384 | 13 | 7 s |
+| [Categorize products into your taxonomy and fill in the required attributes](ecommerce/categorize_products_into_taxonomy) | Qwen3-Embedding-4B, Qwen3-Reranker-4B, gliner2-large-v1 | 118 | 45 s |
+| [Match products to your catalog: same product, variant or new](ecommerce/match_products_to_catalog) | siglip-so400m-patch14-384, Qwen3-Embedding-4B, Qwen3.8-27B-FP8 | 15 | 16 s |
+| [Tag products from their photo and text against your tag lists](ecommerce/tag_products_from_photo_and_text) | Qwen3.8-27B-FP8 | 18 | 34 s |
+| [Search products by photo, by words, or both](ecommerce/search_products_by_photo_and_text) | siglip-so400m-patch14-384 | 13 | 5 s |
 | [Rerank search results without breaking the shopper's filters](ecommerce/rerank_search_within_filters) | Qwen3-Reranker-4B | 8 | 5 s |
 
 ### Retail

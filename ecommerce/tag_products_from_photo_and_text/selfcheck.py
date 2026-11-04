@@ -95,6 +95,7 @@ def check_words() -> None:
     assert values("Faux Leather") == (["faux leather"], [])
     assert values("stylish vegan leather upholstery") == (["faux leather"], [])
     assert values("PU-leather and leatherette") == (["faux leather"], [])
+    assert values("Polyurethane Leather upper") == (["faux leather"], [])
     assert values("Enameled Cast Iron") == (["cast iron"], [])
     assert values("Glass, iron frame with black finish") == (["glass", "metal"], [])
     # Words that deny a value never give it.
@@ -108,6 +109,8 @@ def check_words() -> None:
     assert values("100% Cotton") == (["cotton"], [])
     assert values("Navy Blue", "color") == (["blue"], [])
     assert values("SANDALS", "type") == (["sandals"], [])
+    assert values("Ceramic Planters", "type") == (["planter"], [])
+    assert values("two storage boxes", "type") == (["storage box"], [])
     assert values("Storage Ottoman, Bench", "type") == (["ottoman", "bench"], [])
     # "sand" in "sandal" or "tan" in "standard" is no color.
     assert values("standard sandal", "color") == ([], [])
@@ -178,6 +181,12 @@ def check_tags() -> None:
     # A broader photo reading (fabric) agrees with the narrower text value, but doesn't confirm.
     found = field("P17", "material", reading("cotton", "100% Cotton", "fabric", []))
     assert (found["source"], found["reasons"]) == ("from_text", []), found
+    found = field("P05", "material", reading("cast iron", "Enameled Cast Iron", "metal", []))
+    assert (found["new_tag"], found["source"], found["reasons"]) == ("cast iron", "from_text", [])
+    assert found["note"] == "the photo shows metal, which covers cast iron", found
+    # Broader works one way only: a text saying fabric and a photo saying cotton conflict.
+    found = field("P01", "material", reading("fabric", "made of durable polyester", "cotton", []))
+    assert (found["source"], found["new_tag"]) == ("conflict", None), found
     # The text beats a wrong tag, and the change is shown.
     found = field("P11", "material", reading("faux leather", "Faux Leather", "unclear", []))
     assert (found["new_tag"], found["vs_current"], found["current"]) == (
@@ -423,6 +432,14 @@ def check_sie_failure() -> None:
     assert "Check SIE_BASE_URL and your network." in message
     message = stops(ServerError("unavailable", status_code=503), ProvisioningError("cold"))
     assert "may still be starting or SIE is busy" in message, message
+    # A reply that breaks the schema is a failed call: if no reply is usable, the run stops.
+    message = stops(chat("not json"), chat(reply(type=reading("cable", "Cable", "none"))))
+    assert message.startswith(f"Every SIE call failed (2 of 2 to {TAGGER})"), message
+    assert "UnusableReply: the reply is not JSON" in message, message
+    assert "max_completion_tokens" in message, message
+    results, _, _ = run(chat("not json"), OK)
+    assert results[0]["reasons"] == ["The model's reply is not usable: the reply is not JSON"]
+    assert results[1]["status"] == "checks_passed"
     # A refusal stops the run at once, with SIE's full message.
     message = stops(OK, InsufficientCreditsError("no credits " + "y" * 300))
     assert message.startswith(f"SIE refused the call to {TAGGER}, "), message

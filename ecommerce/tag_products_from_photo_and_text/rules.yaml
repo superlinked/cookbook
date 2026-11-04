@@ -11,9 +11,9 @@ tagger:
   max_edge_px: 512
   max_completion_tokens: 1500
 
-# The team's own lists. The type list is the 51 types of the SIE image-classify study plus
-# blanket; the colors are its 14; the materials are its 11 plus cast iron, cotton and faux
-# leather, so a listing can say what it is made of rather than only what it looks like.
+# The team's own lists: 52 home and fashion types, 14 colors and 14 materials. The materials
+# include cast iron, cotton and faux leather, so a listing can say what it is made of rather
+# than only what it looks like.
 lists:
   type: [backpack, basket, bean bag chair, bed, bed sheet, bench, blanket, boots, bucket, cabinet,
     ceiling light, chair, clock, clothes rack, desk, dresser, dutch oven, frying pan, handbag,
@@ -55,8 +55,8 @@ synonyms:
     cast iron: [cast-iron, enameled cast iron, enamelled cast iron]
     ceramic: [stoneware, earthenware, porcelain]
     cotton: [100% cotton, all-cotton]
-    faux leather: [vegan leather, pu leather, leatherette, synthetic leather, imitation leather,
-      bonded leather]
+    faux leather: [vegan leather, pu leather, polyurethane leather, leatherette,
+      synthetic leather, imitation leather, bonded leather]
     leather: [top-grain leather, genuine leather, full-grain leather]
     metal: [iron, steel, aluminum, aluminium, brass]
     plastic: [polycarbonate, abs, polypropylene]
@@ -83,9 +83,9 @@ negation:
 
 # How the catalog's current fields map onto the lists.
 current:
-  # Product type -> type. A product type here that says nothing about the type (HOME) counts as
-  # an empty field. Any other product type is a value that isn't on the type list: a new tag is
-  # then `changed` from it, never `filled`.
+  # Product type -> type. A product type in broad_types says nothing about the type (HOME,
+  # HOME_FURNITURE_AND_DECOR) and counts as an empty field. Any other product type is a value
+  # that isn't on the type list: a new tag is then `changed` from it, never `filled`.
   types:
     BACKPACK: backpack
     BED: bed

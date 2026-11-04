@@ -165,7 +165,31 @@ def check_pim() -> None:
     several = recipe.check_pim(PRODUCTS["TT-A08"], Pim(folder / "pim.csv"), RULES)
     assert several.pim is None, reasons(several)
     assert "P-10231, P-10999" in reasons(several), reasons(several)
-    print("pim: carry-over SKU in_pim; other supplier's code, reused SKU and twins not trusted ok")
+    # Another variant under the carry-over SKU: same words, another size, pack count or colour.
+    # It must not keep the PIM's size L... or grey.
+    carry = PRODUCTS["TT-A08"]
+    for title, description, reason in (
+        ("Merino Hiking Socks Grey L (2 pk)", "Hiking socks. Color: grey. Size: L.", "variant"),
+        ("Merino Hiking Socks Grey M (3 pk)", "Hiking socks. Color: grey. Size: M.", "variant"),
+        ("Merino Hiking Socks Navy M (2 pk)", "Hiking socks. Color: navy. Size: M.", "title"),
+    ):
+        other = recipe.check_pim(product("TT-A08", title, description), pim, RULES)
+        assert other.pim is None, (title, reasons(other))
+        assert f"pim_{reason}_differs" in reasons(other), (title, reasons(other))
+    # SKU case is ignored in the PIM lookup the same way as in the duplicate check.
+    lower = recipe.check_pim(product("tt-a08", carry.title, carry.description), pim, RULES)
+    assert lower.status == recipe.IN_PIM, reasons(lower)
+    # A PIM record with no category has nothing to keep: categorize it, and review.
+    blank = next(line for line in lines if ",TT-A08," in line).split(",")
+    blank[4:6] = ["", ""]
+    (folder / "blank.csv").write_text("\n".join([lines[0], ",".join(blank)]) + "\n", "utf-8")
+    nocat = recipe.check_pim(carry, Pim(folder / "blank.csv"), RULES)
+    assert nocat.pim is None, nocat
+    assert "pim_no_category" in reasons(nocat), reasons(nocat)
+    print(
+        "pim: carry-over SKU in_pim, any case; other supplier's code, reused SKU, other variant, "
+        "twins and no category not trusted ok"
+    )
 
 
 def ranked(*pairs: tuple[str, float]) -> recipe.Decision:
@@ -198,6 +222,7 @@ def check_category() -> None:
     # A parent and its child are one answer at two depths, never a tie.
     lineage = ranked((f"{bottles} > Thermoses", 0.99), (bottles, 0.989))
     assert recipe.decide_category(lineage, RULES), lineage.reasons
+    assert not lineage.reasons, lineage.reasons
     # A low best score: review, the category may be missing from the taxonomy.
     low = ranked((f"{bottles} > Thermoses", 0.30))
     assert not recipe.decide_category(low, RULES)
@@ -236,6 +261,13 @@ def check_attributes() -> None:
     assert "conflicting_attribute: size = M / L" in reasons(d), reasons(d)
     assert d.attributes["color"] == "Heather navy"
     assert "color" not in reasons(d)
+    # Only whole words make a value the same: L is not inside XL, AV-H70 not inside AV-H700.
+    item = product("X", "Tee Black XL", "Cotton tee in black. Size: L.")
+    d = merged(item, APPAREL, color="black", material="Cotton", size=["XL", "L"])
+    assert "conflicting_attribute: size" in reasons(d), reasons(d)
+    item = product("X", "Aurivox AV-H70 Speaker", "Brand: Aurivox. Model: AV-H700.")
+    d = merged(item, ELECTRONICS, brand="Aurivox", model_number=["AV-H70", "AV-H700"])
+    assert "conflicting_attribute: model_number" in reasons(d), reasons(d)
     # A clear row passes, with the supplier's words for each value.
     jeans = PRODUCTS["TT-A02"]
     d = merged(jeans, APPAREL, color="indigo", size="28", material="stretch denim")
@@ -262,6 +294,10 @@ def check_attributes() -> None:
     item = product("X", "Case", "Hard case, compatible with BM-S5 speakers. Brand: Brenmoor.")
     d = merged(item, ELECTRONICS, brand="Brenmoor", model_number="BM-S5")
     assert "follows 'compatible with'" in reasons(d), reasons(d)
+    item = product("X", "Ear Pads", "Ear pads, compatible with the Aurivox AV-H700. By Brenmoor.")
+    d = merged(item, ELECTRONICS, brand="Brenmoor", model_number="AV-H700")
+    assert "model_number 'AV-H700' follows 'compatible with'" in reasons(d), reasons(d)
+    assert "model_number" not in d.attributes, d.attributes
     item = product("X", "Turntable", "Turntable for vinyl records with its own BM-TT1 drive.")
     d = merged(item, ELECTRONICS, brand="Brenmoor", model_number="BM-TT1")
     assert "names_another_product" not in reasons(d), reasons(d)
@@ -330,6 +366,7 @@ class StandIn:
         self.scores = dict(scores or {})
         self.extracts = {sku: list(replies) for sku, replies in (extract or {}).items()}
         self.models: list[str] = []
+        self.extract_options: list[Any] = []
 
     @staticmethod
     def _raise_or(reply: Any) -> Any:
@@ -354,8 +391,9 @@ class StandIn:
             "scores": [{"item_id": i, "score": reply.get(name, 0.01)} for i, name in leaf.items()]
         }
 
-    def extract(self, model: str, item: Any, **_: Any) -> Any:
+    def extract(self, model: str, item: Any, **options: Any) -> Any:
         self.models.append(model)
+        self.extract_options.append(options.get("options"))
         return self._raise_or(self.extracts[item["id"].split("#")[0]].pop(0))
 
 
@@ -385,6 +423,7 @@ def run(
     products: list[recipe.Product] | None = None,
     folder: Path | None = None,
     batch: int | None = None,
+    edit: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[dict[str, recipe.Decision], Path]:
     """Run the recipe on a six-path taxonomy with the stand-in; outputs go to `folder`/out."""
     folder = folder or Path(tempfile.mkdtemp())
@@ -392,6 +431,8 @@ def run(
     rules = copy.deepcopy(RULES)
     rules["taxonomy"]["file"] = str(folder / "taxonomy.txt")
     rules["taxonomy"]["embed_batch_size"] = batch or rules["taxonomy"]["embed_batch_size"]
+    if edit:
+        edit(rules)
     output = folder / "out"
     with contextlib.redirect_stdout(io.StringIO()):  # the run's "1 of 6 failed" line
         decisions, _ = recipe.run(
@@ -476,6 +517,17 @@ def check_run_outputs() -> None:
     assert decisions["S-1"].attributes
     assert not decisions["S-2"].attributes
     assert client.models.count(EXTRACT) == 1, client.models
+    # Every extract call asks SIE to fail a window too long to read whole, not cut it short.
+    client = ok_client()
+    run(client)
+    assert client.extract_options == [{"overflow_policy": "error"}] * 2, client.extract_options
+    # A branch rules.yaml has no attribute list for: review, and nothing is read.
+    client = ok_client()
+    decisions, _ = run(client, edit=lambda rules: rules["attributes"].pop("Apparel & Accessories"))
+    for d in decisions.values():
+        assert "no_attribute_rules: rules.yaml has no attributes for 'Apparel" in reasons(d), d
+        assert d.status == recipe.REVIEW
+    assert EXTRACT not in client.models, client.models
     print(
         "outputs: csv cells quoted, in_pim rows skip models, review has description, questions ok"
     )
@@ -534,7 +586,8 @@ def check_sie_failure() -> None:
     client = StandIn(encode=[None, ServerError("busy", status_code=503)])
     decisions, _ = run(client)
     for d in decisions.values():
-        assert "not_embedded" in reasons(d), reasons(d)
+        assert "not_embedded: the product's embedding call failed: " in reasons(d), reasons(d)
+        assert "busy" in reasons(d), reasons(d)  # SIE's own words, not just "failed"
     assert RERANK not in client.models
     # An encode reply without a vector per text, or scores for the wrong paths, is a failed
     # call too.
@@ -545,6 +598,24 @@ def check_sie_failure() -> None:
     client.scores["S-1"] = {"scores": [{"item_id": "c0", "score": 0.99}]}
     decisions, _ = run(client)
     assert "rerank_failed" in reasons(decisions["S-1"]), reasons(decisions["S-1"])
+    # A NaN, null or missing score would slip past every threshold: a failed call instead.
+    for bad in ({"score": float("nan")}, {"score": None}, {}):
+        client = ok_client()
+        entries = [{"item_id": f"c{i}", "score": 0.1} for i in range(1, 6)]
+        client.scores["S-1"] = {"scores": [{"item_id": "c0", **bad}, *entries]}
+        decisions, _ = run(client)
+        why = reasons(decisions["S-1"])
+        assert why.startswith("rerank_failed: "), (bad, why)
+        assert "not numbers" in why, (bad, why)
+        assert decisions["S-2"].status == recipe.CHECKS_PASSED
+    # A GLiNER2 value that isn't text (a list, a number) is a failed call; null is "not found".
+    for data in ({"color": "black", "size": ["M"], "material": "Cotton"}, {"size": 3}):
+        decisions, _ = run(ok_client(**{"S-1": [{"data": data}]}))
+        why = reasons(decisions["S-1"])
+        assert why.startswith("extract_failed: "), (data, why)
+        assert "not text" in why, (data, why)
+    decisions, _ = run(ok_client(**{"S-1": [tee_data(size=cast(str, None))]}))
+    assert reasons(decisions["S-1"]) == "missing_attribute: size not found in the row"
 
     def stops(client: StandIn) -> str:
         """The stop message; also checks the run wrote nothing."""

@@ -13,8 +13,11 @@ supplier: Tollgate Trading
 pim:
   # A row whose supplier SKU is in the PIM keeps the PIM's category and attributes and never
   # reaches a model, but only when the titles agree: at least this share of the supplier
-  # title's words (three letters or more) must be in the PIM title. Otherwise the SKU may have
-  # been reused for a new product, and the row is categorized and sent to review.
+  # title's words (three letters or more) must be in the PIM title, every PIM title word must
+  # be in the row, and both titles must name the same sizes, pack counts and model numbers
+  # (tokens with a digit, words of one or two letters). Otherwise the SKU may have been reused
+  # for another product or variant, and the row is categorized and sent to review. So is a PIM
+  # record with no category.
   min_title_share: 0.5
 
 taxonomy:
@@ -51,13 +54,15 @@ thresholds:
   window_overlap_words: 30
 
 # Values that say an attribute was not given. A value that is one of these, or starts with
-# "no " or "not ", counts as missing.
+# "no", "not" or "without", counts as missing.
 not_given: [n/a, na, none, not specified, unspecified, unknown, tbc, tbd, various, assorted]
-# A model number or brand right after one of these words ("for the AV-H700", "fits AV-H700")
-# names the product an accessory fits, not the accessory. Checked on attributes with
-# `fits_check: true`, and only when every place the value appears follows such a word.
+# A model number or brand right after one of these words ("for the AV-H700", "fits AV-H700",
+# "compatible with the Aurivox AV-H700") names the product an accessory fits, not the
+# accessory. Checked on attributes with `fits_check: true`, and only when every place the
+# value appears follows such a word.
 fits_words: [for, fits, fit, compatible with, works with, replacement for]
-# How many words before a value the fits words are looked for.
+# How many words before a value the fits words are looked for (a phrase such as "compatible
+# with" counts as one word).
 fits_window_words: 3
 
 # The attributes each top-level category requires. Every one must be found in the row's text,

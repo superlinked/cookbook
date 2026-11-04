@@ -67,7 +67,8 @@ attributes with the words each came from, and a status:
   values, a model number names the product an accessory fits, or a model call failed. The
   reasons say which.
 - **`in_pim`**: the supplier SKU is already in the PIM under this supplier, with a title that
-  agrees. The row keeps the PIM's category and attributes and never reaches a model.
+  agrees (the same words, and the same size, pack count and model number). The row keeps the
+  PIM's category and attributes and never reaches a model.
 
 Two files come out per supplier sheet that people act on. The proposals, in a column layout a
 PIM import takes (one column per attribute), which the specialist approves or corrects before
@@ -82,27 +83,31 @@ makes a decision: the statuses come from plain Python reading `rules.yaml`.
    the PIM and, in `rules.yaml`, the attributes each top-level category requires. A SKU that
    appears twice on the sheet stops the run before any model call, with both rows named: two
    variants under one SKU would otherwise share one result. Then each SKU is looked up in the
-   PIM (`pim.py`) by supplier and SKU together. A carry-over product keeps what the PIM has. A
-   SKU the PIM knows under a different title gets categorized like a new product and goes to
-   review, since the supplier may have reused the code. In your own setup the columns the
+   PIM (`pim.py`) by supplier and SKU together, with case ignored in the SKU as in the
+   duplicate check. A carry-over product keeps what the PIM has. A SKU the PIM knows under a
+   different title, or as another variant (another size, pack count, colour or model number),
+   gets categorized like a new product and goes to review, since the supplier may have reused
+   the code. So does a PIM record with no category. In your own setup the columns the
    supplier did fill in would be mapped here too, before any model sees the row.
 2. **Shortlist categories.** `Qwen/Qwen3-Embedding-4B` embeds every taxonomy path once and each
    product (title plus description) as a query; the 10 closest paths by cosine go forward.
 3. **Pick one.** `Qwen/Qwen3-Reranker-4B` scores those 10 paths against the product text.
    Python then checks the pick: the best score has to clear `min_top_score`, it has to lead the
-   best *different* path (not its parent or child) by `min_logit_margin`, and it has to sit
+   best *different* path (not its ancestor or descendant) by `min_logit_margin`, and it has to sit
    deeper than a top-level branch. Otherwise the row goes to review with the two paths side by
    side.
 4. **Read the attributes.** `fastino/gliner2-large-v1` gets a schema with only the attributes
-   the chosen category requires, over windows of about 512 tokens, and returns spans of the
+   the chosen category requires, over windows of at most 180 words, and returns spans of the
    description. The required attributes come from the pick's top-level branch, so a thin margin
    between two paths in the same branch (*Thermoses* or *Water Bottles*) still says what to
    read, and the row's supplier questions are ready when the specialist picks the category. A
    low score, a top-level pick, or a close runner-up in another branch reads nothing.
 5. **Check every attribute in Python.** A value has to be whole words from the row ("M" is not
    a size read out of "Merino") and fit its pattern. A required attribute that is missing, says
-   it wasn't given ("n/a", "not specified"), or is found twice with different values sends the
-   row to review. So does a model number or brand that only ever follows "for" or "fits": it
+   it wasn't given ("n/a", "not specified", "without ..."), or is found twice with different
+   values sends the row to review. Two values are the same only when one stands as whole words
+   in the other ("navy" in "heather navy"); "L" and "XL", or AV-H70 and AV-H700, conflict. So
+   does a model number or brand that only ever follows "for", "fits" or "compatible with": it
    names the product an accessory fits, not the accessory.
 6. **Write the proposals and the supplier questions.** One row per product with the category,
    attributes, status and reasons, plus a review sheet that carries the supplier's title and
@@ -179,7 +184,7 @@ Everything you'd want to argue about lives in [`rules.yaml`](./rules.yaml): the 
 supplier the sheet came from, the PIM title-match share, the taxonomy file and instructions,
 `top_k`, `min_top_score`, `min_logit_margin`, `min_depth`, the window size, the words that mean
 "not given", the "for"/"fits" words, and the required attributes per top-level category with
-their patterns. [`recipe.py`](./recipe.py) is about 1,070 lines and reads top to bottom in the
+their patterns. [`recipe.py`](./recipe.py) is about 1,120 lines and reads top to bottom in the
 order of the flow. [`pim.py`](./pim.py) stands in for the PIM: a product search filtered on
 supplier and supplier SKU, over the seed in `data/pim-products.csv` loaded into an in-memory
 SQLite database.
@@ -187,16 +192,17 @@ SQLite database.
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Load | `load_products`, `check_unique_skus` | none | Reads the sheet. A missing column, a row with no SKU or no text, or a SKU on two rows (case ignored) stops the run, naming the lines |
-| PIM | `check_pim`, `Pim.find_by_supplier_sku` | none | Same supplier and SKU, and at least half (`min_title_share` 0.5) of the title's words in the PIM title: `in_pim`. Several records, or a title that disagrees: review |
-| Shortlist | `retrieve`, `encode_batches`, `shortlist` | `encode` | All 2,344 paths in batches of 128 (19 calls), the products as queries (1 call); top 10 by cosine. A failed path batch sends every row to review; a failed product batch sends its rows |
-| Pick | `rerank`, `decide_category`, `log_odds`, `same_lineage` | `score` | One call per new product. Low score (< 0.50), a margin under 1.0 over a path that isn't the pick's parent or child, or a top-level pick: review |
-| Read | `extract_attributes`, `windows`, `output_schema` | `extract` | One call per window of at most 180 words, overlapping by 30, with only the branch's required attributes. A window that wasn't read is a review reason |
-| Check | `merge_attributes`, `occurrences`, `not_given`, `lists_two_values`, `fits_spots`, `scan_values` | none | Whole words from the row, the attribute's `pattern`, one value, not only after a "for"/"fits" word; for net quantity, every weight or volume in the row (glued or not) must agree |
+| PIM | `check_pim`, `variant_marks`, `Pim.find_by_supplier_sku` | none | Same supplier and SKU (case ignored), at least half (`min_title_share` 0.5) of the title's words in the PIM title, every PIM title word in the row, and the same sizes, pack counts and model numbers: `in_pim`. Several records, a record with no category, or a title or variant that disagrees: review |
+| Shortlist | `retrieve`, `encode_batches`, `shortlist` | `encode` | All 2,344 paths in batches of 128 (19 calls), the products as queries (1 call); top 10 by cosine. A failed path batch sends every row to review; a failed product batch sends its rows, with SIE's error |
+| Pick | `rerank`, `decide_category`, `log_odds`, `same_lineage` | `score` | One call per new product. A score that isn't a number is a failed call. Low score (< 0.50), a margin under 1.0 over a path that isn't the pick's ancestor or descendant, or a top-level pick: review |
+| Read | `extract_attributes`, `windows`, `output_schema` | `extract` | One call per window of at most 180 words, overlapping by 30, with only the branch's required attributes and `overflow_policy: error`, so a window too long to read whole fails instead of being cut short. A window that wasn't read, or a value that isn't text, is a review reason. A branch with no attribute list in `rules.yaml` reads nothing and goes to review |
+| Check | `merge_attributes`, `occurrences`, `not_given`, `lists_two_values`, `fits_spots`, `scan_values` | none | Whole words from the row, the attribute's `pattern`, one value (whole-word containment only: "L" is not "XL"), not only after a "for"/"fits"/"compatible with" word; for net quantity, every weight or volume in the row (glued or not) must agree |
 | Write | `write_outputs`, `csv_safe` | none | `catalog.csv`, `review.csv`, `questions.csv`, `rows.json`; a cell a spreadsheet would run as a formula gets a leading `'` |
 
 The SIE error rule is the same as in the security recipes. A call that fails for a reason that
-may pass (a timeout, a lost connection, a 5xx, a rate limit, a model still loading, or a reply
-missing `dense`, `scores` or `data`) sends its rows to review with a short reason, and the run
+may pass (a timeout, a lost connection, a 5xx, a rate limit, a model still loading, a window
+too long to read whole, or a reply missing `dense`, `scores` or `data`, with a score that isn't
+a number, or with an attribute value that isn't text) sends its rows to review with a short reason, and the run
 carries on. A refusal every call would repeat (a bad key, no credits, a model name SIE doesn't
 know) stops the run with SIE's full message and writes no outputs. If every call failed, the
 run stops too. An empty `data` is a real result: the model found nothing. When a window wasn't
@@ -226,7 +232,7 @@ uv run --group data make_data.py   # optional: rebuild data/ (downloads the taxo
 writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
 embedding, reranking and extraction models. Every run embeds the whole taxonomy file first. A
 warm run makes 118 SIE calls (20 to the embedder, 50 to the reranker, 48 to the extractor) and
-took about 73 seconds.
+took about 45 seconds.
 
 ## What came out
 
@@ -255,8 +261,8 @@ On our live run on 4 Nov 2026 (UTC), 51 rows came back as 33 `checks_passed`, 17
 | Missing size | TT-A04 merino sweater, no size anywhere | `review`, as planned: size not found, and a question for the supplier | The supplier has to be asked; a guessed size ends up on the product page |
 | Branch not in the taxonomy | TT-X01 brass hose nozzle (Lawn & Garden is not in the trimmed file) | `review`, as planned: best path plain *Home & Garden* at 0.47, so both the low score and the top-level rule fired | The right answer isn't on the list, and a top-level branch is not a category |
 | Net volume in an odd format | TT-F07 sparkling water, "Net volume: 12 x 330 ml" | `review`: GLiNER2's reply had no `data` at all, which counts as a failed call | A pack-times-size quantity is how food suppliers write it |
-| Duplicate SKU (new) | Two rows with the same SKU, a black and a white variant | The run stopped before any model call and named both rows, as planned | One SKU, two products: the result for one would silently replace the other |
-| Accessory naming its host (new) | Replacement ear cushions "for the Aurivox AV-H700 over-ear headphones" | `review`, category *Headphone Cushions & Tips*, never *Headphones*. The model number was never read: the extract call got SIE's empty-result HTTP 500 | The title is full of headphone words, and AV-H700 is the headphones' model number, not the cushions' |
+| Duplicate SKU | Two rows with the same SKU, a black and a white variant | The run stopped before any model call and named both rows, as planned | One SKU, two products: the result for one would silently replace the other |
+| Accessory naming its host | Replacement ear cushions "for the Aurivox AV-H700 over-ear headphones" | `review`, category *Headphone Cushions & Tips*, never *Headphones*. The model number was never read: the extract call got SIE's empty-result HTTP 500 | The title is full of headphone words, and AV-H700 is the headphones' model number, not the cushions' |
 | Carry-over product (from the PIM lookup) | TT-A08 hiking socks, already PIM product P-10231 | `in_pim`, *Crew Socks*, no model call | A product the store already sells keeps what it has |
 
 Two planted cases came out differently from the plan, and we left them that way. TT-F07 was meant to
@@ -272,11 +278,12 @@ another model). Treat all of this as a demo that the pipeline works, not as a me
 
 A few things worth noticing:
 
-- **Most of the review pile is the reranker being honest.** Seven rows went to review on a thin
-  margin between two real categories: *T-Shirts* vs *Shirts* (TT-A01), *Rain Coats* vs *Rain
-  Suits*, *Activewear > Leggings* vs *Pants > Leggings*, *DAB Radios* vs *AM/FM Radios*,
-  *Mixing Bowls* vs *Cookware Sets*, *Oat Drinks* vs *Milk*, and the planted bottle. TT-F09
-  honey was close to *Honey Jars*, which is a container under Home & Garden, so the recipe
+- **Most of the review pile is the reranker being honest.** Nine rows went to review on a thin
+  margin. Seven were between two real categories: *T-Shirts* vs *Shirts* (TT-A01), *Rain Coats*
+  vs *Rain Suits*, *Activewear > Leggings* vs *Pants > Leggings*, *DAB Radios* vs *AM/FM
+  Radios*, *Mixing Bowls* vs *Cookware Sets*, *Oat Drinks* vs *Milk*, and the planted bottle.
+  The eighth is the cushions (TT-E13), between two fair accessory paths. The ninth, TT-F09
+  honey, was close to *Honey Jars*, which is a container under Home & Garden, so the recipe
   didn't read its attributes at all: it doesn't know which branch's list to use. The T-shirt is
   the tired-person mistake from the Background, caught at 0.99 vs 0.98.
 - **SIE Cloud's empty-result 500 hit four rows that do have the attribute.** TT-H01 ("Material:
@@ -331,11 +338,14 @@ path with its score, and the notes).
   `attributes` by a deeper path would ask a soundbar and a laptop different questions.
 - **Your thresholds.** `top_k`, `min_top_score`, `min_logit_margin` and `min_depth` are starting
   points, so check them on your own sheets. The reranker's scores crowd near 1.0, so the margin
-  is in log-odds, and a parent and its child never count as a tie.
+  is in log-odds, and an ancestor and its descendant never count as a tie.
 - **Your models.** They are under `models` in `rules.yaml`, one line each.
 - **The supplier's other columns.** This sheet has only free text. When a supplier also sends
   brand, barcode or size columns, map them onto the catalog first and ask the model only for
   what's left.
+- **The variant check reads titles only.** A carry-over row whose title matches the PIM but
+  whose description names another size still keeps the PIM's size; comparing the PIM's
+  attributes with the description would catch it.
 - **A near match in the PIM.** The lookup is exact on supplier and SKU. A product the PIM has
   under another SKU (same title, new code) comes in as new; a title search would flag it.
 - **Dual units.** A label like "340 g (12 oz)" reads as two different net quantities and goes

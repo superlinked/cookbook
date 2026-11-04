@@ -23,30 +23,39 @@ search:
   photo_weight: 1.0
   words_weight: 10.0
   # Every hit has to clear the bar for its search kind (cosine similarity) to be shown; a hit
-  # below it is kept only as context in the search gap log. Words and photos sit on very
-  # different scales with this model, so each kind has its own bar.
+  # below it stays in results.json as a candidate and, for a failed search, as context in the
+  # search gap log. Words and photos sit on very different scales with this model, so each kind
+  # has its own bar.
   min_score:
-    # Fitted to the demo data after the first live run: on-target word searches score 0.14 to
-    # 0.20 against their product; "cordless power drill" scores at most 0.013 against anything.
+    # Fitted to the demo data: on-target word searches score 0.14 to 0.19 against their product;
+    # "cordless power drill" scores at most 0.013 against anything.
     text: 0.10
-    # Fitted to the demo data after the first live run: two unrelated product photos on white
-    # backgrounds already score about 0.55 to 0.62 (the claw hammer vs a drinking glass: 0.619),
-    # and a room shot where the product is small scores 0.64. A worn shot and a shopper's crop
-    # of a catalog product score 0.87 and up against it.
+    # Fitted to the demo data: two unrelated product photos on white backgrounds already score
+    # about 0.55 to 0.62 (the claw hammer vs a drinking glass: 0.619), and a room shot where
+    # the product is small scores 0.64. A worn shot and a shopper's crop of a catalog product
+    # score 0.87 and up against it.
     photo: 0.70
     # A photo with words has to clear both: it looks like the photo, and it has what the words
     # ask for. Words that only name a change ("but the base should be dark wood") score lower
     # against everything than a full description, so their bar sits below the words-only one.
-    # Fitted to the demo data after the first live run: the dark wood lamp scores 0.098 against
-    # those words, the white glass lamp 0.085, the light wood lamp 0.081 and the chrome lamp
-    # 0.076. The grey messenger bag scores 0.041 against "in brown leather".
+    # Fitted to the demo data: the dark wood lamp scores 0.098 against those words, the white
+    # glass lamp 0.085, the light wood lamp 0.081 and the chrome lamp 0.076. The grey messenger
+    # bag scores 0.041 against "in brown leather".
     photo_and_text:
       photo: 0.70
       words: 0.09
-  # An embedding reads "not" poorly: when we tried it, "a lamp without a dark wood base" still
-  # put the dark wood lamp first (0.149; "with" gave 0.172). Words holding one of these are not
-  # scored: the search gets no_good_match and goes to the log.
-  negation_words: [not, no, without, non, never, except, nothing, none]
+  # An embedding reads "not" poorly: with this model, "a lamp without a dark wood base" still
+  # puts the dark wood lamp first (0.149; "with" gives 0.172). Words holding one of these, or a
+  # word ending in n't, are not scored: the search gets no_good_match and goes to the log.
+  # Quote every word: YAML reads a bare no as false.
+  negation_words: ["not", "no", "without", "non", "never", "except", "nothing", "none"]
+  # Hyphenated words that start with a negation word but name a product property, not something
+  # the shopper doesn't want. Any other one ("non-wood", "no-wood") counts as a negation.
+  negation_kept: ["non-stick", "non-slip", "non-toxic", "non-woven", "non-iron"]
+  # SigLIP reads at most 64 tokens of text, caption included. Words longer than this many words
+  # (a word count, not a token count; about 1.3 tokens a word in English) are not scored: the
+  # shopper is asked to shorten them.
+  max_words: 40
 
 close_style:
   # A photo search's top result is checked against the PIM's color for that product. The photo's

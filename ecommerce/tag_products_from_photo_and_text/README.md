@@ -110,9 +110,10 @@ nothing back.
    listing to review with the reasons. So does a tag only the photo supports that would change
    the current value: changing the catalog on a photo alone is something a person should see.
 
-If an SIE call fails for a reason that may pass (a timeout, a 5xx, a rate limit), that listing
-goes to review with the reason and the run carries on; if SIE refuses the call or every call
-fails, the run stops with SIE's message and writes nothing.
+If an SIE call fails for a reason that may pass (a timeout, a 5xx, a rate limit), or its reply
+breaks the schema, that listing goes to review with the reason and the run carries on; if SIE
+refuses the call or no call gives a usable reply, the run stops with SIE's message and writes
+nothing.
 
 ## Picking the model
 
@@ -133,9 +134,9 @@ not for the cotton blanket: the photo reading came back `cotton`, which no one c
 photo. That's why the recipe never lets a photo alone set a material, and why `text_and_photo`
 for material is really "the text says so and the photo doesn't object".
 
-The model before this one was `google/siglip-so400m-patch14-384`, an image embedding model that
-scored each photo against label prompts. It saw only the photo, so it couldn't read the cotton
-in the bullets or the "Faux" in the title; that's the reason for the swap.
+An image embedding model such as `google/siglip-so400m-patch14-384`, scoring the photo against
+label prompts, sees only the photo. It can't read the cotton in the bullets or the "Faux" in the
+title, which is why this recipe uses a vision-language model.
 
 ## The flow
 
@@ -182,7 +183,7 @@ listings up by exact ID only.
 | Parse | `parse_reply` | none | Exact keys, every value on its list, finish reason `stop`. Anything else is a review reason with what was wrong; nothing is repaired |
 | Words | `normalize`, `phrases`, `phrase_pattern`, `negated`, `find_matches`, `find_values` | none | Values a piece of text names, longest phrase first so "faux leather" never yields leather. Whole words, any case, plural s or es. A value with a denying word before it (up to two words between) or after it is denied |
 | Quote check | `segments`, `check_quote`, `quote_problem` | none | The quote, after straightening quotes and dashes, must be in the title, one bullet point or the description. The matches it overlaps there must name the value, not deny it, and name no other value the reply doesn't list under `also` |
-| Current field | `current_value`, `one_value` | none | Product type through `current.types` (HOME counts as empty). Color from the standardized color, else the seller's color. Material from the material field. A field that names no single value is kept raw |
+| Current field | `current_value`, `one_value` | none | Product type through `current.types` (HOME and HOME_FURNITURE_AND_DECOR count as empty). Color from the standardized color, else the seller's color. Material from the material field. A field that names no single value is kept raw |
 | Tag and route | `tag_field`, `tag_listing` | none | Source per field, comparison with the current field, and the review reasons; `checks_passed` only with no reason |
 | Write | `csv_rows`, `csv_safe`, `write_outputs` | none | `tags.csv` (one row per listing and field), `review.csv` and `tags.json`; a cell a spreadsheet would run as a formula gets a leading `'` |
 
@@ -190,8 +191,9 @@ The SIE error rule is the same as in the security recipes. A call that fails for
 may pass (a timeout, a lost connection, a 5xx, a rate limit, a model still loading, or a reply
 with no `choices[0].message.content`) sends that listing to review with a short reason, and the
 run carries on. A refusal every call would repeat (a bad key, no credits, a model name SIE
-doesn't know) stops the run with SIE's full message and writes no outputs. If every call failed,
-the run stops too.
+doesn't know) stops the run with SIE's full message and writes no outputs. A reply that comes
+back but breaks the schema counts as a failed call: its listing goes to review, and if every call
+failed or came back unusable, the run stops too.
 
 [`selfcheck.py`](./selfcheck.py) checks the word matching, the quote check, the current fields,
 every source and routing rule, the strict reply parsing, the prompt's line about printed text,
@@ -213,7 +215,7 @@ uv run make_data.py    # optional: rebuild data/ from ABO
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Cloud
-starts the model. A warm run makes 18 SIE calls, one per listing, and takes about 37 seconds.
+starts the model. A warm run makes 18 SIE calls, one per listing, and takes about 34 seconds.
 `make_data.py` streams all 16 ABO listings files (about 88 MB, nothing saved) and 18 photos, and
 writes the same files byte for byte.
 
@@ -222,7 +224,7 @@ writes the same files byte for byte.
 The input is the PIM seed: [`data/pim_listings.csv`](./data/pim_listings.csv) (18 listings:
 listing ID, marketplace, ABO item ID, title, product type, the seller's color, standardized
 color, material, description, photo file),
-[`data/pim_bullets.csv`](./data/pim_bullets.csv) (106 bullet points, one per row, in the
+[`data/pim_bullets.csv`](./data/pim_bullets.csv) (105 bullet points, one per row, in the
 listing's order) and the 18 main photos in [`data/photos/`](./data/photos).
 
 > **All 18 listings are real.** They are Amazon Berkeley Objects (ABO) listings with their own
@@ -230,18 +232,18 @@ listing's order) and the 18 main photos in [`data/photos/`](./data/photos).
 > below). ABO has a description field, but none of these 18 listings fills it, so the recipe
 > reads titles and bullet points here.
 
-Two planted cases are new in this version. For "cotton in the bullets" we used P17, a Rivet throw
+Two listings were planted for two checks. For "cotton in the bullets" we used P17, a Rivet throw
 blanket whose third bullet point is just "100% Cotton", with no material field and no cotton in
 the title. For the negated material, ABO has no listing that says "leather-free" among the ones
 we searched; the closest real one is P18, a Ravenna Home storage ottoman whose title and third
 bullet point say "vegan leather" and whose material field is empty.
 
-On our live run on 4 Nov 2026 (UTC), 14 listings came back `checks_passed` and 4 `review`:
+On our live run on 4 Nov 2026 (UTC), 13 listings came back `checks_passed` and 5 `review`:
 
 | Case | What we planted | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
 | Clear listings | P01 backpack, P03 leather sofa, P07 ceramic planter, P09 suede sandal | `checks_passed`, every tag `same` | As planned: all four `checks_passed`, every tag `same` and `text_and_photo` | Most listings are fine, and those should take no one's time |
-| Cotton in the bullets (new) | P17 throw blanket, empty material field, "100% Cotton" in bullet 3 | material cotton, `from_text`, `filled` | cotton, `filled`, quote "100% Cotton" from bullet 3, but `text_and_photo`: the photo reading also said cotton | The answer was in the listing all along; a photo could never have told you |
+| Cotton in the bullets | P17 throw blanket, empty material field, "100% Cotton" in bullet 3 | material cotton, `from_text`, `filled` | cotton, `filled`, quote "100% Cotton" from bullet 3, but `text_and_photo`: the photo reading also said cotton. The listing went to `review` for its color, see below | The answer was in the listing all along; a photo could never have told you |
 | Velvet, navy | P02, color "Navy Blue Velvet", material Velvet | color blue and material velvet, both `same` | As planned, quotes "Navy Blue" and "Velvet fabric" | The color field carries a material word; the synonyms have to cope |
 | Faux leather | P11, title "Faux Leather", material tag "Leather" | material faux leather `from_text`, `changed` from Leather | As planned; the photo said `unclear` | The text beats a wrong tag, and the change is shown |
 | Enamel or ceramic | P05 Dutch oven, text says enamelled cast iron | material cast iron `from_text`; the photo can't confirm it | As planned; the photo said `unclear` | What the photo alone sent to review, the text settles |
@@ -250,9 +252,9 @@ On our live run on 4 Nov 2026 (UTC), 14 listings came back `checks_passed` and 4
 | Empty color | P14 boots with no color in the fields or the text | color `from_photo`, `filled` | As planned (brown); the listing went to `review` because its material came from the photo only | A gap only the photo can fill, for a person to confirm |
 | Two-tone desk | P16, "White/Brown" | color white `same`, brown named as a second color | As planned: white `same`, `also` brown | Agreement on the main color; the second one isn't silently dropped |
 | Not on the list | P15 Lightning cable | type `not_found`, `review`, never "headphones" | As planned (the photo said `none`); its material plastic was photo-only, a second reason | Nothing on the list fits, so nothing should be picked |
-| Negated material (new) | P18, "vegan leather" in the title and a bullet, empty material field | never leather; faux leather or `not_found` | faux leather, `from_text`, `filled`, quote "vegan leather"; the photo said `unclear` | The word "leather" in the text isn't the same as leather |
+| Negated material | P18, "vegan leather" in the title and a bullet, empty material field | never leather; faux leather or `not_found` | faux leather, `from_text`, `filled`, quote "vegan leather"; the photo said `unclear` | The word "leather" in the text isn't the same as leather |
 
-Four listings outside the table ride along from the earlier version. P06 (hard-shell luggage,
+Four listings outside the table are ordinary traffic. P06 (hard-shell luggage,
 plastic from "polycarbonate material") and P10 (grey velvet pouf) came out `checks_passed` with
 every tag `same`. P13, a metal bed with no fields at all, got type bed, material metal from the
 title and color black from the photo, all `filled`. P08's jute rug went to `review`, see below.
@@ -264,29 +266,34 @@ A few things worth noticing:
 
 - **The quote check earned its keep twice.** On P04 the model said the text gives the color red,
   quoting "Sundried" (from "Sundried Velvet"). Sundried is a lovely word and not a color on any
-  list. On P08 it said the text gives brown, quoting "Natural", which the synonyms read as beige.
-  Both readings were dropped and both listings went to review. Here's P08 from `review.csv`, title cut:
+  list. On P17 it said the text gives blue, quoting "Navy and Natural", but listed white, not
+  beige, as the second color; the synonyms read "Natural" as beige, so the quote names a color
+  the reply doesn't list. Both text readings were dropped and both listings went to review.
+  Here's P17 from `review.csv`, title cut:
 
   ```text
-  P08,"...Jute Area Rug, 5 x 7 Foot, Natural","color: the reply says the text gives brown, but the quote 'Natural' doesn't say brown (it says beige) | color: only the photo says brown, and the catalog says Beige"
+  P17,"...Throw Blanket, Soft and Stylish, 50"" x 60"", Navy and Natural","color: the reply says the text gives blue, but the quote 'Navy and Natural' also names beige | color: only the photo says blue, and the catalog says NAVY/NATURAL"
   ```
 
-  The second reason is the photo-only change rule: the photo did read brown, and the catalog
-  says Beige. Natural jute sits between the two, and a person settles it in a second.
+  The second reason is the photo-only change rule: with the text reading gone, only the photo
+  says blue, and the catalog's color is the unmapped "NAVY/NATURAL". Whether natural is beige
+  or white is a call for a person, not the model.
+- **P08 is a real conflict.** Bullet 3 says "brown and tan hues", the photo read beige, and the
+  catalog says Beige. The recipe doesn't pick a winner: the color is `conflict`, no tag, review.
+  Natural jute sits between the two, and a person settles it in a second.
 - **P12 didn't come out as planned, and we left it.** We planted it as "only the photo can say
   what color it is", because its color field says "Glass". But its standardized color is Black,
   its title ends in "Black", the first bullet says "black iron frame", and the model read the
   frame as black. Text, photo and catalog agree, so `checks_passed` is the honest answer. The
   odd "Glass" is still there in `tags.csv` as the seller's color if you want to clean it.
-- **P17 is the case the recipe was rebuilt for.** Here's its material row from `tags.csv`, title cut:
+- **P17 is the case this recipe is for.** Here's its material row from `tags.csv`, title cut:
 
   ```text
-  P17,"...Throw Blanket, Soft and Stylish, 50"" x 60"", Navy and Natural",checks_passed,material,cotton,text_and_photo,,filled,100% Cotton,bullet 3,holds,cotton,
+  P17,"...Throw Blanket, Soft and Stylish, 50"" x 60"", Navy and Natural",review,material,cotton,text_and_photo,,filled,100% Cotton,bullet 3,holds,cotton,
   ```
 
-  The material field was empty, and the answer was the whole of bullet point 3. The color row
-  for the same listing is `changed` from "NAVY/NATURAL" to blue, quoting "Navy and Natural" with
-  beige under `also`: an unmapped seller color is shown as changed, not filled.
+  The material field was empty, and the answer was the whole of bullet point 3. The listing
+  is `review` because of its color, above, not its material.
 - **P18 is why the quote is read in context.** The model got it right here (faux leather,
   quoting "vegan leather"). If it had said leather and quoted just "Leather" from the title, the
   quote would be in the text, and a plain substring check would pass it. Read where it stands,
@@ -360,8 +367,8 @@ as ABO has them, mistakes included.
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Credit for the data, including all
 images, goes to Amazon.com; the dataset was built by Matthieu Guillaumin, Thomas Dideriksen,
 Kenan Deng, Himanshu Arora (Amazon.com), Jasmine Collins and Jitendra Malik (UC Berkeley).
-Changes: 18 listings were picked (16 from the earlier version of this recipe, plus P17 and P18),
-the English title, product type, color, standardized color, material (`fabric_type` where
+We read ABO as served on 3 Nov 2026 (UTC); ABO publishes no version tag.
+Changes: 18 listings were picked, the English title, product type, color, standardized color, material (`fabric_type` where
 `material` is empty, as for P14), description and bullet points were copied into two CSV files,
 and the photos are ABO's originals shrunk to a longest side of 512 pixels and saved as JPEG with
 no metadata. [`make_data.py`](./make_data.py) lists each listing's ABO item and image ID and

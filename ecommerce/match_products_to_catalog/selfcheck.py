@@ -255,15 +255,15 @@ def check_same_line() -> None:
 
 
 def check_identifiers() -> None:
-    settled = recipe.match_identifiers(FEED["L42"], REAL_PIM)
+    settled = recipe.match_identifiers(FEED["L42"], REAL_PIM, RULES)
     assert settled
     assert settled.status == recipe.SAME_IDENTIFIER
     assert settled.existing == "L41"
-    assert recipe.match_identifiers(FEED["L01"], REAL_PIM) is None
+    assert recipe.match_identifiers(FEED["L01"], REAL_PIM, RULES) is None
     l41 = PRODUCTS["L41"]
     # A shared GTIN next to a different model number is not a match.
-    clash = feed_record(gtin=l41.gtin, model_number="206MB-NV-13")
-    found = recipe.match_identifiers(clash, REAL_PIM)
+    clash = feed_record(brand=l41.brand, gtin=l41.gtin, model_number="206MB-NV-13")
+    found = recipe.match_identifiers(clash, REAL_PIM, RULES)
     assert found, found
     assert found.status == recipe.REVIEW, found
     assert "Same GTIN as L41, but the model number differs." in found.reason, found.reason
@@ -274,7 +274,7 @@ def check_identifiers() -> None:
             product(gtin="2000000000022"),
             product(record_id="P2", gtin="2000000000022"),
         )
-        found = recipe.match_identifiers(feed_record(gtin="2000000000022"), twin)
+        found = recipe.match_identifiers(feed_record(gtin="2000000000022"), twin, RULES)
     assert found
     assert found.status == recipe.REVIEW
     assert "finds 2 PIM products" in found.reason
@@ -554,11 +554,11 @@ def check_sie_failure() -> None:
     proposals, pairs, _ = run(ENCODED, ENCODED, ServerError("unavailable", status_code=503))
     assert [p.status for p in proposals] == [recipe.LIKELY_SAME, recipe.REVIEW]
     assert pairs[1].reason.startswith(
-        "Judge not asked: the SIE call failed: ServerError (HTTP 503): unavailable"
+        "No judge verdict, because the SIE call failed: ServerError (HTTP 503): unavailable"
     ), pairs[1].reason
     # A reply missing its key is a failed call on the same path, not "nothing found".
     proposals, pairs, _ = run([{"sparse": [1]}] * 4, ENCODED)
-    assert "the reply has no `dense` vector for F1" in pairs[0].reason, pairs[0].reason
+    assert "the reply has no `dense` vector for feed:F1" in pairs[0].reason, pairs[0].reason
     proposals, pairs, _ = run(ENCODED[:3], ENCODED)
     assert "the reply has 3 results for 4 items" in pairs[0].reason, pairs[0].reason
     proposals, pairs, _ = run(ENCODED, ENCODED, {"id": "no choices"})
@@ -609,6 +609,99 @@ def check_sie_failure() -> None:
     print("sie failure: transient errors go to review; refusals and all-failed stop; bugs raise ok")
 
 
+def check_review_fixes() -> None:
+    """One case per fix from the review of this recipe."""
+
+    def classify(record: recipe.FeedRecord, prod: Product) -> recipe.Pair:
+        return recipe.classify(record, prod, 0.99, 0.99, RULES)
+
+    # Shoe sizes: "8 M US" is a US shoe size, not 8 meters; "B/M" is a width like "B".
+    assert attrs("Flat, 8 M US") == {"us_shoe": {"8"}}, attrs("Flat, 8 M US")
+    assert attrs("Flat, 8 B/M US") == {"us_shoe": {"8"}}, attrs("Flat, 8 B/M US")
+    assert attrs("Flat, 12 W US") == {"us_shoe": {"12"}}, attrs("Flat, 12 W US")
+    flat = product(title="Acme Test Flat, Black, 8 B US", size="8 B US", product_line="Test Flat")
+    found = classify(feed_record(title="Acme Test Flat, Black, 9 M US"), flat)
+    assert found.status == recipe.LIKELY_VARIANT, found
+    assert found.conflicts == ["us_shoe 9 vs 8"], found
+    # A size field no pattern reads is compared as written; sizes in no shared unit go to
+    # review, never to likely_same_product.
+    assert attrs("Tee", size="One Size") == {"size": {"one size"}}
+    tee = product(title="Acme Test Tee", size="M", product_line="Test Tee", color="")
+    found = classify(feed_record(title="Acme Test Tee", size="L"), tee)
+    assert (found.status, found.conflicts) == (recipe.LIKELY_VARIANT, ["size l vs m"]), found
+    found = classify(feed_record(title="Acme Test Tee", size="One Size"), flat)
+    assert found.status == recipe.REVIEW, found
+    assert "size one size from the supplier and us_shoe 8 from the PIM can't be" in found.reason
+    found = classify(feed_record(title="Acme Test Cable, 1.8 Meters"), product())
+    assert found.status == recipe.REVIEW, found
+    # A shared GTIN or model number links only when the attributes agree.
+    other_size = dataclasses.replace(FEED["L42"], size="7 B US")
+    settled = recipe.match_identifiers(other_size, REAL_PIM, RULES)
+    assert settled, settled
+    assert settled.status == recipe.REVIEW, settled
+    assert "but the attributes don't agree: us_shoe 7 vs 12." in settled.reason, settled.reason
+    other_color = dataclasses.replace(FEED["L42"], color="Black")
+    settled = recipe.match_identifiers(other_color, REAL_PIM, RULES)
+    assert settled, settled
+    assert settled.status == recipe.REVIEW, settled
+    # Placeholder identifiers find nothing; a model number finds only the record's own brand.
+    assert gtin_key("000000000000") == gtin_key("N/A") == ""
+    assert model_key("N/A") == model_key("tbd") == model_key("000") == ""
+    with tempfile.TemporaryDirectory() as tmp:
+        pim = write_pim(Path(tmp), product(gtin="00000000000000", model_number="N/A"))
+        for gtin, model in (("0000000000000", ""), ("", "n/a"), ("", "TBD")):
+            record = feed_record(gtin=gtin, model_number=model)
+            assert recipe.match_identifiers(record, pim, RULES) is None, (gtin, model)
+        pim = write_pim(Path(tmp), product(gtin="2000000000022", model_number="A-100"))
+        record = feed_record(brand="Other", title="Other Cable", model_number="A100")
+        assert recipe.match_identifiers(record, pim, RULES) is None
+        settled = recipe.match_identifiers(
+            dataclasses.replace(record, gtin="2000000000022"), pim, RULES
+        )
+        assert settled, settled
+        assert settled.status == recipe.REVIEW, settled
+        assert "but the brand differs" in settled.reason, settled.reason
+    # A pack count field that is not a number goes through the pack patterns, else review.
+    assert attrs("Cable", pack_count="2 pack")["pack_count"] == {"2"}
+    found = classify(feed_record(pack_count="2 pack"), product(pack_count="2"))
+    assert found.status == recipe.LIKELY_SAME, found
+    found = classify(feed_record(pack_count="2pk"), product(pack_count="2"))
+    assert found.status == recipe.REVIEW, found
+    assert "pack_count '2pk' from the supplier can't be read" in found.reason, found.reason
+    # A plug field goes through the plug patterns: "UK plug" is UK.
+    assert attrs("Charger", plug="UK plug")["plug"] == {"UK"}
+    assert classify(feed_record(plug="UK plug"), product(plug="UK")).status == recipe.LIKELY_SAME
+    # Feed and PIM IDs are separate: a feed record named like a PIM product is not compared
+    # with itself, and its vectors are its own.
+    folder = Path(tempfile.mkdtemp())
+    pim = write_pim(folder, product(), product(record_id="P2", color="White"))
+    feed = [feed_record(record_id="P2"), feed_record(record_id="F2", title="Acme Test Cable")]
+    client = StandIn(*OK)
+    with contextlib.redirect_stdout(io.StringIO()):
+        proposals, pairs, _ = recipe.run(
+            cast(SIEClient, client), RULES, pim, feed, Image.new("RGB", (8, 8))
+        )
+    assert (proposals[0].status, proposals[0].action) == (recipe.LIKELY_SAME, "link to P1")
+    # Two feed rows with one record ID stop the run before any call.
+    seed = folder / "feed.csv"
+    with recipe.FEED_PATH.open(encoding="utf-8") as handle:
+        header, first = handle.readline(), handle.readline()
+    seed.write_text(header + first + first, encoding="utf-8")
+    caught = raised(lambda: recipe.load_feed(seed))
+    assert type(caught) is SystemExit, caught
+    assert "more than one row for record ID L01" in str(caught), caught
+    # A dense vector that is all zeros, not finite or of another length is a failed call.
+    for bad, why in (
+        ([0, 0, 0], "empty, zero or not finite"),
+        ([float("nan"), 0, 0], "empty, zero or not finite"),
+        ([1, 0], "different lengths"),
+    ):
+        _, pairs, _ = run([{"dense": bad}, *ENCODED[1:]], ENCODED)
+        assert why in pairs[0].reason, (bad, pairs[0].reason)
+        assert pairs[0].route == "not_compared", pairs[0]
+    print("review fixes: shoe sizes, unread sizes, attributes on identifiers, placeholders, ok")
+
+
 def check_photos() -> None:
     # A photo with an EXIF rotation is turned upright before anyone looks at it.
     with tempfile.TemporaryDirectory() as tmp:
@@ -632,4 +725,5 @@ if __name__ == "__main__":
     check_propose()
     check_run()
     check_sie_failure()
+    check_review_fixes()
     check_photos()

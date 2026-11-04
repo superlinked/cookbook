@@ -242,9 +242,27 @@ def check_photo_and_words() -> None:
 def check_negation() -> None:
     for words in ("lamp without a wood base", "NOT leather", "a bag that isn't brown", "non-wood"):
         assert recipe.negation(words, RULES), words
+    # "no" is a negation word: YAML would read it as false unless rules.yaml quotes it.
+    assert recipe.negation("a lamp with no wood base", RULES) == "no"
+    # A phone keyboard's curly apostrophe is read like a straight one.
+    assert recipe.negation("a bag that isn\u2019t brown", RULES) == "isn't"
+    # A hyphenated product property is not a negation; any other "non-" word is.
+    for words in ("non-stick frying pan", "Non-Slip bath mat"):
+        assert not recipe.negation(words, RULES), words
+    assert recipe.negation("a non-leather bag", RULES) == "non-leather"
     for words in ("but the base should be dark wood", "in brown leather", "a lamp with a knob"):
         assert not recipe.negation(words, RULES), words
-    print("negation: words with 'not', 'without' or n't are caught ok")
+    # A bare `no` in rules.yaml loads as false; the rules refuse it instead of dropping it.
+    folder = Path(tempfile.mkdtemp())
+    text = recipe.RULES_PATH.read_text(encoding="utf-8").replace('"no",', "no,")
+    (folder / "rules.yaml").write_text(text, encoding="utf-8")
+    error = raised(lambda: recipe.load_rules(folder / "rules.yaml"))
+    assert type(error) is ValueError, error
+    assert "[False]" in str(error), error
+    # Words longer than the model reads are not scored.
+    assert recipe.too_long(" ".join(["wood"] * 40), RULES) == ""
+    assert "41 words long" in recipe.too_long(" ".join(["wood"] * 41), RULES)
+    print("negation: 'not', 'no', curly n't and non- words caught, non-stick kept ok")
 
 
 def check_close_style() -> None:
@@ -254,14 +272,23 @@ def check_close_style() -> None:
     navy, black = np.asarray(axis("color:navy")), np.asarray(axis("color:black"))
     looks_black = mix((1.0, list(PHOTO)), (0.5, list(black)))
     looks_navy = mix((1.0, list(PHOTO)), (0.5, list(navy)))
-    reason = recipe.close_style(q, result, looks_black, CATALOG, idx)
+    check, reason = recipe.close_style(q, result, looks_black, CATALOG, idx, RULES)
+    assert check == "close_style", check
     assert reason.startswith("Close style: the photo looks black, top result P33 is navy"), reason
-    assert recipe.close_style(q, result, looks_navy, CATALOG, idx) == ""
-    # The product's color has no vector this run: not confirmed, so it is logged.
+    assert recipe.close_style(q, result, looks_navy, CATALOG, idx, RULES) == ("same_color", "")
+    # Another color's caption has no vector: the navy photo may really be that color, so the
+    # check is not done, not a match.
+    del idx.colors["black"]
+    check, reason = recipe.close_style(q, result, looks_navy, CATALOG, idx, RULES)
+    assert check == "not_checked", check
+    assert "color not checked, the color captions for black" in reason, reason
+    # The product's own color has no vector this run: not confirmed either.
+    idx.colors["black"] = black
     del idx.colors["navy"]
-    assert "color not checked" in recipe.close_style(q, result, looks_navy, CATALOG, idx)
+    assert recipe.close_style(q, result, looks_navy, CATALOG, idx, RULES)[0] == "not_checked"
     # Words searches and a photo with words are not color-checked: the words state the change.
-    assert recipe.close_style(query("photo_and_text"), result, looks_black, CATALOG, idx) == ""
+    photo_and_text = query("photo_and_text")
+    assert recipe.close_style(photo_and_text, result, looks_black, CATALOG, idx, RULES) == ("", "")
     print("close style: a top result in another color than the photo is logged ok")
 
 
@@ -400,6 +427,17 @@ def check_run_outputs() -> None:
     log = rows(output / "search_gap_log.csv")
     assert [r["entry"] for r in log] == ["close_style"], log
     assert log[0]["candidates"].startswith("P33 0.958"), log
+    # A color caption with no vector: the result is shown, logged as not checked, not as a
+    # close style.
+    result, output, _ = run(index_reply({"color:black": [0.0] * DIM}), *OK)
+    assert result["searches"][0]["status"] == "results"
+    assert [r["entry"] for r in rows(output / "search_gap_log.csv")] == ["color_not_checked"]
+    # Words longer than the model reads: words_too_long, no SIE call, logged.
+    searches = SEARCHES.replace('=HYPERLINK("x")', " ".join(["wood"] * 41))
+    result, output, client = run(index_reply(), OK[0], searches=searches)
+    assert len(client.calls) == 2, client.calls
+    assert result["searches"][1]["status"] == "words_too_long", result["searches"][1]
+    assert [r["entry"] for r in rows(output / "search_gap_log.csv")] == ["words_too_long"]
     print("run: one index call, one call per search, outputs and gap log ok")
 
 
@@ -429,19 +467,19 @@ def check_sie_failure() -> None:
     for error in FATAL:
         assert recipe.is_fatal(error), f"{type(error).__name__} should stop the run"
 
-    # A transient failure on one search: that search gets no_good_match with the error, cut
-    # short; the other search runs.
+    # A transient failure on one search: that search gets not_searched with the error, cut
+    # short; the other search runs. It is not logged as a catalog gap.
     long = "connection refused " + "x" * 300
     for error in [*TRANSIENT, SIEConnectionError(long)]:
         result, output, _ = run(index_reply(), error, OK[1])
         first = result["searches"][0]
-        assert first["status"] == "no_good_match", first
-        prefix = "No good match: the SIE call failed: "
+        assert first["status"] == "not_searched", first
+        prefix = "Not searched: the SIE call failed: "
         assert first["reason"].startswith(prefix), first["reason"]
         assert result["searches"][1]["status"] == "results"
         assert result["sie_calls"] == {"made": 3, "failed": 1}
     assert len(first["reason"]) == len(prefix) + len("SIEConnectionError: ") + 200
-    assert rows(output / "search_gap_log.csv")[0]["entry"] == "no_good_match"
+    assert rows(output / "search_gap_log.csv")[0]["entry"] == "not_searched"
     # A reply missing its key, or with too few results, is a failed call on the same path.
     replies: list[Any] = [[{"id": "S1:photo"}], [], {"dense": []}]
     for reply in replies:
@@ -451,7 +489,7 @@ def check_sie_failure() -> None:
     for vector in ([], [0.0] * DIM, [float("nan")] * DIM, [1.0] * (DIM + 1)):
         result, _, _ = run(index_reply(), [{"dense": vector}], OK[1])
         first = result["searches"][0]
-        assert first["status"] == "no_good_match", first
+        assert first["status"] == "not_searched", first
         assert "vector" in first["reason"], first
 
     def stops(*replies: Any) -> str:
@@ -474,6 +512,9 @@ def check_sie_failure() -> None:
     assert message.startswith(f"The catalog index call to {MODEL} failed"), message
     message = stops(lambda items: [{"id": item["id"]} for item in items])
     assert "the reply has no `dense` vector" in message, message
+    # No catalog photo got a usable vector: nothing can be found, so the run stops.
+    message = stops(index_reply({p: [0.0] * DIM for p in PRODUCTS}))
+    assert message.startswith(f"No catalog photo got a usable vector from {MODEL} (35 broken)")
     # A refusal on any call stops the run at once, with SIE's full message.
     message = stops(index_reply(), OK[0], InsufficientCreditsError("no credits " + "y" * 300))
     assert message.startswith(f"SIE refused the call to {MODEL}, "), message

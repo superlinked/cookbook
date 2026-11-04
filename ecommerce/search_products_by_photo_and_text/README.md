@@ -22,10 +22,10 @@ results in a second, not a ticket.
 
 The photo and the shopper's words are the only parts of this flow with no structure. The photo
 carries no SKU and no barcode (if it did, a lookup would do and you wouldn't need any of this).
-Everything else is already structured: the product records in the PIM (product ID, title,
-category, color, main photo, availability), and the department the shopper picked, which is
-just a facet value. The recipe reads those from the PIM as they are and leaves only the photo
-and the words to the model.
+Everything else is already structured: the product records in the PIM, the product
+information management system (product ID, title, category, color, main photo, availability),
+and the department the shopper picked, which is just a facet value. The recipe reads those from
+the PIM as they are and leaves only the photo and the words to the model.
 
 The people who own the feature are the search and merchandising team, and their weekly job is
 the searches that failed. They open a log of searches with no good match, look for patterns, and
@@ -75,11 +75,17 @@ So each search gets a status, which decides what the shopper sees:
   found the lamp, but not with a dark wood base".
 - **`unknown_department`**: the department the shopper picked doesn't exist in the catalog.
   The shopper is asked to clear the filter, and the search runs again without it.
+- **`words_too_long`**: the words are longer than the model reads (`max_words`, 40). The
+  shopper is asked to shorten them.
+- **`not_searched`**: the search's SIE call failed or gave a broken vector. The shopper is asked
+  to try again. This says nothing about the catalog, so the log keeps it apart from
+  `no_good_match`.
 
-Every `no_good_match` and `unknown_department` search, and every result that came back as a
-close style but not the exact product, goes into a **search gap log** with the reason, and the
-shopper's words when they gave any. Nobody works through it per search. The search team reads it
-weekly and decides whether it's a facet fix, a photo fix, or something for the buyer.
+Every search without results, every result that came back as a close style but not the exact
+product, and every photo search whose color couldn't be checked goes into a **search gap log**
+with the reason, and the shopper's words when they gave any. Nobody works through it per search.
+The search team reads it weekly and decides whether it's a facet fix, a photo fix, or something
+for the buyer.
 
 What this recipe doesn't do: it doesn't know prices, sizes or brands beyond the title, it can't
 tell the exact product from a lookalike in the same color, and an embedding doesn't understand
@@ -90,12 +96,14 @@ tell the exact product from a lookalike in the same color, and an embedding does
 1. **Start from the catalog and the facet.** Product ID, category, title, color, main photo and
    availability come from the PIM; the department filter comes from the app. A department that
    isn't in the catalog's categories is caught here, before any model call. So are words with a
-   negation in them ("without", "not"), which an embedding reads much like the thing itself.
+   negation in them ("without", "no", "isn't", "non-leather"), which an embedding reads much
+   like the thing itself, and words longer than the model reads. A hyphenated product property
+   such as "non-stick" is listed in `negation_kept` and isn't a negation.
 2. **Embed the catalog once.** `google/siglip-so400m-patch14-384` embeds each product's main
    photo, plus one short caption per color word (`a photo of a navy product.`) for the
    close-style check in step 6. In production the photo vectors live in a vector index; here
    they're a dict in memory. A product whose photo comes back as a broken vector is left out of
-   the index and goes to the log.
+   the index and goes to the log; if no photo gets a usable vector, the run stops.
 3. **Embed the search.** A photo goes in as an image; words go in as a caption,
    `a photo of {query}.`, in the same space as the photos. A photo with words sends both in one
    call. A vector that comes back empty, all zeros or the wrong length fails the search instead
@@ -107,17 +115,19 @@ tell the exact product from a lookalike in the same color, and an embedding does
    weights and the shortlist size are in `rules.yaml`.
 5. **Apply the bar to every hit.** Each hit has to clear `min_score` for its search kind (words
    0.10, photo 0.70; a photo plus words has to clear 0.70 on the photo and 0.09 on the words).
-   The ones that do are the results, five at most; the ones that don't are kept only in the log,
-   as context.
+   The ones that do are the results, five at most; the ones that don't stay in `results.json`
+   as candidates, and in the log as context when the search failed.
 6. **Check the color of a photo search's top result.** The photo's color is whichever color
    caption scores highest against it. If that isn't the product's color in the PIM, the result
-   is still shown, and the search goes to the log as a close style.
+   is still shown, and the search goes to the log as a close style. If any color caption has
+   no vector this run, the check isn't done (the photo's real color may be the missing one),
+   and the search goes to the log as `color_not_checked`.
 7. **Log the gaps.** Failed searches and close-style results go to the search gap log with the
    search, the shopper's words, the reason and the top candidates.
 
 That's one model, SigLIP, called once per run for the catalog index and once per search,
 because the shopper is waiting. If a search's SIE call fails for a reason that may pass (a
-timeout, a 5xx, a rate limit, a reply without its vectors), that search gets `no_good_match`
+timeout, a 5xx, a rate limit, a reply without its vectors), that search gets `not_searched`
 with the reason in the log, and the run carries on; if SIE refuses a call, the catalog index
 call fails, or every search's call fails, the run stops with SIE's message and writes nothing.
 
@@ -125,9 +135,9 @@ call fails, or every search's call fails, the run stops with SIE's message and w
 
 `google/siglip-so400m-patch14-384` is an image-text embedding model: photos and short captions
 come back as vectors in one space, through SIE's `encode` call, so one catalog index answers a
-photo, words, or both. It's the same model the other ecommerce recipes in this cookbook use to
-match photos and text labels. Its text side reads short captions (at most 64 tokens), which is
-why the shopper's words go in wrapped as `a photo of ...`.
+photo, words, or both. `match_products_to_catalog` uses the same model to compare product
+photos. Its text side reads short captions (at most 64 tokens), which is why the shopper's words
+go in wrapped as `a photo of ...`.
 
 Two habits shape the rules. First, its scores sit on very different scales: no words search
 scored above 0.193 against any product in our run, while a worn shot or a crop of the same
@@ -152,9 +162,11 @@ flowchart TD
     D -- no --> UD[unknown_department<br/>ask to clear the filter]
     D -- yes --> NW{Words with<br/>a negation?}
     NW -- yes --> NG
-    NW -- no --> E[SigLIP on SIE, once per search<br/>the photo, the words, or both]
+    NW -- no --> TL{Words longer<br/>than 40 words?}
+    TL -- yes --> WL[words_too_long<br/>ask to shorten]
+    TL -- no --> E[SigLIP on SIE, once per search<br/>the photo, the words, or both]
     E --> EF{Call failed or<br/>broken vector?}
-    EF -- yes --> NG
+    EF -- yes --> NS[not_searched<br/>ask to try again]
     EF -- no --> F[Keep the department's available,<br/>indexed products]
     NI -- no --> F
     F --> K{Photo and words?}
@@ -166,9 +178,13 @@ flowchart TD
     B -- some --> RS[results, best first, up to 5]
     RS --> V{Photo search: photo's color<br/>not the top result's PIM color?}
     V -- yes --> CS[close style]
+    V -- a color caption<br/>has no vector --> CN[color_not_checked]
     UD --> LOG[search gap log]
+    WL --> LOG
+    NS --> LOG
     NG --> LOG
     CS --> LOG
+    CN --> LOG
     NX --> LOG
     LOG --> T[Search team reviews weekly:<br/>facet fix, photo fix,<br/>or a note for the buyer]
 ```
@@ -177,31 +193,33 @@ flowchart TD
 
 Everything you'd want to argue about lives in [`rules.yaml`](./rules.yaml): the model name,
 `top_k`, the caption template, the shortlist size and the two weights, every score bar with a
-comment on how we fitted it, the negation words, and the color words with their caption. The
-PIM is [`pim.py`](./pim.py): a few plain lookups (`sellable`, `has_department`, `find_product`,
-`all_products`) on `data/catalog.csv` loaded into an in-memory SQLite database, standing in for
-your PIM's product API. [`recipe.py`](./recipe.py) reads top to bottom in the order of the flow.
+comment on how we fitted it, the negation words and the hyphenated words kept, the word limit,
+and the color words with their caption. The PIM is [`pim.py`](./pim.py): a few plain lookups
+(`sellable`, `has_department`, `find_product`, `all_products`) on `data/catalog.csv` loaded into
+an in-memory SQLite database, standing in for your PIM's product API. [`recipe.py`](./recipe.py)
+reads top to bottom in the order of the flow.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Load | `PIM`, `load_queries`, `check_colors` | none | Reads the catalog and the searches. A search whose kind doesn't fit its inputs, or a PIM color missing from `close_style.colors`, stops the run before any SIE call |
-| Catalog index | `build_index`, `encode`, `unit` | `encode` | One call per run: 35 product photos and 14 color captions. A broken vector leaves that product out (`not_indexed`); a failed call stops the run, since nothing can be searched |
-| Facet and words | `run_search`, `PIM.has_department`, `negation` | none | An unknown department or negated words end the search here, with no model call |
-| Embed the search | `run_search`, `caption`, `photo_bytes`, `guarded` | `encode` | One call per search with the photo, the caption, or both. A failed call or a broken vector gives `no_good_match` with the reason |
+| Catalog index | `build_index`, `encode`, `unit` | `encode` | One call per run: 35 product photos and 14 color captions. A broken vector leaves that product out (`not_indexed`); a failed call, or no usable photo vector at all, stops the run, since nothing can be searched |
+| Facet and words | `load_rules`, `run_search`, `PIM.has_department`, `negation`, `too_long` | none | An unknown department, negated words or words over `max_words` end the search here, with no model call. `load_rules` refuses a negation word YAML didn't read as a string, and curly apostrophes count as straight ones |
+| Embed the search | `run_search`, `caption`, `photo_bytes`, `guarded` | `encode` | One call per search with the photo, the caption, or both. A failed call or a broken vector gives `not_searched` with the reason |
 | Rank and bar | `search`, `scores`, `ranked` | none | Department and availability filter from `PIM.sellable`, then cosine ranking, or the photo shortlist reordered by the words, and the bar on every hit |
-| Close style | `close_style` | none | For a photo search with results: the color caption that scores highest against the photo, compared with the top result's PIM color |
+| Close style | `close_style` | none | For a photo search with results: the color caption that scores highest against the photo, compared with the top result's PIM color; with any color caption missing, `color_not_checked` |
 | Outputs | `result_rows`, `gap_log`, `csv_safe`, `write_outputs` | none | `results.json`, `results.csv` and `search_gap_log.csv`. Every CSV cell that a spreadsheet would run as a formula gets a leading `'` |
 
 The SIE error rule is the same as in the security recipes. A search call that fails for a reason
 that may pass (a timeout, a lost connection, a 5xx, a rate limit, a model still loading, or a
-reply without a `dense` vector for every item) gives that search `no_good_match` with a short
+reply without a `dense` vector for every item) gives that search `not_searched` with a short
 reason, and the run carries on. A refusal every call would repeat (a bad key, no credits, a model
 name SIE doesn't know) stops the run with SIE's full message and writes no outputs. If every
 search's call failed, or the catalog index call failed, the run stops too.
 
 [`make_data.py`](./make_data.py) rebuilds `data/` from ABO byte for byte. [`selfcheck.py`](./selfcheck.py)
 checks the data, the PIM lookups, the bar on every hit, the availability filter, the photo
-shortlist and both bars, the negation words, the close-style check, the vector guard, the
+shortlist and both bars, the negation words (a quoted `no`, curly apostrophes, `non-stick`)
+and the word limit, the close-style check and a missing color caption, the vector guard, the
 outputs and that SIE error rule offline, with hand-written vectors and stand-in model replies.
 
 ## Run it
@@ -218,7 +236,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
 embedding model. A warm run makes 13 SIE calls (one for the catalog index, one for each of the
-12 searches that reach the model) and takes about 7 seconds. To rebuild the data from ABO, run
+12 searches that reach the model) and takes about 5 seconds. To rebuild the data from ABO, run
 `uv run make_data.py`.
 
 ## What came out
@@ -253,12 +271,12 @@ The planted cases, from our live run on 4 Nov 2026 (UTC):
 | Worn bag | Q08, a man wearing the P17 messenger bag | `results`: P17 (0.895) | A photo from the real world finds the catalog photo |
 | Other color | Q09, the black Madison flat; the catalog has only the navy one (P33) | `results`: P33 (0.929), logged as a close style | Right style, wrong color, and the team may want to know shoppers ask for black |
 | Wrong department entirely | Q10, a claw hammer | `no_good_match`, logged; best P28, a drinking glass, at 0.619 | The best hit is below the bar |
-| This, but with a wood base | Q11, the cropped lamp photo from Q07 plus "but the base should be dark wood"; the catalog gains the same faux wood table lamp in espresso dark brown (P34) and oak (P35), both from ABO | `results`: P34 only (photo 0.774, words 0.098); the chrome P11 not shown | The words change the answer; the photo alone returns P11 first |
+| This, but with a wood base | Q11, the cropped lamp photo from Q07 plus "but the base should be dark wood"; the catalog has the same faux wood table lamp in espresso dark brown (P34) and oak (P35), both from ABO | `results`: P34 only (photo 0.774, words 0.098); the chrome P11 not shown | The words change the answer; the photo alone returns P11 first |
 | Words the catalog can't meet | Q12, the worn messenger bag photo plus "in brown leather"; the catalog has only the grey fabric one | `no_good_match`, logged with the words; P17 words score 0.041 | Showing the grey bag as a match ignores what the shopper asked; the buyer sees the request |
 | Exact match unavailable | Q13, another ABO photo of the P15 rug, which the PIM marks unavailable; P16 is the same pattern in grey | `results`: P16 (0.738); P15 never shown; logged as a close style | A shopper can't buy the closest match if it's out of stock |
 
 All 13 came out as planned, with the rules as committed. The thresholds were fitted to this
-data after the first live run (the comments in `rules.yaml` say from which numbers), so treat
+data (the comments in `rules.yaml` say from which numbers), so treat
 this as a demo that the wiring works, not as a measure of accuracy. Thirteen searches tell you
 the plumbing is connected, not how often a shopper gets the right lamp.
 
@@ -298,9 +316,9 @@ A few things worth noticing:
   (Q04, Q06, Q10), the stale SANDAL facet, Q12's brown leather request, and the two close
   styles. No row says "everything worked", which is the point.
 
-The run writes `results.json` for code (every search with its status, reason, shown results and
-candidates), `results.csv` with one row per shown result, and `search_gap_log.csv` for the
-search team.
+The run writes `results.json` for code (every search with its status, reason, shown results,
+candidates and color check), `results.csv` with one row per shown result, and
+`search_gap_log.csv` for the search team.
 
 ## Potential improvements
 
@@ -310,8 +328,8 @@ search team.
   vectors in a vector index and query that instead of the dict in memory.
 - **Filters.** Here the filters are the department and availability. Price, brand or size
   filters go in `PIM.sellable()` the same way: drop the products that fail before ranking.
-- **Thresholds.** `min_score` in `rules.yaml`, one per search kind. We fitted them to this demo
-  data after the first live run (see the comments in `rules.yaml`). Two unrelated product photos
+- **Thresholds.** `min_score` in `rules.yaml`, one per search kind. They are fitted to this demo
+  data (see the comments in `rules.yaml`). Two unrelated product photos
   on white backgrounds already score about 0.6 with this model, so a photo bar much lower than
   0.7 returns lookalikes for anything. Check them all on your own catalog and searches.
 - **Exact product vs similar style.** Q09 shows that a color variant scores as high as the
@@ -392,7 +410,7 @@ no EXIF or XMP metadata. All picks are in [`make_data.py`](./make_data.py).
 - `selfcheck.py`: plain asserts on the search rules, PIM lookups, gap log and SIE failure rule,
   no SIE call (`uv run selfcheck.py`)
 - `rules.yaml`: the model ID, top-k, the caption template, the shortlist and weights, every score
-  bar, the negation words and the color words
+  bar, the negation words, the word limit and the color words
 - `make_data.py`: rebuilds `data/` from ABO
 - `data/`: the PIM seed and the searches, each a CSV plus a sprite sheet
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies

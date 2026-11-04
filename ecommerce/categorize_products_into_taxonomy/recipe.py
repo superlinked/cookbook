@@ -18,7 +18,7 @@ SIE pipeline (three models):
            score    Qwen/Qwen3-Reranker-4B    called once per product: rerank its 10 paths
            (Python)                           low score, thin margin over a different path, or
                                               a top-level pick: review
-           extract  fastino/gliner2-large-v1  called once per window of about 512 tokens: the
+           extract  fastino/gliner2-large-v1  called once per window of at most 180 words: the
                                               attributes the chosen category requires
            (Python)                           every value must be words from the row and fit
                                               its pattern; missing, conflicting or "for X"
@@ -420,35 +420,63 @@ def title_words(title: str) -> list[str]:
     return [w for w in re.findall(r"[^\W\d_]{3,}", title.casefold())]
 
 
+def variant_marks(title: str) -> set[str]:
+    """The tokens that tell variants apart and `title_words` skips: anything with a digit (28,
+    "2 pk", AV-H700) and words of one or two letters (S, M, XL), lower case."""
+    tokens = re.findall(r"[^\W_]+(?:[-./][^\W_]+)*", title.casefold())
+    return {t for t in tokens if len(t) <= 2 or re.search(r"\d", t)}
+
+
 def check_pim(product: Product, pim: Pim, rules: dict[str, Any]) -> Decision:
     """Look the row up in the PIM by supplier and SKU.
 
     One record whose title agrees with the supplier's: the row keeps the PIM's category and
-    attributes (`in_pim`) and no model is called. Several records, or one whose title doesn't
-    agree (the SKU may have been reused for a new product): the row is categorized like a new
-    one and goes to review with the reason.
+    attributes (`in_pim`) and no model is called. The titles agree when enough of the sheet
+    title's words are in the PIM title, every PIM title word is in the row (a white sock is not
+    the PIM's black one), and both name the same sizes, pack counts and model numbers. Several
+    records, a record with no category, or one whose title doesn't agree (the SKU may have been
+    reused for another product or variant): the row is categorized like a new one and goes to
+    review with the reason.
     """
     decision = Decision(product=product)
     found = pim.find_by_supplier_sku(rules["supplier"], product.sku)
     if len(found) > 1:
         ids = ", ".join(record.product_id for record in found)
         decision.reasons.append(f"pim_several: SKU {product.sku} is on PIM products {ids}")
+    elif found and not (found[0].category_id.strip() and found[0].category_path.strip()):
+        decision.reasons.append(
+            f"pim_no_category: SKU {product.sku} is PIM product {found[0].product_id}, which "
+            "has no category"
+        )
     elif found:
         record = found[0]
         words = title_words(product.title)
         pim_words = set(title_words(record.title))
         share = sum(w in pim_words for w in words) / len(words) if words else 0.0
-        if share >= rules["pim"]["min_title_share"]:
+        unsaid = sorted(pim_words - set(title_words(product.text())))
+        marks, pim_marks = variant_marks(product.title), variant_marks(record.title)
+        said = f"PIM product {record.product_id} {record.title!r}; the sheet says {product.title!r}"
+        if share < rules["pim"]["min_title_share"]:
+            decision.reasons.append(
+                f"pim_title_differs: SKU {product.sku} is {said} (title words shared "
+                f"{share:.2f} < {rules['pim']['min_title_share']}). A reused SKU?"
+            )
+        elif unsaid:
+            decision.reasons.append(
+                f"pim_title_differs: SKU {product.sku} is {said}, and the row never says "
+                f"{', '.join(unsaid)}. A reused SKU?"
+            )
+        elif marks != pim_marks:
+            listed = [", ".join(sorted(m)) or "none" for m in (marks, pim_marks)]
+            decision.reasons.append(
+                f"pim_variant_differs: SKU {product.sku} is {said} (size, pack or model "
+                f"{listed[0]} vs {listed[1]}). A reused SKU for another variant?"
+            )
+        else:
             decision.pim = record
             decision.notes.append(
                 f"in the PIM as {record.product_id} ({record.title!r}); keeps its category "
                 "and attributes"
-            )
-        else:
-            decision.reasons.append(
-                f"pim_title_differs: SKU {product.sku} is PIM product {record.product_id} "
-                f"{record.title!r}; the sheet says {product.title!r} (title words shared "
-                f"{share:.2f} < {rules['pim']['min_title_share']}). A reused SKU?"
             )
     return decision
 
@@ -475,7 +503,8 @@ def encode_batches(
     *,
     is_query: bool,
 ) -> tuple[list[np.ndarray | None], list[str]]:
-    """Unit vectors for `texts` (None where its batch failed) and the failure reasons."""
+    """Unit vectors for `texts` (None where its batch failed) and, per text, why its batch
+    failed ("" where it didn't)."""
     model, size = rules["models"]["embed"], rules["taxonomy"]["embed_batch_size"]
     instruction = " ".join(rules["taxonomy"]["embed_instruction"].split()) if is_query else None
     vectors: list[np.ndarray | None] = []
@@ -496,8 +525,9 @@ def encode_batches(
             reply = calls.call(model, send, _vectors_problem(len(batch)))
         except CallFailed as failure:
             vectors.extend([None] * len(batch))
-            failed.append(str(failure))
+            failed.extend([str(failure)] * len(batch))
             continue
+        failed.extend([""] * len(batch))
         for result in reply:
             vector = np.asarray(result["dense"], dtype=np.float64)
             vectors.append(vector / np.linalg.norm(vector))
@@ -527,23 +557,23 @@ def retrieve(
         client, calls, [c.path for c in categories], rules, is_query=False
     )
     kept = [i for i, v in enumerate(path_vectors) if v is not None]
-    if path_failures:
+    if first_failure := next((why for why in path_failures if why), ""):
         for d in decisions:
             d.reasons.append(
                 f"shortlist_incomplete: {len(categories) - len(kept)} of {len(categories)} "
-                f"taxonomy paths were not embedded ({path_failures[0]})"
+                f"taxonomy paths were not embedded ({first_failure})"
             )
     if not kept:
         return
     matrix = np.vstack([cast(np.ndarray, path_vectors[i]) for i in kept])
     usable = [categories[i] for i in kept]
-    product_vectors, _ = encode_batches(
+    product_vectors, product_failures = encode_batches(
         client, calls, [d.product.text() for d in decisions], rules, is_query=True
     )
     k = rules["thresholds"]["top_k"]
-    for d, vector in zip(decisions, product_vectors, strict=True):
+    for d, vector, why in zip(decisions, product_vectors, product_failures, strict=True):
         if vector is None:
-            d.reasons.append("not_embedded: the product's embedding call failed")
+            d.reasons.append(f"not_embedded: the product's embedding call failed: {why}")
             continue
         d.candidates = shortlist(vector, usable, matrix, k)
 
@@ -555,12 +585,24 @@ def _scores_problem(count: int) -> Callable[[Any], str]:
     def problem(reply: Any) -> str:
         if not isinstance(reply, dict) or not isinstance(reply.get("scores"), list):
             return "without `scores`"
-        ids = sorted(str(entry.get("item_id")) for entry in reply["scores"])
+        entries = reply["scores"]
+        if not all(isinstance(entry, dict) for entry in entries):
+            return "with a score entry that is not an object"
+        ids = sorted(str(entry.get("item_id")) for entry in entries)
         if ids != sorted(f"c{i}" for i in range(count)):
             return f"with scores for {ids}, not for the {count} paths sent"
+        # A missing, null or NaN score would pass every threshold check (NaN < 0.5 is False).
+        bad = [e.get("score") for e in entries if not is_number(e.get("score"))]
+        if bad:
+            return f"with scores that are not numbers: {bad[:3]}"
         return ""
 
     return problem
+
+
+def is_number(value: Any) -> bool:
+    """A finite int or float (not a bool, None or NaN)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def rerank(
@@ -687,6 +729,10 @@ def _data_problem(reply: Any) -> str:
         return f"with an item error: {reply['error']}"
     if not isinstance(reply.get("data"), dict):
         return "without `data`"
+    # A field it didn't find may come back as null; a number, list or object is not a span.
+    odd = {k: v for k, v in reply["data"].items() if v is not None and not isinstance(v, str)}
+    if odd:
+        return f"with values that are not text: {odd}"
     return ""
 
 
@@ -714,6 +760,9 @@ def extract_attributes(
                     model,
                     Item(id=f"{product.sku}#w{index}", text=window),
                     output_schema=schema,
+                    # A window too long to read whole fails (InputTooLongError, the transient
+                    # path: the row goes to review) instead of being cut short.
+                    options={"overflow_policy": "error"},
                     provision_timeout_s=WAIT_S,
                 )
             except ServerError as error:
@@ -772,11 +821,14 @@ def lists_two_values(value: str) -> bool:
 
 
 def follows_fits_word(match: re.Match[str], text: str, rules: dict[str, Any]) -> str:
-    """The fits word ("for", "fits", ...) in the few words before the match, or ""."""
+    """The fits word ("for", "fits", ...) in the few words before the match, or "". A phrase
+    of several words counts as one: "compatible with the Aurivox AV-H700" is two words after
+    "compatible with"."""
     before = re.findall(r"[^\W_]+", text[: match.start()].casefold())
-    tail = " " + " ".join(before[-rules["fits_window_words"] :]) + " "
     for phrase in sorted(rules["fits_words"], key=len, reverse=True):
-        if f" {_squash(phrase)} " in tail:
+        words = re.findall(r"[^\W_]+", str(phrase).casefold())
+        tail = " " + " ".join(before[-(rules["fits_window_words"] + len(words) - 1) :]) + " "
+        if words and f" {' '.join(words)} " in tail:
             return str(phrase)
     return ""
 
@@ -871,11 +923,10 @@ def merge_attributes(
                 f"'{value}' is the product it fits",
                 supplier_words(text, spot.start(), spot.end()),
             )
-        # A value inside a longer one ("navy" in "heather navy") is the same value.
+        # A value standing as whole words in a longer one ("navy" in "heather navy") is the
+        # same value; "L" in "XL" or "AV-H70" in "AV-H700" is a different one.
         distinct = [
-            (v, m)
-            for v, m in values
-            if not any(_squash(v) in _squash(o) for o, _ in values if o != v)
+            (v, m) for v, m in values if not any(occurrences(v, o) for o, _ in values if o != v)
         ]
         if scan := spec.get("scan"):
             seen = scan_values(text, scan)

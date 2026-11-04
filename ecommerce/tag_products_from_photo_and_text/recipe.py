@@ -153,6 +153,11 @@ def make_client() -> SIEClient:
 # --- SIE calls and their failures ------------------------------------------------------------
 
 
+class UnusableReply(SIEError):  # type: ignore[misc]  # the SDK ships no type hints
+    """A reply that came back but breaks the schema. It counts as a failed call, so a run where
+    no reply is usable stops like one where every call failed."""
+
+
 class SIEStopped(RuntimeError):
     """SIE refused the call for a reason a retry won't fix, or no call succeeded; the run
     stops without outputs."""
@@ -224,6 +229,8 @@ def every_call_failed_advice(error: SIEError) -> str:
     """
     if isinstance(error, SIEConnectionError):
         return "Check SIE_BASE_URL and your network."
+    if isinstance(error, UnusableReply):
+        return "Check the model name and max_completion_tokens in rules.yaml."
     return "The model may still be starting or SIE is busy; run again in a few minutes."
 
 
@@ -710,7 +717,7 @@ def run(
 
     Every listing is looked up before the first SIE call, and nothing is written until every
     listing is done, so a run that stops on an SIE refusal or on every call failing leaves no
-    partial reports behind.
+    partial reports behind. A reply that breaks the schema counts as a failed call.
     """
     db = pim.connect(data_dir)
     listings = []
@@ -725,6 +732,10 @@ def run(
     results = []
     for listing in listings:
         choice, failed = ask_tagger(client, calls, listing, rules)
+        if choice is not None:
+            _, unusable = parse_reply(choice, rules)
+            if unusable:
+                calls.failures.append((rules["models"]["tagger"], UnusableReply(unusable)))
         results.append(tag_listing(listing, choice, failed, rules))
     calls.stop_if_all_failed()
     if calls.failures:

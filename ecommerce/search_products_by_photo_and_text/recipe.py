@@ -17,7 +17,7 @@ SIE pipeline (one model):
                                                      color captions (the catalog index)
            encode  google/siglip-so400m-patch14-384  once per search: the photo, the words, or
                                                      both
-           (Python) unknown department, negated words, department and availability filter,
+           (Python) unknown department, negated or over-long words, department and stock filter,
                     cosine ranking, a photo shortlist reordered by the words, a bar on every
                     hit, the close-style color check against the PIM, the search gap log
 Output:    results.json (every search with its status, shown results and candidates),
@@ -78,11 +78,18 @@ FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 # What the shopper sees. `results`: products that cleared the bar. `no_good_match`: nothing did,
 # so the shopper gets a link to browse. `unknown_department`: the facet isn't a catalog
-# category, so the shopper is asked to clear it.
-STATUSES = ("results", "no_good_match", "unknown_department")
+# category, so the shopper is asked to clear it. `words_too_long`: longer than the model reads,
+# so the shopper is asked to shorten them. `not_searched`: the search's SIE call failed or gave
+# a broken vector, so the shopper is asked to try again; it says nothing about the catalog.
+STATUSES = ("results", "no_good_match", "unknown_department", "words_too_long", "not_searched")
 KINDS = ("text", "photo", "photo_and_text")
 # What goes into the search gap log the search team reads weekly.
-LOG_ENTRIES = ("no_good_match", "unknown_department", "close_style", "not_indexed")
+LOG_ENTRIES = (
+    *("no_good_match", "unknown_department", "words_too_long", "not_searched"),
+    *("close_style", "color_not_checked", "not_indexed"),
+)
+# A curly apostrophe (U+2019, as in a phone keyboard's "isn't") is read as a straight one.
+APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'"})
 
 
 @dataclass(frozen=True)
@@ -96,7 +103,14 @@ class Query:
 
 
 def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
-    return cast(dict[str, Any], yaml.safe_load(path.read_text(encoding="utf-8")))
+    """The rules, with every negation word checked to be a string: YAML reads a bare `no` as
+    false, which would silently drop it from the list."""
+    rules = cast(dict[str, Any], yaml.safe_load(path.read_text(encoding="utf-8")))
+    for key in ("negation_words", "negation_kept"):
+        bad = [word for word in rules["search"][key] if not isinstance(word, str)]
+        if bad:
+            raise ValueError(f"search.{key} in {path.name} must be quoted strings, not {bad}")
+    return rules
 
 
 def load_queries(path: Path = QUERIES_PATH) -> list[Query]:
@@ -159,7 +173,7 @@ def is_fatal(error: SIEError) -> bool:
     marked as permanently unable to load. A RequestError with no HTTP status or a status below
     400 is a reply the SDK couldn't parse, and is fatal too. A rate limit, an over-long input, a
     timeout, a lost connection, a model still loading and a 5xx are transient or per-call:
-    those searches get no_good_match and go to the log."""
+    those searches get not_searched and go to the log."""
     if isinstance(error, ModelLoadFailedError):
         return bool(error.permanent)
     return isinstance(error, RequestError) and not isinstance(
@@ -256,7 +270,7 @@ def guarded[T](calls: CallLog, model: str, work: Callable[[], T]) -> tuple[T | N
 
     A call that fails for a reason that may pass (a lost connection, a timeout, a server error,
     a rate limit, a reply without the key we asked for) is logged and its search gets
-    no_good_match; the run continues. A refusal every call would repeat (see `is_fatal`) stops
+    not_searched; the run continues. A refusal every call would repeat (see `is_fatal`) stops
     the run. An error that isn't an SIE error is a bug in this code and is raised as is.
     """
     calls.made += 1
@@ -368,6 +382,11 @@ def build_index(client: SIEClient, pim: PIM, rules: dict[str, Any]) -> Index:
     for color, vector in zip(colors, vectors[len(products) :], strict=True):
         if vector is not None:
             index.colors[color] = vector
+    if not index.products:
+        raise SIEStopped(
+            f"No catalog photo got a usable vector from {model} ({len(products)} broken), so no "
+            "search can run. No outputs were written."
+        )
     dims = {vector.shape[0] for vector in [*index.products.values(), *index.colors.values()]}
     if len(dims) > 1:
         raise SIEStopped(
@@ -381,13 +400,29 @@ def build_index(client: SIEClient, pim: PIM, rules: dict[str, Any]) -> Index:
 
 
 def negation(words: str, rules: dict[str, Any]) -> str:
-    """The first negation word in the shopper's words, or ""."""
-    listed = {str(word).lower() for word in rules["search"]["negation_words"]}
-    tokens: list[str] = re.findall(r"[a-z']+", words.lower())
+    """The first negation word in the shopper's words, or "". A hyphenated word counts when any
+    part of it is a negation word ("non-wood"), unless rules.yaml lists it as a product property
+    ("non-stick")."""
+    listed = {word.lower() for word in rules["search"]["negation_words"]}
+    kept = {word.lower() for word in rules["search"]["negation_kept"]}
+    tokens: list[str] = re.findall(r"[a-z'-]+", words.lower().translate(APOSTROPHES))
     for token in tokens:
-        if token in listed or token.endswith("n't"):
+        if token in kept:
+            continue
+        if any(part in listed or part.endswith("n't") for part in token.split("-")):
             return token
     return ""
+
+
+def too_long(words: str, rules: dict[str, Any]) -> str:
+    """Why the words are longer than the model reads, or ""."""
+    count, limit = len(words.split()), int(rules["search"]["max_words"])
+    if count <= limit:
+        return ""
+    return (
+        f"The words are {count} words long, more than the {limit} this model reads; ask the "
+        "shopper to shorten them."
+    )
 
 
 def scores(
@@ -527,33 +562,46 @@ def outcome(
 
 
 def close_style(
-    query: Query, result: dict[str, Any], photo: np.ndarray | None, pim: PIM, index: Index
-) -> str:
-    """For a photo search with results: why its top result may be a close style rather than
-    the exact item, or "" when the photo's color is the product's PIM color.
+    query: Query,
+    result: dict[str, Any],
+    photo: np.ndarray | None,
+    pim: PIM,
+    index: Index,
+    rules: dict[str, Any],
+) -> tuple[str, str]:
+    """For a photo search with results: the color check's outcome and its reason.
 
-    The photo's color is the color caption that scores highest against the photo. A color the
-    check can't confirm (the product's color has no vector this run) counts as not confirmed.
+    The outcome is "" (not a photo search with results), "same_color", "close_style" (the
+    photo's color is not the top result's PIM color: right look, maybe not the exact item) or
+    "not_checked". The photo's color is the color caption that scores highest against the
+    photo, so the check needs every caption: with one missing, the photo's real color may be
+    the missing one, and the check counts as not done rather than as a match.
     """
     if query.kind != "photo" or result["status"] != "results" or photo is None:
-        return ""
+        return "", ""
     product = pim.find_product(result["results"][0]["product_id"])
     assert product is not None
-    if product.color not in index.colors or not index.colors:
-        return (
-            f"Top result {product.product_id}: color not checked, the color caption for "
-            f"{product.color!r} has no vector this run."
+    missing = [c for c in rules["close_style"]["colors"] if c not in index.colors]
+    if missing:
+        return "not_checked", (
+            f"Top result {product.product_id}: color not checked, the color captions for "
+            f"{', '.join(missing)} have no vector this run."
         )
     looks = max(index.colors, key=lambda color: float(index.colors[color] @ photo))
     if looks == product.color:
-        return ""
-    return (
+        return "same_color", ""
+    return "close_style", (
         f"Close style: the photo looks {looks}, top result {product.product_id} is "
         f"{product.color} in the PIM. Right look, maybe not the exact item."
     )
 
 
 # --- One search, end to end -------------------------------------------------------------------
+
+# A search that never reached ranking has no color check.
+NO_COLOR_CHECK = {"color_check": "", "close_style": ""}
+# The gap log entry for a search with results, by its color check.
+COLOR_LOG_ENTRY = {"close_style": "close_style", "not_checked": "color_not_checked"}
 
 
 def run_search(
@@ -577,13 +625,15 @@ def run_search(
             f"Department {query.department} is not a catalog category; ask the shopper to "
             "clear the filter and search again."
         )
-        return {**base, **outcome("unknown_department", reason, [], []), "close_style": ""}
+        return {**base, **outcome("unknown_department", reason, [], []), **NO_COLOR_CHECK}
     if query.text and (word := negation(query.text, rules)):
         reason = (
             f"No good match: the words hold a negation ({word!r}); this model reads "
             "'no wood' much like 'wood', so the words can't rank products."
         )
-        return {**base, **outcome("no_good_match", reason, [], []), "close_style": ""}
+        return {**base, **outcome("no_good_match", reason, [], []), **NO_COLOR_CHECK}
+    if query.text and (reason := too_long(query.text, rules)):
+        return {**base, **outcome("words_too_long", reason, [], []), **NO_COLOR_CHECK}
 
     items = []
     if query.box is not None:
@@ -592,20 +642,21 @@ def run_search(
         items.append(Item(id=f"{query.query_id}:words", text=caption(query.text, rules)))
     vectors, failed = guarded(calls, rules["models"]["embed"], lambda: encode(client, items, rules))
     if vectors is None:
-        reason = f"No good match: {failed}"
-        return {**base, **outcome("no_good_match", reason, [], []), "close_style": ""}
+        reason = f"Not searched: {failed}"
+        return {**base, **outcome("not_searched", reason, [], []), **NO_COLOR_CHECK}
     photo = vectors[0] if query.box is not None else None
     words = vectors[-1] if query.text else None
     dims = {v.shape[0] for v in index.products.values()}
     broken = [v for v in vectors if v is None or v.shape[0] not in dims]
     if broken:
         reason = (
-            "No good match: the model returned an empty, all-zero, broken or wrong-length "
+            "Not searched: the model returned an empty, all-zero, broken or wrong-length "
             "vector for this search."
         )
-        return {**base, **outcome("no_good_match", reason, [], []), "close_style": ""}
+        return {**base, **outcome("not_searched", reason, [], []), **NO_COLOR_CHECK}
     result = search(query, photo, words, pim, index, rules)
-    return {**base, **result, "close_style": close_style(query, result, photo, pim, index)}
+    check, note = close_style(query, result, photo, pim, index, rules)
+    return {**base, **result, "color_check": check, "close_style": note}
 
 
 def run(
@@ -633,7 +684,7 @@ def run(
     if calls.failures:
         print(
             f"{len(calls.failures)} of {calls.made} search calls failed; those searches got "
-            f"no_good_match. First: {short(calls.failures[0][1])}"
+            f"not_searched. First: {short(calls.failures[0][1])}"
         )
     result = {
         "searches": searches,
@@ -680,12 +731,12 @@ def result_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def gap_log(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """The search gap log: every search that got no result or a close style, and every
-    catalog photo that could not be indexed."""
+    """The search gap log: every search that got no results, a close style or no color check,
+    and every catalog photo that could not be indexed."""
     rows = []
     for s in result["searches"]:
         entry = (
-            s["status"] if s["status"] != "results" else ("close_style" if s["close_style"] else "")
+            s["status"] if s["status"] != "results" else COLOR_LOG_ENTRY.get(s["color_check"], "")
         )
         if not entry:
             continue

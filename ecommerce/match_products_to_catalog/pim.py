@@ -7,7 +7,8 @@ products come from data/pim_products.csv, loaded into an in-memory SQLite databa
 recipe reads the catalog the way it would read a live system and never edits it.
 
 Matching here is exact on purpose: a GTIN is compared as GTIN-14 (UPC-A 012345678905 and EAN-13
-0012345678905 are one number), a model number without case, spaces or punctuation. A lookup
+0012345678905 are one number), a model number without case, spaces or punctuation. A
+placeholder (N/A, TBD, an all-zero GTIN) is no identifier at all, so it finds nothing. A lookup
 returns every product it finds, so several products under one identifier reach the caller as a
 list, never as a guess.
 """
@@ -44,16 +45,22 @@ class Product:
     box: tuple[int, int, int, int]  # x, y, width, height of the photo in data/photos.jpg
 
 
+# Model numbers (after model_key) that systems write when they have none.
+PLACEHOLDERS = {"NA", "NONE", "NULL", "TBD", "TBA", "UNKNOWN", "NOTAPPLICABLE"}
+
+
 def gtin_key(value: str) -> str:
     """A GTIN as 14 digits, so UPC-A, EAN-13 and GTIN-14 forms of one number compare equal;
-    "" when there are no digits."""
+    "" when there are no digits or every digit is 0 (a placeholder)."""
     digits = re.sub(r"\D", "", value)
-    return digits.zfill(14) if digits else ""
+    return digits.zfill(14) if digits.strip("0") else ""
 
 
 def model_key(value: str) -> str:
-    """A model number without case, spaces or punctuation: "206mb-nv 12" is "206MBNV12"."""
-    return re.sub(r"[^A-Z0-9]", "", value.upper())
+    """A model number without case, spaces or punctuation: "206mb-nv 12" is "206MBNV12"; ""
+    for a placeholder (N/A, TBD, all zeros)."""
+    key = re.sub(r"[^A-Z0-9]", "", value.upper())
+    return "" if key in PLACEHOLDERS or not key.strip("0") else key
 
 
 class Pim:

@@ -80,6 +80,7 @@ HELD_REASONS = (NO_PIM_COLOR, NOT_IN_FEED, NO_VARIANT_COLOR)
 
 # A cell starting with one of these is a formula to a spreadsheet; csv_safe defuses it.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+QUERY_ID = re.compile(r"[A-Za-z0-9_-]+")
 GAP_FIELDS = ("product_id", "title", "missing", "owner", "queries", "best_score", "best_rank")
 
 
@@ -117,11 +118,15 @@ def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
 
 
 def load_queries(path: Path = QUERIES_PATH) -> list[SampleQuery]:
+    """The sample queries. A query ID becomes a file name, so it must be letters, digits, `_`
+    or `-`; color facets are lowercased, as on the command line."""
     queries = []
     for entry in json.loads(path.read_text(encoding="utf-8"))["queries"]:
+        if not QUERY_ID.fullmatch(str(entry["id"])):
+            raise SystemExit(f"Query ID {entry['id']!r} in {path} must match {QUERY_ID.pattern}")
         facets = entry["filters"]
         filters = Filters(
-            color=tuple(facets.get("color") or ()),
+            color=tuple(str(c).lower() for c in facets.get("color") or ()),
             size=facets.get("size"),
             size_system=facets.get("size_system"),
             in_stock=bool(facets.get("in_stock", True)),
@@ -269,15 +274,22 @@ def guarded[T](calls: CallLog, model: str, work: Callable[[], T]) -> tuple[T | N
 
 
 def norm(value: str) -> str:
-    """Sizes and sizing systems compared case- and space-insensitively: "12w" is "12W"."""
-    return " ".join(value.split()).casefold()
+    """Sizes and sizing systems compared case- and space-insensitively: "12 w" is "12W"."""
+    return "".join(value.split()).casefold()
+
+
+def words_of(text: str) -> str:
+    """The letters-only words of a color, lowercased and space-separated, padded with spaces."""
+    return " " + " ".join(re.findall(r"[a-z]+", text.lower())) + " "
 
 
 def color_matches(color: str, wanted: tuple[str, ...], rules: dict[str, Any]) -> bool:
-    """True when the color names one of the wanted facets, as a whole word."""
+    """True when the color names one of the wanted facets: a word or phrase from
+    `color_words`, as whole words ("midnight blue" is in "Midnight Blue/White", not in
+    "Midnight Green")."""
     words = rules["filters"]["color_words"]
-    found = set(re.findall(r"[a-z]+", color.lower()))
-    return any(word in found for name in wanted for word in words.get(name, [name]))
+    found = words_of(color)
+    return any(words_of(word) in found for name in wanted for word in words.get(name, [name]))
 
 
 def check_filters(
@@ -298,9 +310,11 @@ def check_filters(
             unknown.append(NO_PIM_COLOR)
         elif not color_matches(product.color, filters.color, rules):
             return [f"color {product.color!r} is not {wanted}"], []
-    if not (filters.size or filters.in_stock):
+    if not (filters.size or filters.in_stock or filters.color):
         return failed, unknown
     if not variants:
+        if not (filters.size or filters.in_stock):
+            return failed, unknown  # a color filter alone, any stock: the PIM color decides
         return failed, [*unknown, NOT_IN_FEED]
     rows = variants
     size = filters.size_label()
@@ -322,6 +336,10 @@ def check_filters(
                 return failed, [*unknown, NO_VARIANT_COLOR]
             where = f" in size {size}" if filters.size else ""
             return [f"no {wanted} variant{where}"], []
+        # An in-stock variant with no color may be the shopper's color: held, not sold out.
+        colorless_in_stock = any(not v.color.strip() and v.in_stock for v in rows)
+        if filters.in_stock and colorless_in_stock and not any(v.in_stock for v in in_color):
+            return failed, [*unknown, NO_VARIANT_COLOR]
         rows = in_color
     if filters.in_stock and not any(v.in_stock for v in rows):
         what = [wanted] if filters.color and color_known else []
@@ -575,16 +593,18 @@ def gap_ids(page: dict[str, Any], rules: dict[str, Any]) -> list[str]:
     return [
         entry["id"]
         for entry in page["held"]
-        if entry.get("score", 0.0) >= min_score and entry["would_rank"] <= within
+        if "score" in entry and entry["score"] >= min_score and entry["would_rank"] <= within
     ]
 
 
 def data_gaps(
     pages: list[tuple[str, dict[str, Any]]], rules: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """One line per product, however many searches it was held from, for its owner."""
+    """One line per product, however many searches it was held from, for its owner. What's
+    missing and the owners are every reason the product was held for, across those searches."""
     owners: dict[str, str] = rules["data_gaps"]["owners"]
     lines: dict[str, dict[str, Any]] = {}
+    reasons: dict[str, dict[str, None]] = {}
     for query_id, page in pages:
         for entry in page["held"]:
             if entry["id"] not in page["gaps"]:
@@ -594,18 +614,20 @@ def data_gaps(
                 {
                     "product_id": entry["id"],
                     "title": entry["title"],
-                    "missing": "; ".join(entry["reasons"]),
-                    "owner": "; ".join(
-                        dict.fromkeys(owners.get(r, "unassigned") for r in entry["reasons"])
-                    ),
+                    "missing": "",
+                    "owner": "",
                     "queries": [],
                     "best_score": entry["score"],
                     "best_rank": entry["would_rank"],
                 },
             )
+            reasons.setdefault(entry["id"], {}).update(dict.fromkeys(entry["reasons"]))
             line["queries"].append(query_id)
             line["best_score"] = max(line["best_score"], entry["score"])
             line["best_rank"] = min(line["best_rank"], entry["would_rank"])
+    for pid, line in lines.items():
+        line["missing"] = "; ".join(reasons[pid])
+        line["owner"] = "; ".join(dict.fromkeys(owners.get(r, "unassigned") for r in reasons[pid]))
     return sorted(lines.values(), key=lambda line: line["product_id"])
 
 
@@ -784,6 +806,8 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, help="output directory (default: runs/<timestamp>)")
     args = parser.parse_args()
+    if args.size_system and not args.size:
+        parser.error("--size-system needs --size: a sizing system alone isn't a size filter")
     rules = load_rules()
     if args.query is not None:
         filters = Filters(

@@ -5,13 +5,15 @@
 
 data/pim.csv (the PIM seed) is product text from the Amazon Shopping Queries dataset (ESCI,
 https://github.com/amazon-science/esci-data, Apache-2.0): title, brand, color and the start of
-the bullet points of every US product ESCI lists for seven of its shopper queries (QUERIES below,
-by ESCI query_id). Only the product text and the query text are kept; ESCI's relevance labels
-are not. To rebuild pim.csv, download one file of the Hugging Face parquet mirror of ESCI's test
-split (about 160 MB) and pass it with --esci:
+the bullet points of every US product with an English title that ESCI lists for seven of its
+shopper queries (QUERIES below, by ESCI query_id). Only the product text and the query text are
+kept; ESCI's relevance labels are not. To rebuild pim.csv, download one file of the Hugging Face
+parquet mirror of ESCI's test split (about 160 MB) at the mirror's parquet revision
+45c948250c2116f1e535bac67b92501c695307a4, and pass it with --esci. Its sha256 is
+01b0da5ffc4d8e414ae1d04e98c89bd06ebb35196796de1fd99032a775b04a8e.
 
     curl -L -o esci-test-0.parquet \\
-      https://huggingface.co/api/datasets/tasksource/esci/parquet/default/test/0.parquet
+      https://huggingface.co/datasets/tasksource/esci/resolve/45c948250c2116f1e535bac67b92501c695307a4/default/test/0000.parquet
 
 Everything else is made up here. ESCI has no stock, sizes or facets, so:
 

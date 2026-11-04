@@ -14,10 +14,12 @@ import csv
 import functools
 import io
 import json
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
+from unittest import mock
 
 from inventory import Inventory, Variant
 from pim import PIM, Product
@@ -118,7 +120,8 @@ def check_filters() -> None:
         ("18", "women", "8", "women", False),
         ("12", "women", "12W", "women", False),
         ("12W", "women", "12w", "women", True),
-        ("12 W", "women", "12W", "women", False),
+        ("12 W", "women", "12W", "women", True),
+        ("12W", "women", "12 w", "women", True),
         ("8", "toddler", "8", "women", False),
         ("8", "toddler", "8", None, True),
         ("8", " Women ", "8", "women", True),
@@ -135,8 +138,12 @@ def check_filters() -> None:
         ("Black/White/Carbon", "black", True),
         ("Blackberry", "black", False),
         ("Black1", "black", True),
-        ("Jet", "black", True),
-        ("Midnight", "navy", True),
+        ("Jet", "black", False),
+        ("Jet Black", "black", True),
+        ("Midnight", "navy", False),
+        ("Midnight Green", "navy", False),
+        ("Midnight Blue/White", "navy", True),
+        ("Blue Midnight", "navy", False),
         ("Navy Blue", "black", False),
         ("Off-White", "white", True),
     ]:
@@ -162,6 +169,18 @@ def check_filters() -> None:
     # No size or stock filter: the feed isn't needed, so a product missing from it passes.
     any_stock = recipe.Filters(("black",), None, None, in_stock=False)
     assert recipe.check_filters(black, [], any_stock, RULES) == ([], [])
+    # Any stock still checks the variant color: a black product whose only variant is white.
+    assert recipe.check_filters(black, [variant("White", "8")], any_stock, RULES)[0] == [
+        "no black variant"
+    ]
+    # The black 8 is sold out but an in-stock 8 has no color: it may be black, so held.
+    mixed = [variant("Black", "8", in_stock=False), variant("", "8")]
+    assert recipe.check_filters(black, mixed, WOMEN_8, RULES) == ([], [recipe.NO_VARIANT_COLOR])
+    # The colorless 8 is sold out too: sold out whatever its color.
+    mixed = [variant("Black", "8", in_stock=False), variant("", "8", in_stock=False)]
+    assert recipe.check_filters(black, mixed, WOMEN_8, RULES)[0] == [
+        "sold out in black, size women 8"
+    ]
     print("filters: per-variant stock, sizes, sizing systems, colors, held vs dropped ok")
 
 
@@ -225,6 +244,18 @@ def check_ordering() -> None:
     assert page["status"] == "no_results", page["status"]
     assert "61 failed a filter and 1 are held for missing data" in page["reason"], page["reason"]
     assert set(recipe.STATUSES) == {"ranked", "no_good_match", "no_results", "not_reranked"}
+    # held_within is inclusive, and a score equal to min_score counts as a match.
+    floor, within = RULES["rerank"]["min_score"], RULES["data_gaps"]["held_within"]
+    held = [
+        {"id": "AT", "score": floor, "would_rank": within},
+        {"id": "PAST", "score": 0.99, "would_rank": within + 1},
+        {"id": "LOW", "score": floor - 0.01, "would_rank": 1},
+    ]
+    assert recipe.gap_ids({"held": held}, RULES) == ["AT"], recipe.gap_ids({"held": held}, RULES)
+    # A search that wasn't reranked has no scores; a min_score of 0 doesn't list its held ones.
+    zero = copy.deepcopy(RULES)
+    zero["rerank"]["min_score"] = 0.0
+    assert recipe.gap_ids({"held": [{"id": "X", "reasons": ["r"]}]}, zero) == []
     print("ordering: matches then related, no_good_match, held never shown, gap rule ok")
 
 
@@ -335,6 +366,23 @@ def check_run_outputs() -> None:
     assert recipe.csv_safe("Black") == "Black"
     # Every reason a product can be held has an owner in rules.yaml.
     assert set(recipe.HELD_REASONS) <= set(RULES["data_gaps"]["owners"])
+    owners = RULES["data_gaps"]["owners"]
+    assert owners[recipe.NO_PIM_COLOR] == "catalog owner", owners
+    assert owners[recipe.NOT_IN_FEED] == owners[recipe.NO_VARIANT_COLOR] == "inventory owner"
+
+    # Held for different reasons in two searches: the line lists both, and both owners.
+    def held_page(reason: str, score: float) -> dict[str, Any]:
+        entry = {"id": "P-1", "title": "T", "reasons": [reason], "score": score, "would_rank": 2}
+        return {"held": [entry], "gaps": ["P-1"]}
+
+    pages = [
+        ("Q-A", held_page(recipe.NO_PIM_COLOR, 0.8)),
+        ("Q-B", held_page(recipe.NOT_IN_FEED, 0.9)),
+    ]
+    (line,) = recipe.data_gaps(pages, RULES)
+    assert line["missing"] == f"{recipe.NO_PIM_COLOR}; {recipe.NOT_IN_FEED}", line
+    assert line["owner"] == "catalog owner; inventory owner", line
+    assert (line["queries"], line["best_score"]) == (["Q-A", "Q-B"], 0.9), line
     print("run: pages, results.json, summary and a deduplicated data gap list written ok")
 
 
@@ -428,6 +476,36 @@ def check_sie_failure() -> None:
     )
 
 
+def check_queries_and_args() -> None:
+    folder = Path(tempfile.mkdtemp())
+    path = folder / "queries.json"
+
+    def load(query_id: str, color: list[str]) -> list[recipe.SampleQuery]:
+        entry = {"id": query_id, "query": "q", "filters": {"color": color}}
+        path.write_text(json.dumps({"queries": [entry]}), encoding="utf-8")
+        return recipe.load_queries(path)
+
+    # A query ID becomes a file name under pages/: anything but letters, digits, _ and - stops.
+    for bad in ("../escape", "Q 1", "Q/1", ""):
+        caught = raised(functools.partial(load, bad, []))
+        assert type(caught) is SystemExit, (bad, caught)
+        assert "must match" in str(caught), (bad, caught)
+    # Color facets are lowercased, as the command line does.
+    assert load("Q-1_a", ["Black", "NAVY"])[0].filters.color == ("black", "navy")
+    # --size-system without --size is refused before any SIE call.
+    argv = ["recipe.py", "shoes", "--size-system", "women"]
+    with (
+        mock.patch.object(sys, "argv", argv),
+        mock.patch.object(recipe, "make_client", side_effect=AssertionError("called SIE")),
+        contextlib.redirect_stderr(io.StringIO()) as err,
+    ):
+        caught = raised(recipe.main)
+    assert isinstance(caught, SystemExit), caught
+    assert caught.code == 2, caught
+    assert "--size-system needs --size" in err.getvalue(), err.getvalue()
+    print("queries and args: IDs checked, colors lowercased, --size-system needs --size ok")
+
+
 def check_data() -> None:
     # The feed and queries are what make_data.py writes from the committed PIM seed.
     pim_rows = make_data.read_pim(recipe.ROOT / "data" / "pim.csv")
@@ -454,4 +532,5 @@ if __name__ == "__main__":
     check_replies()
     check_run_outputs()
     check_sie_failure()
+    check_queries_and_args()
     check_data()

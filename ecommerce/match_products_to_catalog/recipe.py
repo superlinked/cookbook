@@ -18,7 +18,8 @@ Input:     data/supplier_feed.csv (23 incoming records: title, brand and, where 
 SIE pipeline:
            (Python)                                   look up each record's GTIN and model
                                                       number in the PIM; a shared one settles
-                                                      it, conflicting model numbers mean
+                                                      it when brand and attributes agree,
+                                                      conflicting model numbers mean
                                                       different products
            encode   google/siglip-so400m-patch14-384  one vector per photo, one call per run
            encode   Qwen/Qwen3-Embedding-4B           one vector per title, one call per run
@@ -53,6 +54,7 @@ import json
 import os
 import re
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -245,8 +247,10 @@ def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
 
 
 def load_feed(path: Path = FEED_PATH) -> list[FeedRecord]:
+    """The supplier feed. Two rows with one record ID stop the run: the second would overwrite
+    the first's pairs and proposal."""
     with path.open(encoding="utf-8", newline="") as handle:
-        return [
+        records = [
             FeedRecord(
                 record_id=row["record_id"],
                 brand=row["brand"],
@@ -262,6 +266,14 @@ def load_feed(path: Path = FEED_PATH) -> list[FeedRecord]:
             )
             for row in csv.DictReader(handle)
         ]
+    counts = Counter(record.record_id for record in records)
+    repeated = sorted(record_id for record_id, n in counts.items() if n > 1)
+    if repeated:
+        raise SystemExit(
+            f"{path.name} has more than one row for record ID {', '.join(repeated)}. Give each "
+            "supplier record its own ID, then run again. No outputs were written."
+        )
+    return records
 
 
 def make_client() -> SIEClient:
@@ -420,6 +432,18 @@ def guarded[T](calls: CallLog, model: str, work: Callable[[], T]) -> tuple[T | N
         return None, f"the SIE call failed: {short(error)}"
 
 
+def unit(dense: Any) -> np.ndarray | None:
+    """The vector scaled to length 1, or None when it is empty, all zeros or not finite."""
+    try:
+        array = np.asarray(dense, dtype=np.float64).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    norm = float(np.linalg.norm(array)) if array.size else 0.0
+    if not array.size or not np.all(np.isfinite(array)) or norm == 0.0:
+        return None
+    return cast(np.ndarray, array / norm)
+
+
 # --- Photos -----------------------------------------------------------------------------------
 
 
@@ -452,8 +476,9 @@ def embed(
 ) -> tuple[dict[str, np.ndarray] | None, str]:
     """One unit vector per item id from one encode call, or None and why the call failed.
 
-    A reply that doesn't hold a dense vector for every item is a failed call (the transient
-    path), never a partial result.
+    A reply that doesn't hold a usable dense vector for every item (missing, empty, all zeros,
+    not finite, or a different length from the others) is a failed call (the transient path),
+    never a partial result.
     """
 
     ids = [str(item["id"]) for item in items]
@@ -466,16 +491,24 @@ def embed(
         vectors: dict[str, np.ndarray] = {}
         for item_id, result in zip(ids, reply, strict=True):
             dense = result.get("dense") if isinstance(result, dict) else None
-            if not dense:
+            if dense is None:
                 raise SIEError(f"the reply has no `dense` vector for {item_id}")
-            vector = np.asarray(dense, dtype=np.float64)
-            vectors[item_id] = vector / np.linalg.norm(vector)
+            vector = unit(dense)
+            if vector is None:
+                raise SIEError(f"the `dense` vector for {item_id} is empty, zero or not finite")
+            vectors[item_id] = vector
+        if len({vector.shape for vector in vectors.values()}) > 1:
+            raise SIEError("the reply's `dense` vectors have different lengths")
         return vectors
 
     return guarded(calls, model, call)
 
 
 # --- Attributes (plain Python) ----------------------------------------------------------------
+
+
+# The key under which attributes() keeps a structured field it couldn't read.
+UNREADABLE = "unreadable"
 
 
 def _number(text: str) -> str:
@@ -525,12 +558,15 @@ def title_materials(title: str, spec: dict[str, Any]) -> set[str]:
 
 
 def sizes(text: str, spec: dict[str, Any]) -> dict[str, set[str]]:
-    """Every size the text names, per unit: "6 Feet (1.8 Meters)" is feet 6 and meters 1.8."""
+    """Every size the text names, per unit: "6 Feet (1.8 Meters)" is feet 6 and meters 1.8.
+    Patterns run in rules.yaml order and each match is taken out of the text, so "8 M US" is a
+    US shoe size and not 8 meters too."""
     found: dict[str, set[str]] = {}
     for size in spec["sizes"]:
         for match in re.finditer(size["pattern"], text, flags=re.IGNORECASE):
             value = next(group for group in match.groups() if group)
             found.setdefault(size["unit"], set()).add(_number(value))
+        text = re.sub(size["pattern"], " ", text, flags=re.IGNORECASE)
     return found
 
 
@@ -545,20 +581,36 @@ def _matches(patterns: list[str], text: str) -> set[str]:
 def attributes(fields: dict[str, str], title: str, rules: dict[str, Any]) -> dict[str, set[str]]:
     """Color, sizes, pack count, plug and material for one record: from its structured field
     where the system states it, from the title where it doesn't. What neither states is left
-    out, so a record with no pack count has no pack count, not a pack of 1."""
+    out, so a record with no pack count has no pack count, not a pack of 1.
+
+    A size field no pattern reads ("One Size", "M") is kept as written under "size", so it is
+    compared, not dropped. A pack count field that is not a number goes through the pack
+    patterns ("2 pack" is 2); one they can't read either is listed under UNREADABLE. A plug
+    field goes through the plug patterns ("UK plug" is UK)."""
     spec = rules["attributes"]
     found: dict[str, set[str]] = {}
     color = fields["color"].strip()
     colors = {_color(color, spec["color_synonyms"])} if color else title_colors(title, spec)
     if colors:
         found["color"] = colors
-    found.update(sizes(fields["size"] if fields["size"].strip() else title, spec))
+    size = fields["size"].strip()
+    read = sizes(size or title, spec)
+    if size and not read:
+        read = {"size": {" ".join(size.lower().split())}}
+    found.update(read)
     pack = fields["pack_count"].strip()
-    packs = {pack} if pack else _matches(spec["pack_count"], title)
+    if not pack:
+        packs = _matches(spec["pack_count"], title)
+    elif re.fullmatch(r"\d+(?:\.\d+)?", pack):
+        packs = {pack}
+    else:
+        packs = _matches(spec["pack_count"], pack)
+        if not packs:
+            found.setdefault(UNREADABLE, set()).add(f"pack_count '{pack}'")
     if packs:
         found["pack_count"] = {_number(value) for value in packs}
     plug = fields["plug"].strip()
-    plugs = {plug} if plug else _matches(spec["plug"], title)
+    plugs = (_matches(spec["plug"], plug) or {plug}) if plug else _matches(spec["plug"], title)
     if plugs:
         found["plug"] = {value.upper() for value in plugs}
     material = fields["material"].strip()
@@ -577,7 +629,7 @@ def compare_attributes(
     review_when_one_side_missing that only one record states."""
     conflicts = [
         f"{key} {', '.join(sorted(incoming[key]))} vs {', '.join(sorted(existing[key]))}"
-        for key in sorted(set(incoming) & set(existing))
+        for key in sorted(set(incoming) & set(existing) - {UNREADABLE})
         if incoming[key] != existing[key]
     ]
     one_side = [
@@ -589,20 +641,56 @@ def compare_attributes(
     return conflicts, one_side
 
 
+def unclear_attributes(
+    incoming: dict[str, set[str]], existing: dict[str, set[str]], rules: dict[str, Any]
+) -> list[str]:
+    """What the checks can't compare, so neither a conflict nor an agreement: both records
+    state a size but in no shared unit ("8 meters" vs "8 us_shoe", "one size" vs "10 oz"), or a
+    field one record states can't be read."""
+    units = {size["unit"] for size in rules["attributes"]["sizes"]} | {"size"}
+
+    def stated(found: dict[str, set[str]]) -> dict[str, set[str]]:
+        return {key: values for key, values in found.items() if key in units}
+
+    def named(found: dict[str, set[str]]) -> str:
+        return ", ".join(f"{key} {', '.join(sorted(found[key]))}" for key in sorted(found))
+
+    notes: list[str] = []
+    mine, theirs = stated(incoming), stated(existing)
+    if mine and theirs and not set(mine) & set(theirs):
+        notes.append(
+            f"size: {named(mine)} from the supplier and {named(theirs)} from the PIM can't be "
+            "compared"
+        )
+    for side, found in (("the supplier", incoming), ("the PIM", existing)):
+        notes += [f"{note} from {side} can't be read" for note in sorted(found.get(UNREADABLE, ()))]
+    return notes
+
+
+def item_attributes(item: FeedRecord | Product, rules: dict[str, Any]) -> dict[str, set[str]]:
+    """attributes() for a supplier record or a PIM product."""
+    fields = {name: getattr(item, name) for name in ATTRIBUTE_FIELDS}
+    return attributes(fields, item.title, rules)
+
+
 def _words(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
+def same_brand(record: FeedRecord, product: Product) -> bool:
+    """The supplier's brand field is the PIM brand, or, when the field is blank, the title
+    holds every word of the PIM brand."""
+    if record.brand.strip():
+        return _words(record.brand) == _words(product.brand)
+    return _words(product.brand) <= _words(record.title)
+
+
 def same_line(record: FeedRecord, product: Product) -> tuple[bool, str]:
     """Whether the incoming record is from the existing product's brand and product line: the
-    same brand (the supplier's brand field, or the brand's words in the title when the field is
-    blank), and every word of the PIM's product line in the incoming title."""
+    same brand (see same_brand), and every word of the PIM's product line in the incoming
+    title."""
     title = _words(record.title)
-    if record.brand.strip():
-        brand_ok = _words(record.brand) == _words(product.brand)
-    else:
-        brand_ok = _words(product.brand) <= title
-    if not brand_ok:
+    if not same_brand(record, product):
         return False, f"not the PIM brand {product.brand}"
     missing = sorted(_words(product.product_line) - title)
     if missing:
@@ -616,16 +704,19 @@ def same_line(record: FeedRecord, product: Product) -> tuple[bool, str]:
 # --- Identifiers (PIM lookups, plain Python) --------------------------------------------------
 
 
-def match_identifiers(record: FeedRecord, pim: Pim) -> Pair | None:
+def match_identifiers(record: FeedRecord, pim: Pim, rules: dict[str, Any]) -> Pair | None:
     """The PIM product the record's GTIN or model number finds, as a settled pair; None when
-    neither finds one.
+    neither finds one. A model number is a lookup only within the record's brand.
 
-    One product found by every identifier the record has, and no identifier on that product
-    that disagrees: same_identifier. Identifiers pointing at several products, or a shared one
-    next to a conflicting one (same GTIN, other model number): review.
+    One product found by every identifier the record has, no identifier on that product that
+    disagrees, the same brand, and no attribute that conflicts or can't be compared:
+    same_identifier. Identifiers pointing at several products, a shared one next to a
+    conflicting one (same GTIN, other model number or brand), or attributes that don't agree
+    (a style number shared across colors and sizes): review.
     """
     found = {p.record_id: p for p in pim.find_by_gtin(record.gtin)}
-    found |= {p.record_id: p for p in pim.find_by_model_number(record.model_number)}
+    by_model = pim.find_by_model_number(record.model_number)
+    found |= {p.record_id: p for p in by_model if same_brand(record, p)}
     if not found:
         return None
     if len(found) > 1:
@@ -646,6 +737,8 @@ def match_identifiers(record: FeedRecord, pim: Pim) -> Pair | None:
     ):
         if mine and theirs:
             (shared if mine == theirs else conflicting).append(name)
+    if not same_brand(record, product):
+        conflicting.append("brand")
     if conflicting:
         return Pair(
             record.record_id,
@@ -653,7 +746,18 @@ def match_identifiers(record: FeedRecord, pim: Pim) -> Pair | None:
             "identifier",
             REVIEW,
             f"Same {' and '.join(shared)} as {product.record_id}, but the "
-            f"{' and '.join(conflicting)} differs.",
+            f"{' and '.join(conflicting)} {'differs' if len(conflicting) == 1 else 'differ'}.",
+        )
+    stated = item_attributes(record, rules), item_attributes(product, rules)
+    disagree = compare_attributes(*stated, rules)[0] + unclear_attributes(*stated, rules)
+    if disagree:
+        return Pair(
+            record.record_id,
+            product.record_id,
+            "identifier",
+            REVIEW,
+            f"Same {' and '.join(shared)} as {product.record_id}, but the attributes don't "
+            f"agree: {'; '.join(disagree)}.",
         )
     return Pair(
         record.record_id,
@@ -696,11 +800,9 @@ def classify(
         text_sim,
         combined,
     )
-    fields = {name: getattr(record, name) for name in ATTRIBUTE_FIELDS}
-    mine = attributes(fields, record.title, rules)
-    fields = {name: getattr(product, name) for name in ATTRIBUTE_FIELDS}
-    theirs = attributes(fields, product.title, rules)
-    pair.conflicts, pair.one_side_only = compare_attributes(mine, theirs, rules)
+    mine, theirs = item_attributes(record, rules), item_attributes(product, rules)
+    pair.conflicts, one_side = compare_attributes(mine, theirs, rules)
+    pair.one_side_only = one_side + unclear_attributes(mine, theirs, rules)
     disagree = sim["disagree"]
     if (
         not pair.conflicts
@@ -874,6 +976,16 @@ def propose(record: FeedRecord, pairs: list[Pair], pim: Pim) -> Proposal:
 Vectors = dict[str, np.ndarray]
 
 
+def feed_key(record: FeedRecord) -> str:
+    """A supplier record's vector key. Feed and PIM IDs are separate namespaces, so a feed
+    record that happens to share a PIM product's ID is never compared with itself."""
+    return f"feed:{record.record_id}"
+
+
+def pim_key(product: Product) -> str:
+    return f"pim:{product.record_id}"
+
+
 def embed_pairs(
     client: SIEClient,
     calls: CallLog,
@@ -881,10 +993,11 @@ def embed_pairs(
     sheet: Image.Image,
     rules: dict[str, Any],
 ) -> tuple[tuple[Vectors, Vectors] | None, str]:
-    """Photo and title vectors for every record in the pairs (one encode call per model), or
-    None and why when either call failed: then no pair can be compared."""
-    records = {r.record_id: (r.box, r.title) for r, _ in to_compare}
-    records |= {p.record_id: (p.box, p.title) for _, p in to_compare}
+    """Photo and title vectors for every record in the pairs (one encode call per model), keyed
+    by feed_key and pim_key, or None and why when either call failed: then no pair can be
+    compared."""
+    records = {feed_key(r): (r.box, r.title) for r, _ in to_compare}
+    records |= {pim_key(p): (p.box, p.title) for _, p in to_compare}
     photo_items = [Item(id=i, images=[_jpeg(photo(sheet, box))]) for i, (box, _) in records.items()]
     photos, photo_failed = embed(client, calls, rules["models"]["image"], photo_items)
     title_items = [Item(id=i, text=title) for i, (_, title) in records.items()]
@@ -907,7 +1020,7 @@ def run(
     pairs: dict[str, list[Pair]] = {}
     to_compare: list[tuple[FeedRecord, Product]] = []
     for record in feed:
-        settled = match_identifiers(record, pim)
+        settled = match_identifiers(record, pim, rules)
         pairs[record.record_id] = [settled] if settled else []
         for product in [] if settled else products:
             conflict = model_number_conflict(record, product)
@@ -926,13 +1039,13 @@ def run(
             pairs[record.record_id].append(pair)
             continue
         photos, titles = vectors
-        image_sim = float(photos[record.record_id] @ photos[product.record_id])
-        text_sim = float(titles[record.record_id] @ titles[product.record_id])
+        image_sim = float(photos[feed_key(record)] @ photos[pim_key(product)])
+        text_sim = float(titles[feed_key(record)] @ titles[pim_key(product)])
         pair = classify(record, product, image_sim, text_sim, rules)
         if pair.route == "judge":
             choice, why = ask_judge(client, calls, record, product, sheet, rules)
             if choice is None:
-                pair.reason = f"Judge not asked: {why}"
+                pair.reason = f"No judge verdict, because {why}"
             else:
                 read_verdict(choice, record, product, pair)
         pairs[record.record_id].append(pair)

@@ -15,14 +15,15 @@ keyword_search:
   max_hits: 200
 
 filters:
-  # The PIM color must contain one of these words, as a whole word, for the shopper's color
-  # facet ("Black/White/Carbon" counts as black; "Blackberry" doesn't). A multicolor product
-  # counts for every color it names. A product with no PIM color is held, never guessed from
-  # its title.
+  # The PIM color must contain one of these words or phrases, as whole words, for the shopper's
+  # color facet ("Black/White/Carbon" counts as black; "Blackberry" doesn't; "midnight blue"
+  # counts as navy, "Midnight Green" doesn't). Words that also name other colors (midnight, jet,
+  # chalk, snow) are left out, or listed only inside a phrase. A multicolor product counts for
+  # every color it names. A product with no PIM color is held, never guessed from its title.
   color_words:
-    black: [black, ebony, onyx, jet, noir, blk]
-    white: [white, ivory, chalk, snow]
-    navy: [navy, midnight]
+    black: [black, ebony, onyx, noir, blk]
+    white: [white, ivory]
+    navy: [navy, midnight blue]
   # Size, sizing system and stock come from the variant rows in the stock feed, for the
   # shopper's color: a sold-out black size 8 doesn't pass because the white size 8 is in stock.
   # A product missing from the feed is held, never shown as in stock.
@@ -43,8 +44,8 @@ rerank:
 
 data_gaps:
   # A held product that scores at least rerank.min_score and would rank this high among the
-  # results goes on the data gap list. Set to 5 after seeing the first demo's scores: at 3,
-  # the two held Dr. Martens boots in Q-04, both at rank 4, would not have been listed.
+  # results goes on the data gap list. At 3, the two held Dr. Martens boots in Q-04, both at
+  # rank 4, would not be listed.
   held_within: 5
   # Who fixes each kind of gap.
   owners:

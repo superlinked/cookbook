@@ -5,8 +5,9 @@ Akeneo, a product search on the supplier and supplier-SKU attributes; in a store
 product search on the vendor and the variant SKU). The records come from the committed seed
 data/pim-products.csv, loaded into an in-memory SQLite database.
 
-Matching is exact: the same supplier and the same SKU. Two suppliers can use the same code for
-different products, so the SKU alone never finds a record.
+Matching is exact: the same supplier and the same SKU, with case ignored in the SKU the same way
+the recipe's duplicate-SKU check ignores it ("tt-a08" is TT-A08). Two suppliers can use the same
+code for different products, so the SKU alone never finds a record.
 """
 
 from __future__ import annotations
@@ -41,21 +42,31 @@ class PimProduct:
     attributes: str
 
 
+def sku_key(sku: str) -> str:
+    """The SKU as the lookup compares it: spacing around it and case ignored."""
+    return sku.strip().casefold()
+
+
 class Pim:
     """Read-only lookups into the PIM seed."""
 
     def __init__(self, path: Path = PIM_PATH) -> None:
         self.db = sqlite3.connect(":memory:")
-        self.db.execute(f"CREATE TABLE products ({', '.join(f'{c} TEXT' for c in COLUMNS)})")
+        columns = ", ".join(f"{c} TEXT" for c in COLUMNS)
+        self.db.execute(f"CREATE TABLE products ({columns}, sku_key TEXT)")
         with path.open(encoding="utf-8", newline="") as handle:
-            rows = [tuple(row[c] for c in COLUMNS) for row in csv.DictReader(handle)]
-        self.db.executemany(f"INSERT INTO products VALUES ({', '.join('?' * len(COLUMNS))})", rows)
+            rows = [
+                (*(row[c] for c in COLUMNS), sku_key(row["supplier_sku"]))
+                for row in csv.DictReader(handle)
+            ]
+        marks = ", ".join("?" * (len(COLUMNS) + 1))
+        self.db.executemany(f"INSERT INTO products VALUES ({marks})", rows)
 
     def find_by_supplier_sku(self, supplier: str, sku: str) -> list[PimProduct]:
         """Every PIM product listed under this supplier's SKU (normally none or one)."""
         cursor = self.db.execute(
-            f"SELECT {', '.join(COLUMNS)} FROM products WHERE supplier = ? AND supplier_sku = ? "
+            f"SELECT {', '.join(COLUMNS)} FROM products WHERE supplier = ? AND sku_key = ? "
             "ORDER BY product_id",
-            (supplier.strip(), sku.strip()),
+            (supplier.strip(), sku_key(sku)),
         )
         return [PimProduct(*row) for row in cursor.fetchall()]
