@@ -1,0 +1,12 @@
+GRANITE HARBOR BANK
+Incoming wire confirmation
+
+Date: 23 October 2026
+Beneficiary: Pellham Marine Supply LLC
+Credit account: 4471900321
+Amount: USD 40,000.00
+Originator: Kittering Marine Holdings
+Originator reference: PARTIAL PAYMENT INV 2611
+Memo: cargo claim 404-18-2210
+
+Questions about this wire: Granite Harbor Bank wire services, 781-555-0164.

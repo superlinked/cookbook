@@ -47,6 +47,16 @@ Run time is a warm live run on SIE Cloud, on the date in each recipe's README (2
 for most). A run that has to start a cold model can take several minutes longer. Calls counts the
 recipe's SIE requests (one request can carry many items).
 
+### Legal
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Check contracts for the clauses a regulation requires](legal/check_contracts_for_required_clauses) | docling, LightOnOCR-3-4B, Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 96 | 90 s |
+| [Review a contract against your playbook](legal/review_contract_against_playbook) | docling, gliner2-large-v1 | 141 | 34 s |
+| [Index and check a batch of documents you received](legal/index_and_check_received_documents) | LightOnOCR-3-4B, docling, gliner2-large-v1, GLiNER2.5-Decide | 39 | 23 s |
+| [Redact documents to the agreed rules and log every redaction](legal/redact_documents_with_log) | pii-redact | 6 | 2 s |
+| [Check citations against the documents they cite](legal/check_citations_against_sources) | Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 22 | 19 s |
+
 ### Insurance
 
 | Recipe | Models | SIE calls | Run time |

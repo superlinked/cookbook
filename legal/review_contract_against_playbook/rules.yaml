@@ -1,0 +1,159 @@
+# The legal team's NDA playbook and every threshold the recipe uses.
+# This is the only file legal edits. The thresholds are untuned starting points, so check them
+# against your own NDAs.
+
+models:
+  document: docling                       # .docx to Markdown with headings
+  extract: fastino/gliner2-large-v1       # position fields from each section window
+
+thresholds:
+  # GLiNER2 reads at most 512 tokens per item. Words are counted conservatively (legal text
+  # splits into more tokens than words), so a window is about 512 tokens, not a guarantee; an
+  # over-long window fails its call and the positions it was read for come out unclear.
+  window_words: 180
+  window_overlap_words: 30
+  min_document_chars: 200   # a converted NDA shorter than this was not read: every position unclear
+
+# Which fields share one extract call. Each group is one GLiNER2 output_schema, sent once per
+# window. On the planted NDAs one schema with every field dropped governing law and the
+# non-solicit, so these are the groups. Re-check them if you add fields or change descriptions.
+extract_groups:
+  - [agreement_term, confidentiality_period, residuals, permitted_disclosures]
+  - [governing_law]
+  - [non_solicit]
+
+# The law the governing-law redline names when the CLM intake record has no preference.
+default_governing_law: Delaware
+
+# One entry per position. For each:
+#   label            what the position says, as the lawyer would put it
+#   fields           what GLiNER2 is asked to find (output_schema): type and description
+#   evidence_terms   words the section must contain for a found value to count. A value from a
+#                    section without them is not evidence (a "Delaware corporation" in the
+#                    preamble is not a governing-law clause), and the position comes out unclear
+#                    if that is all the extractor marked.
+#   applies_when_we  the CLM intake roles (receive, disclose, both) the position is checked for;
+#                    left out means always. A limit on our obligations as recipient doesn't bind
+#                    us on an NDA where we only disclose.
+#   standard_wording our clause, pasted into Track Changes when the position deviates.
+#                    {governing_law} is the intake record's preference.
+#   approver         who must approve if the lawyer would rather accept the counterparty's wording.
+# A position with no clause found is not_found, which goes to the lawyer like every other status
+# that isn't matches_position.
+positions:
+  term:
+    label: Confidentiality lasts at most 3 years
+    max_years: 3
+    applies_when_we: [receive, both]
+    fields:
+      agreement_term:
+        type: string
+        description: how long the agreement or its obligations last
+      confidentiality_period:
+        type: string
+        description: how long the confidentiality obligations last, including any period they survive after the agreement ends
+    evidence_terms: [term, duration, period, remain in effect, continue, last, survive, expire, cease]
+    # Wording that means "no end date": always deviates.
+    perpetual_terms: [perpetual, perpetuity, indefinitely, no expiry]
+    # A confidentiality period whose sentence uses these words runs after the agreement ends, so
+    # it adds to the agreement term. A section with them and no confidentiality period extracted
+    # makes the position unclear.
+    survival_terms: [survive, survival, after termination, after expiry, after the expiry, after this agreement expires, following termination, following expiry,
+      after this agreement ends, after the agreement ends, after the end of, following the end of, beyond the term, post-termination,
+      continue after, continues after, continue to apply after, continues to apply after, continue in force after, continue in effect after,
+      remain in force after, remain in effect after]
+    standard_wording: >-
+      This Agreement and the obligations in it last for two (2) years from the date of this
+      Agreement.
+    approver: Senior commercial counsel
+
+  governing_law:
+    label: Governing law on the allowed list
+    # Allowed jurisdiction -> wording that names it.
+    allowed:
+      Delaware: [delaware]
+      New York: [new york]
+      California: [california]
+      England and Wales: [england and wales, england, english law]
+    # Words a governing-law value may hold besides an allowed name. Any other word ("new" in
+    # "New England", "county" in "Delaware County, Pennsylvania") makes the position unclear.
+    filler_words: [the, state, commonwealth, of, law, laws, governed, by, and, its, substantive]
+    fields:
+      governing_law:
+        type: string
+        description: the state or country whose laws govern this agreement
+    evidence_terms: [governed, governing, law of, laws of]
+    standard_wording: >-
+      This Agreement is governed by the laws of {governing_law}, without regard to its conflict
+      of laws rules.
+    approver: General Counsel
+
+  non_solicit:
+    label: No non-solicit
+    forbidden: true
+    fields:
+      non_solicit:
+        type: string
+        description: period during which a party may not solicit, hire or engage the other party's employees or personnel
+    # Also the backstop: a section that uses these words but where the extractor found nothing
+    # is unclear, never a silent pass.
+    evidence_terms: [solicit, poach, entice, recruit, hire any]
+    standard_wording: Delete the clause. Our NDAs place no restriction on hiring or engaging people.
+    approver: Head of People and General Counsel
+
+  residuals:
+    label: No residuals clause
+    forbidden: true
+    fields:
+      residuals:
+        type: string
+        description: right to use information retained in unaided memory (residuals)
+    evidence_terms: [residual, unaided memory, retained in memory]
+    standard_wording: >-
+      Delete the clause. The recipient may use Confidential Information only for the Purpose,
+      whether it is held in documents or in memory.
+    approver: General Counsel
+
+  permitted_disclosures:
+    label: Permitted disclosures include our carve-outs
+    applies_when_we: [receive, both]
+    fields:
+      permitted_disclosures:
+        type: array
+        description: people or circumstances to which confidential information may be disclosed
+    evidence_terms: [disclose, disclosure]
+    # A carve-out counts only when a permission sentence in a section the extractor marked
+    # grants it: the sentence says disclose and one of permission_terms, and uses the
+    # carve-out's wording. A negation_terms word in that sentence makes the position unclear
+    # ("may not disclose under legal process without consent" is not a carve-out).
+    permission_terms: [may, permitted, entitled, allowed]
+    negation_terms: [not, without, consent, prohibited, never]
+    # Carve-out -> wording that grants it.
+    required:
+      representatives with a need to know: [employee, representative, adviser, advisor]
+      disclosure required by law: [required by law, required by applicable law, legal process, court, subpoena]
+    standard_wording: >-
+      The recipient may disclose Confidential Information to its employees, officers and
+      professional advisers who need to know it and are bound by confidentiality duties no less
+      protective than this Agreement, and to the extent required by law, regulation or court
+      order, after giving the other party prompt written notice where lawful.
+    approver: Senior commercial counsel
+
+# Number words accepted in a duration ("five (5) years").
+number_words:
+  one: 1
+  two: 2
+  three: 3
+  four: 4
+  five: 5
+  six: 6
+  seven: 7
+  eight: 8
+  nine: 9
+  ten: 10
+  twelve: 12
+  eighteen: 18
+  twenty-four: 24
+  thirty-six: 36
+  forty-eight: 48
+  sixty: 60

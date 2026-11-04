@@ -1,0 +1,129 @@
+# The redaction list from the agreed ESI protocol, the privilege phrases and every threshold the
+# recipe uses. Thresholds are starting points, not tuned values: check them on your own documents.
+
+models:
+  # SIE Cloud's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # server (spans scoring 0.6 or more, the two models' spans unioned, person names propagated).
+  pii: superlinked/pii-redact
+
+# What the PII model is asked to find. Only the labels a `protocol` entry lists under
+# `model_labels` can lead to a redaction; everything else it finds (names, companies, phones,
+# emails, ordinary dates) stays readable. The extra labels are there so the model has somewhere
+# else to put a delivery date or a person's name than "date of birth".
+labels:
+  - person
+  - organization
+  - street address
+  - city
+  - postal code
+  - date
+  - date of birth
+  - phone number
+  - email address
+  - social security number
+  - account number
+  - credit card number
+  - tax id number
+  - insurance policy number
+
+# The review platform's coding for the documents this recipe prepares. Rows with any other
+# coding are left alone.
+redact_coding: Produce with redactions
+
+thresholds:
+  # The PII model reads about 384 words per request, so longer documents are sent as windows of
+  # this many words, each sharing `window_overlap_words` with the last. Each call asks SIE to
+  # fail rather than cut a window short.
+  window_words: 300
+  window_overlap_words: 50
+  # A value the PII model found counts only if one of its kind's `label` words sits on the same
+  # line, at most this many characters before it, with no other number in between.
+  label_near_chars: 40
+  # A redacted SSN or account number is also redacted in every other spelling across the set
+  # ("4471900321" and "4471 9003 21"), if it has at least this many digits.
+  spread_min_digits: 7
+
+# Words that would fit inside a date: "3 March 1991", "March 3, 1991", "03/03/1991",
+# "1991-03-03". A `rule` below uses it as {date}.
+date: '(?:\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?,?\s+\d{4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{2}-\d{2})'
+
+# The ESI protocol's redaction list: what may come out, how, and what the redaction log says.
+# Nothing else is redacted. Each entry:
+#   model_labels:  the PII model's labels that mean this kind
+#   label:         words that say a value is this kind ("SSN", "Date of birth"). A model span
+#                  without one nearby is left readable and the document goes to a person.
+#   shape:         optional. What one value looks like. A model span is cut to the values of this
+#                  shape inside it (one log line each); a span with none is left for a person.
+#   rule:          a regex that finds the kind by its label and shape without the model; the
+#                  `value` group is what gets redacted. It runs again on the redacted text as the
+#                  sweep.
+#   how:           full (the whole value) or last_four (all but the last `show_last` digits)
+#   replace_with:  what the redacted text shows ({last} is the digits left showing)
+#   spread:        redact the same digits in any other spelling across the set
+#   log:           the redaction log's name for it, and `basis`: the protocol section it rests on
+protocol:
+  ssn:
+    model_labels: [social security number]
+    label: '(?i)\b(?:ssn|social security|soc\.? ?sec\.?)\b'
+    shape: '(?<![\d-])\d{3}[- \xa0]?\d{2}[- \xa0]?\d{4}(?![\d-])'
+    rule: '(?i)\b(?:ssn|social security(?: number| no\.?)?|soc\.? ?sec\.?)(?:\s*(?:no\.?|number|#))?(?:\s+(?:is|was))?\W{0,4}(?P<value>\d{3}[- \xa0]?\d{2}[- \xa0]?\d{4})(?![\d-])'
+    how: full
+    replace_with: '[REDACTED: SSN]'
+    spread: true
+    log: Social Security number
+    basis: 'ESI Protocol 7.2(a): personal identifier'
+  date_of_birth:
+    model_labels: [date of birth]
+    label: '(?i)\b(?:date of birth|birth ?date|dob|d\.o\.b|born)\b'
+    shape: '(?i){date}'
+    rule: '(?i)\b(?:date of birth|birth ?date|dob|d\.o\.b\.?|born(?: on)?)(?:\s+(?:is|was))?\W{0,4}(?P<value>{date})'
+    how: full
+    replace_with: '[REDACTED: DOB]'
+    log: Date of birth
+    basis: 'ESI Protocol 7.2(b): personal identifier'
+  account_number:
+    model_labels: [account number]
+    label: '(?i)\b(?:accounts?|acct|a/c)\b'
+    shape: '(?<![\d-])\d(?:[- \xa0]?\d){5,19}(?![\d-])'
+    rule: '(?i)\b(?:account|acct|a/c)\b\.?(?:\s*(?:no\.?|number|#))?(?:\s+(?:is|was))?\W{0,4}(?P<value>\d(?:[- \xa0]?\d){5,19})(?![\d-])'
+    how: last_four
+    show_last: 4
+    # A number shorter than this is redacted in full: its last four would give most of it away.
+    show_last_min_digits: 8
+    replace_with: '[REDACTED: account ending {last}]'
+    replace_short: '[REDACTED: account]'
+    spread: true
+    log: Financial account number (last four shown)
+    basis: 'ESI Protocol 7.2(c): financial account'
+  home_address:
+    model_labels: [street address]
+    label: '(?i)\b(?:home|residence|resides at|lives at)\b'
+    rule: '(?i)\bhome address[ \t]*[:#-]?[ \t]*(?P<value>\w[^\n]*[^\s.])'
+    how: full
+    replace_with: '[REDACTED: home address]'
+    log: Home address of a non-party
+    basis: 'ESI Protocol 7.2(d): non-party personal information'
+
+# Shapes the sweep also looks for in the redacted text, besides each kind's `rule`. Any hit sends
+# the document to needs_review, with the line and the name below, never the value.
+sweep:
+  an SSN-shaped number: '(?<![\d-])\d{3}-\d{2}-\d{4}(?![\d-])'
+  # The rule takes a home address to the end of its line; a "City, ST 02050" line right after it
+  # is the rest of the address.
+  the rest of a home address on the next line: '(?i)\bhome address\b[^\n]*\n[ \t]*[a-z][a-z .''-]*,[ \t]*[a-z]{2}[ \t]+\d{5}(?:-\d{4})?\b'
+
+# Possible privilege. A paragraph is flagged when it names a lawyer on the matter (from the client
+# and matter system), sits in a message to or from one, or uses one of these phrases. Header
+# blocks (From, To, Date, Subject) stay readable and are never flagged themselves.
+privilege_phrases:
+  - '(?i)\blegal advice\b'
+  - '(?i)\bprivileged\b'
+  - '(?i)\battorney[- ]client\b'
+  - '(?i)\bwork product\b'
+  - '(?i)\badvice of counsel\b'
+  - '(?i)\bour (?:lawyers?|attorneys?|counsel)\b'
+# What a confirmed privilege redaction would say in the log, once the associate confirms it.
+privilege_basis: Attorney-client privilege
+# The export's privilege coding that means "the reviewer saw privilege in it". A document coded
+# this way with nothing flagged goes to needs_review.
+partly_privileged_coding: Partly privileged

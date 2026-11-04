@@ -1,0 +1,58 @@
+# The cite checker's rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own drafts.
+
+models:
+  rerank: Qwen/Qwen3-Reranker-4B       # ranks every paragraph of the cited document against the sentence
+  support: Qwen/Qwen3.8-27B-FP8        # does one of the top passages support the sentence? (chat, JSON schema)
+
+draft:
+  # Where the case number sits in the caption; the docket lookup takes it from here.
+  case_number_pattern: 'No\. (\d{2}-\d-\d{5}-\d)'
+  # Reporters and codes the citation parser knows, longest first where one starts another.
+  # Add yours (e.g. "F.4th", "U.S.C."); anything else in the draft is not seen as a citation.
+  case_reporters: ["Westm. 2d", "Westm. App.", "Westm.", "Ard. App.", "Ard."]
+  codes: ["Westm. Rev. Code", "Ard. Stat."]
+  # A period after one of these doesn't end a sentence ("v. Brightfield", "Rev. Code").
+  abbreviations: ["v.", "Co.", "Inc.", "Ass'n", "Corp.", "Mfg.", "No.", "Cf.", "cf.", "Westm.",
+                  "Ard.", "App.", "Rev.", "Stat.", "Hon.", "e.g.", "i.e.", "Mr.", "Ms.", "Dr."]
+  # Introductory signals the parser strips from the front of a citation.
+  signals: ["See also", "See generally", "See, e.g.,", "See", "But see", "Cf.", "cf.", "Accord",
+            "Compare", "E.g.,"]
+  # A sentence left with at most this many words once its citations are taken out is a citation
+  # sentence: it cites for the sentence before it.
+  max_citation_sentence_words: 2
+
+jurisdiction:
+  # Which jurisdictions bind a court in each jurisdiction (the court comes from the docket). An
+  # authority from anywhere else needs the draft to say so: a signal below, or the sentence
+  # naming the authority's jurisdiction. Courts within a jurisdiction are not ranked here.
+  binding:
+    Westmark: [Westmark]
+    Ardena: [Ardena]
+  persuasive_signals: ["Cf.", "cf.", "See generally", "But see", "Compare"]
+
+citator:
+  # Statuses a citation can have and still come out support_found. Anything else (superseded,
+  # overruled, repealed) is a finding, with what replaced it.
+  citable: [good_law]
+
+parts:
+  # Parts of a document whose text can support a sentence: the majority opinion of a case and
+  # the sections of a statute. Support found only in the facts, a dissent or a statute's history
+  # note is a finding.
+  supporting: [majority, section]
+
+rerank:
+  # Passed to the reranker with every sentence.
+  instruction: >-
+    Given a sentence from a legal brief, judge whether this paragraph of the case or statute it
+    cites states what the sentence says.
+  # Paragraphs scoring below this aren't shown to the model. If none reaches it, there is no
+  # reliable match in the passages read and a person reads the authority.
+  min_score: 0.5
+  # At most this many passages at or above min_score go to the model, best first.
+  top_k: 3
+
+support:
+  min_quote_words: 6                   # a shorter quote from the passage is not evidence
+  max_completion_tokens: 400
