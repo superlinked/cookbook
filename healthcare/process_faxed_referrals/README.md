@@ -100,6 +100,8 @@ insurance authorization is a separate step this recipe doesn't touch.
 
 Here are three of the fax packets in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. No real patient, provider or clinic is in it.
+
 **1. A complete packet.** `fax-1021-brightwater-family-medicine.pdf`
 - **Input:** three image-only pages (cover, signed referral order, clinic note) for Delphine
   Arkwright, a new patient, with a member ID, a reason and "Routine" on the order.
@@ -114,15 +116,17 @@ Here are three of the fax packets in `data/`, and what should happen to each.
   note's e-signature is set aside and the signed order goes on the callback list.
 - **Expected outcome:** `missing_info`: signed referral order.
 
-**3. A blank the chart can fill.** `fax-1021-millbrook-community-health.pdf`
-- **Input:** a packet for Corwin Ashdown, DOB 05/30/1972, with the member ID left blank. The EHR
-  has him with a member ID on file, and his son with the same name and another date of birth.
-- **What should happen:** the EHR lookup matches on name and date of birth, not the name alone,
-  so it finds exactly one chart and fills the member ID from it instead of calling.
-- **Expected outcome:** `checks_passed`, member ID `SHC-417730-1` from chart MRN-100231.
+**3. A blank member ID and a time frame.** `fax-1021-juniper-road-family-practice.pdf`
+- **Input:** three image-only pages for Odessa Pruitt, a new patient. The form says "Please see
+  within 72 hours" with no urgent keyword, the member ID is blank, and the reason reads "New leg
+  swelling, breathless lying flat, BNP 1,240 pg/mL."
+- **What should happen:** there's no chart to fill the member ID from, so the coordinator calls
+  about it. The time frame counts as time-bound without the word "urgent", so the clinician sees
+  it near the top of the queue. The reason is on the fax, so nobody should call about that.
+- **Expected outcome:** `missing_info`: insurance member ID, requested priority time_bound.
 
-On the live run, 8 of 8 planted cases came out as expected, Juniper Road with one callback item
-we didn't plant; [What came out](#what-came-out) has each one.
+On the live run, 8 of 8 packets came out as expected, one of them (Juniper Road) with an extra
+callback item we didn't expect. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -263,7 +267,7 @@ GLiNER2 found nothing in that window.
 
 [`selfcheck.py`](./selfcheck.py) runs the whole recipe offline on the committed packets, with
 stand-in OCR text built from the lines `make_data.py` draws and a stand-in extractor that returns
-the value after each label. It checks every planted case, the label and signature rules, the
+the value after each label. It checks every packet, the label and signature rules, the
 name matching, the lookups, the priority wording, the adversarial cases listed further down, the
 SIE error rule and that the PDFs carry no metadata. [`make_data.py`](./make_data.py) rebuilds
 every file in `data/` byte for byte.
@@ -306,40 +310,51 @@ referral order, clinic note), plus the two lookup seeds: `ehr_patients.csv` (6 c
 
 ### The three examples
 
-- **Brightwater** came out `checks_passed` with requested priority routine. As expected.
-- **Quarry Hill** came out `missing_info` with one callback item, "Signed referral order (provider
-  signature)", to Quarry Hill Medical Group at (555) 010-7730. As expected; the note's
-  e-signature didn't count.
-- **Millbrook** came out `checks_passed`, with the member ID filled from the chart and marked as
-  such: `"member_id": {"value": "SHC-417730-1", "source": "ehr", "mrn": "MRN-100231"}`, and the
-  son's chart noted. As expected.
+**1. A complete packet.** `fax-1021-brightwater-family-medicine.pdf`
+- **Expected outcome:** `checks_passed`, requested priority routine.
+- **What came back:** `checks_passed`, requested priority routine.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A signature on the wrong page.** `fax-1021-quarry-hill-medical-group.pdf`
+- **Expected outcome:** `missing_info`: signed referral order.
+- **What came back:** `missing_info` with one callback item, "Signed referral order (provider
+  signature)", to Quarry Hill Medical Group at (555) 010-7730.
+- **Verdict:** Pass. The note's e-signature didn't count.
 
-On the live run on 4 Nov 2026 (UTC), 8 of 8 planted cases came out as expected. Juniper Road also
-got one callback item we didn't plant, "Reason for referral". It fails closed (the office is only
-asked for something already on the fax), so it's named here and doesn't fail the case.
+**3. A blank member ID and a time frame.** `fax-1021-juniper-road-family-practice.pdf`
+- **Expected outcome:** `missing_info`: insurance member ID, requested priority time_bound.
+- **What came back:** `missing_info`: insurance member ID and reason for referral; requested
+  priority time_bound, second in the queue; office numbers from the fax.
+- **Verdict:** Pass. The status, priority and member ID item are right, but GLiNER2 returned no
+  reason for referral, so the callback list also asks the office for a reason that's printed on
+  page 2. That's a wasted call, on a packet where the clinical reviewer would want the reason most.
 
-| Case | What we planted | Came out | Why |
-| --- | --- | --- | --- |
-| Brightwater | Complete packet, new patient | `checks_passed`; requested priority routine | The clean case |
-| Hollis Creek | Member ID left blank; the patient isn't in the EHR | `missing_info`: insurance member ID, with the office's phone and fax from the directory | Truly missing, so a callback is right |
-| Millbrook | Member ID left blank on the fax; the patient is in the EHR with the member ID on file, and so is his son, same name, another date of birth | `checks_passed`; member ID `SHC-417730-1` taken from chart MRN-100231 and marked as such; the son's chart noted | The near miss: check your own records before calling, and match on name and date of birth, never the name alone |
-| Quarry Hill | Order signature line blank; the clinic note behind it is electronically signed | `missing_info`: signed referral order | A signature on the wrong document doesn't count |
-| Fenwick Street | Marked urgent on the cover and the form; an existing patient | `checks_passed`; requested priority urgent ("URGENT", page 2), top of the clinical review queue | Urgency goes to the clinician, not into a status |
-| Juniper Road | The form says "Please see within 72 hours" with no urgent keyword, the member ID is blank for a new patient, and the referring provider isn't in the directory | `missing_info`: insurance member ID and reason for referral; requested priority time_bound, second in the queue; office numbers from the fax | Time-bound wording without the keyword; clinical review and the callback run in parallel. The extra reason item is the model's miss, see below |
-| Cobble Lane | The referral is for "Ann Lee"; the attached clinic note is for "Joann Lee" with a different date of birth | `review`: the pages disagree on the patient's name and date of birth; the EHR isn't searched | Similar names must not merge, and review wins over a callback |
-| Orchard Bend | Helena Marchetti, member ID blank; the EHR has her as Helena Voss, her maiden name, same date of birth and phone, with a member ID on file | `review`: EHR possible match to MRN-100689; nothing filled from that chart | A close match is someone's call, not the recipe's |
+### Results
 
-These ran live on SIE Cloud on 4 Nov 2026 (UTC). All eight got their planted status, and seven came
-out exactly as planned. Juniper Road came out `missing_info` with the planted priority and member ID
-item, plus one item we didn't plant: GLiNER2 returned no reason for referral for "New leg swelling,
-breathless lying flat, BNP 1,240 pg/mL.", so the callback list asks the office for a reason that's
-printed on page 2. We left it that way rather than shorten the planted reason; it's the
-long-free-text weakness from Picking the models, on a packet where the clinical reviewer would want
-the reason most. Treat all of this as a demo that the wiring works, not as a measure of accuracy:
-eight packets tell you the checks fire on the cases they were built for, not how often they're wrong
-on yours.
+On the live run on 4 Nov 2026 (UTC), 8 of 8 packets came out as expected.
+
+**Where it works:** the complete packet goes through clean (Brightwater). It checks your own records
+before asking for anything (Millbrook's member ID came from the chart, matched on name and date of
+birth). It puts a callback on the list for what's truly missing (Hollis Creek's member ID, Quarry
+Hill's signature on the order), sorts urgent and time-bound packets first (Fenwick Street, Juniper
+Road), and hands the rest to a person: pages that disagree (Cobble Lane, "Ann Lee" on the referral
+and "Joann Lee" on the note) and a chart that only partly matches (Orchard Bend, under the patient's
+maiden name).
+
+**Where it fails:** Juniper Road also got one callback item we didn't expect, "Reason for referral". It
+fails closed (the office is only asked for something already on the fax), so it's named here and
+doesn't fail the case. It's the one to worry about: a long free-text field is where the extraction
+model is weakest, and a reason it doesn't return turns into a call nobody needed.
+
+These ran live on SIE Cloud on 4 Nov 2026 (UTC). All eight got the status we wrote them to get, and
+seven came out exactly as planned. Juniper Road came out `missing_info` with the priority and member
+ID item we wrote it to get, plus one item we didn't expect: GLiNER2 returned no reason for referral
+for "New leg swelling, breathless lying flat, BNP 1,240 pg/mL.", so the callback list asks the
+office for a reason that's printed on page 2. We left it that way rather than shorten the reason we
+wrote on the packet; it's the long-free-text weakness from Picking the models, on a packet where
+the clinical reviewer would want the reason most. Treat all of this as a demo that the wiring
+works, not as a measure of accuracy: eight packets tell you the checks fire on the cases they were
+built for, not how often they're wrong on yours.
 
 A few things worth noticing:
 
@@ -462,7 +477,7 @@ the PDFs carry no document info (no title, author or dates).
 - `ehr.py`: the EHR lookup, `find_patient(name, dob, member_id)`, over `data/ehr_patients.csv`
 - `provider_directory.py`: the directory lookup, `find_provider(npi, name)`, over
   `data/provider_directory.csv`
-- `selfcheck.py`: offline checks of every planted case, the label, signature, name, lookup and
+- `selfcheck.py`: offline checks of every packet, the label, signature, name, lookup and
   priority rules, the adversarial cases and the SIE failure rule, no SIE call
   (`uv run selfcheck.py`)
 - `rules.yaml`: models, thresholds, extraction schema with labels, formats, the intake checklist,

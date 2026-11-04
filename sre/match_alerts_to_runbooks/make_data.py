@@ -143,14 +143,14 @@ ALERTS = [
           "frontend calls to recommendation ListRecommendations p95 2.1s"),
     Alert("storefront", "AdServiceJvmCpuHigh", "ad", "warning", "09:13:30",
           "ad JVM process CPU utilization 0.96 for 15m"),
-    # The payments team's own rules carry a runbook link (planted: linked_runbook).
+    # The payments team's own rules carry a runbook link (meant to come out linked_runbook).
     Alert("payments", "PaymentErrorBudgetBurn", "payment", "critical", "09:13:55",
           "payment error budget for Charge burning at 12x over 6h",
           runbook="rb-01-payment-charge-failing"),
     Alert("payments", "PaymentChargeFailuresByLoyaltyLevel", "payment", "warning", "09:14:20",
           "Charge failures concentrated on app.loyalty.level=gold (49% of gold charges fail)",
           runbook="rb-01-payment-charge-failing"),
-    # Staging, same words, a different incident (planted: a separate group).
+    # Staging, same words, a different incident (meant to come out a separate group).
     Alert("platform", "PaymentChargeErrorRateHigh", "payment", "critical", "09:14:45",
           "oteldemo.PaymentService/Charge error rate 100% over 5m (threshold 5%)",
           env="staging"),

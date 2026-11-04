@@ -22,7 +22,7 @@ grouping:
   # Inside those boundaries, alerts join a group when their average cosine similarity to it is
   # at least this value (average-linkage clustering, done in Python on the returned vectors).
   # On the production alerts here, only values from about 0.635 to 0.675 separate the five
-  # planted causes: lower merges ad with recommendation, higher splits one payment alert off.
+  # causes we wrote: lower merges ad with recommendation, higher splits one payment alert off.
   min_cosine_similarity: 0.65
 
 runbooks:

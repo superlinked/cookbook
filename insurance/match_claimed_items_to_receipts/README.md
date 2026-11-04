@@ -103,7 +103,10 @@ or denied automatically.
 
 Here are three of the claims in `data/`, and what should happen to each.
 
-**1. A mixed receipt.**
+All of this is synthetic, written for this recipe. The handwriting is drawn with the Caveat font
+(SIL Open Font License).
+
+**1. A mixed receipt.** `CLM-26-1001`.
 - **Input:** `CLM-26-1001`, a handwritten inventory (page 1 of `inventories.pdf`) that writes
   "Nimbus 55in TV", and two receipt photos (pages 1 and 2 of `receipt-photos.pdf`), one with
   "NIMBUS 55IN 4K TV" and an HDMI cable that's no longer on the inventory.
@@ -111,7 +114,7 @@ Here are three of the claims in `data/`, and what should happen to each.
   cable is listed as a line nobody claimed, which sends nothing to review.
 - **Expected outcome:** `checks_passed`; 4 `matched`, the cable `not_claimed`.
 
-**2. Two items with no receipt.**
+**2. Two items with no receipt.** `CLM-26-1005`.
 - **Input:** `CLM-26-1005`, a handwritten inventory (page 5 of `inventories.pdf`) that adds
   headphones (279.00) and a doormat (24.00) that are on no receipt; the claims system's amount,
   1325.15, includes both.
@@ -120,15 +123,16 @@ Here are three of the claims in `data/`, and what should happen to each.
 - **Expected outcome:** `review`; headphones `no_receipt` on the request list, the doormat
   `no_receipt` and not asked for.
 
-**3. Same price, different thing.**
-- **Input:** `CLM-26-1008`, a portal inventory: `CLM-26-1008,1,Walnut bar stool,2,64.00` and
-  `CLM-26-1008,2,TV stand,1,39.99`, against a receipt photo (page 10) with "TV WALL MOUNT 39.99".
+**3. Same price, different thing.** `CLM-26-1008`.
+- **Input:** `CLM-26-1008`, an inventory from the portal with two walnut bar stools at 64.00 each
+  and a TV stand at 39.99, against a receipt photo (page 10) with "TV WALL MOUNT 39.99".
 - **What should happen:** the stools match; the stand has the price and one word in common with
-  the mount, and that isn't enough to call it proof.
+  the mount, and that isn't enough to call it proof. The recipe doesn't decide what it is: the
+  handler asks, and the claim waits.
 - **Expected outcome:** `review`; TV stand `ambiguous`, nothing asked; the stools `matched`.
 
-On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each
-one.
+On the live run, 8 of 8 claims came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -284,19 +288,19 @@ the order of the flow.
 
 [`selfcheck.py`](./selfcheck.py) checks all of this offline with hand-written OCR pages and
 stand-in model replies: the money and quantity parsing (glued prices like "LAPTOP899.00", "2 @
-14.99" against its line price); the word rule on every planted pair and on near misses (TV stand
-against TV wall mount, 14in against 15in, "Laptop" against the laptop sleeve, "Stand mixer bowl
-lid" against "STAND MIXER"); whole-word labels ("Cashmere sweater" is an item, "CASH" is not);
-an inventory whose items don't add up to its written total; each planted
-shape; the threshold at exactly 100.00 and at 100.01; a dropped inventory line, two items in one
-span, two totals on one receipt, a receipt with no date, the same item before and after the
-loss, an item listed twice, three bowls against two, two lines that both fit, a portal row with
-quantity 0, an unreadable inventory; the statuses and output files; `csv_safe`; the committed
-data and the claims-system lookups (including that the PDFs carry no metadata and that an
-attachment's file can't be a path); `overflow_policy: error` on every extraction call; and the SIE
-failure rule with a transient error, a refusal, every call failing, a reply missing its key, an
-OCR reply with no markdown (counted as a failed call), and the empty-result 500 counted as "nothing found" only from the
-extraction model. Break any one of those rules and a check fails.
+14.99" against its line price); the word rule on every pair from the sample claims and on near
+misses (TV stand against TV wall mount, 14in against 15in, "Laptop" against the laptop sleeve,
+"Stand mixer bowl lid" against "STAND MIXER"); whole-word labels ("Cashmere sweater" is an item,
+"CASH" is not); an inventory whose items don't add up to its written total; each kind of claim in
+`data/`; the threshold at exactly 100.00 and at 100.01; a dropped inventory line, two items in one
+span, two totals on one receipt, a receipt with no date, the same item before and after the loss, an
+item listed twice, three bowls against two, two lines that both fit, a portal row with quantity 0,
+an unreadable inventory; the statuses and output files; `csv_safe`; the committed data and the
+claims-system lookups (including that the PDFs carry no metadata and that an attachment's file can't
+be a path); `overflow_policy: error` on every extraction call; and the SIE failure rule with a
+transient error, a refusal, every call failing, a reply missing its key, an OCR reply with no
+markdown (counted as a failed call), and the empty-result 500 counted as "nothing found" only from
+the extraction model. Break any one of those rules and a check fails.
 [`make_data.py`](./make_data.py) draws the photos and writes the claims system's seed.
 
 ## Run it
@@ -322,18 +326,40 @@ already warm.
 
 ### The three examples
 
-- **`CLM-26-1001`, the mixed receipt:** `checks_passed`, four matches and one line marked
-  `not_claimed`. As expected.
-- **`CLM-26-1005`, the missing receipts:** `review`, with one request: "For the Aurora wireless
-  headphones (279.00): we couldn't find it on the receipts you sent." The doormat is listed as
-  "Not asked for (no receipt, at or below 100.00): Doormat (24.00)". As expected.
-- **`CLM-26-1008`, the stand and the mount:** `review`; the TV stand `ambiguous` ("same price as
-  receipt 1 line 2 'TV WALL MOUNT', but the words don't agree"), the stools `matched`. As
-  expected.
+**1. A mixed receipt.** `CLM-26-1001`.
+- **Expected outcome:** `checks_passed`; 4 `matched`, the cable `not_claimed`.
+- **What came back:** `checks_passed`, four matches and one line marked `not_claimed`.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. Two items with no receipt.** `CLM-26-1005`.
+- **Expected outcome:** `review`; headphones `no_receipt` on the request list, the doormat
+  `no_receipt` and not asked for.
+- **What came back:** `review`, with one request: "For the Aurora wireless headphones (279.00): we
+  couldn't find it on the receipts you sent." The doormat is listed as "Not asked for (no receipt,
+  at or below 100.00): Doormat (24.00)".
+- **Verdict:** Pass.
 
-On the live run on 2026-11-04 (UTC), 8 of 8 planted cases came out as expected.
+**3. Same price, different thing.** `CLM-26-1008`.
+- **Expected outcome:** `review`; TV stand `ambiguous`, nothing asked; the stools `matched`.
+- **What came back:** `review`; the TV stand `ambiguous` ("same price as receipt 1 line 2 'TV WALL
+  MOUNT', but the words don't agree"), the stools `matched`.
+- **Verdict:** Pass. It costs the handler a question: `ambiguous` sends nothing to the policyholder,
+  so someone still has to ask whether it was a stand or a mount.
+
+### Results
+
+On the live run on 2026-11-04 (UTC), 8 of 8 claims came out as expected.
+
+**Where it works:** on messy but honest paperwork. Different wording for the same item
+(`CLM-26-1001`) and a coupon with a quantity line (`CLM-26-1002`) pass. A receipt that doesn't add
+up (`CLM-26-1003`), a wrong price (`CLM-26-1004`), missing receipts (`CLM-26-1005`) and an
+unreadable photo (`CLM-26-1006`) land in review. The receipt dated after the loss (`CLM-26-1007`)
+and the stand against the mount (`CLM-26-1008`) land there too with nothing asked, so the handler
+does that judging.
+
+**Where it fails:** what this run didn't test. It doesn't check that a receipt is genuine (a
+duplicate across claims, an edited photo), a list that says "x2" or "two of" comes out as
+`price_differs` or `ambiguous` instead of a match, and the photos are drawn, not real phone photos.
 
 The input is eight contents claims:
 
@@ -355,17 +381,6 @@ The input is eight contents claims:
 > [google/fonts](https://github.com/google/fonts/tree/5571d84c0d8c70ec1af4f64072d8c5cf1e4e9643/ofl/caveat)
 > at a pinned commit, checks its SHA-256 and caches it outside the repo. Only the rendered pages
 > are committed, not the font file.
-
-| Case | What we planted | Came out | Why |
-| --- | --- | --- | --- |
-| `CLM-26-1001` | Two receipts; the inventory writes "Nimbus 55in TV" for "NIMBUS 55IN 4K TV". The HDMI cable on the same receipt is no longer on the inventory | `checks_passed`; 4 `matched`, the cable listed as `not_claimed` | A mixed receipt: one item survived, and that's fine |
-| `CLM-26-1002` | Near miss: a "2 @ 14.99" quantity line, a -30.00 coupon, 7.25% tax, dated two days before the fire, photographed at a 2.5 degree tilt; the inventory writes "Mixing bowls (2)" and its total without "$" | `checks_passed`; 3 `matched` | Everything a real receipt does to make the arithmetic awkward, and none of it is wrong |
-| `CLM-26-1003` | The printed total is 30.00 more than the items plus tax | `review`: receipt math; both items still `matched` | The receipt itself doesn't add up, which is worth a look before anything is paid on it |
-| `CLM-26-1004` | The inventory lists the guitar at 479.00; the receipt line says 279.00 | `review`: guitar `price_differs`, one request to confirm the price | The item is real, the price isn't the one on the receipt |
-| `CLM-26-1005` | The inventory adds headphones (279.00) that are on no receipt, and a doormat (24.00) that isn't either; the written total and the claims system's amount include both | `review`: headphones `no_receipt`, on the request list; the doormat `no_receipt`, below the threshold, not asked for | Not an accusation, and not every missing receipt is worth a letter. The guideline decides which |
-| `CLM-26-1006` | The second receipt photo is out of focus and underexposed | `review`: the dehumidifier `not_read`, one request for a new photo | An unreadable photo must not turn into "no receipt" or a pass |
-| `CLM-26-1007` | The receipt for the stolen boots and jacket is dated six days after the loss | `review`: both items `after_loss`, nothing asked | Probably the replacement purchase. That's the handler's call, not the recipe's |
-| `CLM-26-1008` | Near miss, from the portal: "TV stand 39.99" against the receipt's "TV WALL MOUNT 39.99"; the two walnut bar stools (2 @ 64.00) on the same receipt | `review`: TV stand `ambiguous`, nothing asked; the stools `matched` | Same price, one shared word, different thing. Matching on price and one word would call it proof |
 
 Treat this as a demo that the wiring works, not as a measure of accuracy: eight claims tell you
 each path through the matching runs, not how often a real phone photo gets misread.
@@ -456,7 +471,7 @@ and `after_loss` items are theirs to judge, and valuation under the policy comes
 - **Quantities written other ways.** The recipe reads "2 @ 14.99" and "(2)". A list that says
   "x2" or "two of", or a set of two sold as one line, comes out as `price_differs` or
   `ambiguous` instead of a match. A few more patterns in `line_price` would cover them.
-- **Cases worth planting next.** The same receipt uploaded on two claims, a receipt for three
+- **Cases worth adding next.** The same receipt uploaded on two claims, a receipt for three
   bowls against a claim for the two that broke, and an inventory whose written claim number is
   a different claim's.
 

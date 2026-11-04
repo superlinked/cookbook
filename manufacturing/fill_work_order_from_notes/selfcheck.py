@@ -261,7 +261,7 @@ def answers(**chosen: str) -> Callable[[str, str], dict[str, Any]]:
 
 
 def check_cues() -> None:
-    # The planted WO-26106: the model says leak, the notes say no leak was found.
+    # WO-26106: the model says leak, the notes say no leak was found.
     notes = "Operator reported a leak at the P-105 seal. Checked, seal dry, no leak found. 0.5 h."
     spans = fields(component="P-105 seal", actions=["Checked"], labor="0.5 h")
     form = draft(FakeSIE(spans, answers(remedy="inspect only")), [order(notes, "P-105")])[0]
@@ -277,7 +277,7 @@ def check_cues() -> None:
         FakeSIE(spans, answers(problem="no fault found", remedy="inspect only")), [order(notes)]
     )[0]
     assert form.fields["problem"].status == "filled", form.fields["problem"]
-    # The planted WO-26110: replaced, but no part came back.
+    # WO-26110: replaced, but no part came back.
     notes = "M-701 drive belts worn. Replaced drive belts. 1.5 h."
     spans = fields(component="drive belts", actions=["Replaced drive belts"], labor="1.5 h")
     form = draft(FakeSIE(spans, answers()), [order(notes, "M-701")])[0]
@@ -286,7 +286,7 @@ def check_cues() -> None:
     assert parts.reason == "remedy REPL says a part went in, but no part is booked", parts
     form = draft(FakeSIE(spans), [order(notes, "M-701")])[0]
     assert form.fields["parts_used"].status == "blank", form.fields["parts_used"]
-    # The planted WO-26108: follow-up work in the notes, none extracted.
+    # WO-26108: follow-up work in the notes, none extracted.
     notes = "Greased bearings. Found guard cracked, needs replacing. 1 h."
     spans = fields(component="guard", actions=["Greased bearings"], labor="1 h")
     form = draft(FakeSIE(spans, answers(remedy="adjust")), [order(notes)])[0]

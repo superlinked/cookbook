@@ -2,7 +2,7 @@
 
 Everything here is invented: Jordan Ellery, the family, the school, the dentist, the utility
 (Bayview Water & Power) and every address and number. The inbox covers a week from late October
-to November 1, 2026 and plants the cases listed in the README.
+to November 1, 2026 and holds the cases listed in the README.
 
     data/inbox.jsonl                       one message per line (email, text, voice memo, photo),
                                            as the mail, messaging and memo apps export them
@@ -73,7 +73,7 @@ BOOK_FAIR_BODY = (
     "> in the school library. Please check in at the front desk."
 )
 
-# (id, sent, message) in sent order; the planted case is in the comment above each one. The ids
+# (id, sent, message) in sent order; what each one tests is in the comment above it. The ids
 # of the two newest cases (msg-14, msg-15) come after the original thirteen.
 MESSAGES: list[tuple[str, str, dict[str, str]]] = [
     # Already on the calendar: the school's invitation was accepted a week ago.

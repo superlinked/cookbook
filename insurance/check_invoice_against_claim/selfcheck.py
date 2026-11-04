@@ -60,7 +60,7 @@ def table(*rows: list[str], head: bool = False) -> str:
 
 
 def page(document: str = "clm-01", **change: Any) -> str:
-    """The invoice page for one planted claim as LightOnOCR writes it: the letterhead, the
+    """The invoice page for one claim as LightOnOCR writes it: the letterhead, the
     "Label: value" header lines, the line-item table and the totals table. `change` replaces
     a header value or a total (None leaves the line off), or `items` / `extra` (more lines)."""
     claim = CLAIMS[document]
@@ -262,8 +262,8 @@ def check_claims_system() -> None:
     print("claims system: exact lookups, no nearest match, supplements add up ok")
 
 
-# The spec's planted cases, read from a faithful OCR page: (status, checks not passed).
-PLANTED = {
+# The expected results, read from a faithful OCR page: (status, checks not passed).
+EXPECTED_RESULTS = {
     "clm-01": ("checks_passed", []),
     "clm-02": ("checks_passed", []),
     "clm-03": ("review", ["invoice_date"]),
@@ -277,17 +277,17 @@ PLANTED = {
 }
 
 
-def check_planted() -> None:
-    results = run({document: page(document) for document in PLANTED})
+def check_examples() -> None:
+    results = run({document: page(document) for document in EXPECTED_RESULTS})
     got = {r.document: (r.status, flagged(r)) for r in results}
-    assert got == PLANTED, got
+    assert got == EXPECTED_RESULTS, got
     by_id = {r.document: r for r in results}
     assert "by 537.52" in detail(by_id["clm-07"], "authorized_amount")
     assert "Not read: tax (a blank tax line is not zero)" in detail(by_id["clm-08"], "invoice_math")
     assert "supplement 1180.00" in detail(by_id["clm-10"], "authorized_amount")
     # A claim that doesn't match runs no other check: they'd compare it with the wrong claim.
     assert [c.check for c in by_id["clm-09"].checks] == ["claim_match"]
-    print("planted: all ten cases come out as the spec says on faithful OCR pages ok")
+    print("examples: all ten cases come out as expected on faithful OCR pages ok")
 
 
 def check_tax_line() -> None:
@@ -705,9 +705,9 @@ def check_committed_data() -> None:
     for marker in (b"/Info", b"/Title", b"/Author", b"/CreationDate", b"Exif", b"xmpmeta"):
         assert marker not in raw, f"repair-invoices.pdf carries {marker!r}"
     claims = ClaimsSystem(DATA)
-    for planted in make_data.CLAIMS:
-        claim = claims.get_claim(planted.claim_number)
-        assert claim is not None, planted.claim_number
+    for sample in make_data.CLAIMS:
+        claim = claims.get_claim(sample.claim_number)
+        assert claim is not None, sample.claim_number
         if claim.vin:
             assert "Q" in claim.vin, claim.vin  # real VINs never use Q
             assert len(claim.vin) == 17, claim.vin
@@ -724,13 +724,13 @@ def check_committed_data() -> None:
     assert sum((i.amount for i in CLAIMS["clm-05"].invoice.items), Decimal("0")) == Decimal(
         "2140.00"
     )
-    print("committed data: no PDF metadata, no real VINs, planted amounts ok")
+    print("committed data: no PDF metadata, no real VINs, invoice amounts ok")
 
 
 if __name__ == "__main__":
     check_parsing()
     check_claims_system()
-    check_planted()
+    check_examples()
     check_tax_line()
     check_near_misses()
     check_amounts()

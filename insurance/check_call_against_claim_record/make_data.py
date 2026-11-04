@@ -54,7 +54,7 @@ GREETING = (
 CLOSING = ("A", "Thank you. An adjuster will call you back within two business days.")
 
 CALLS = (
-    # Planted: complete. Every required field is given and the saved claim agrees.
+    # Complete. Every required field is given and the saved claim agrees.
     Call(
         "fnol-1021-quintero.wav",
         "Daniel",
@@ -78,7 +78,7 @@ CALLS = (
             CLOSING,
         ),
     ),
-    # Planted: the caller has no policy number to hand (the agent found the policy by name), and
+    # The caller has no policy number to hand (the agent found the policy by name), and
     # says "87 Maple Street, unit 2" where the agent saved "78 Maple Street".
     Call(
         "fnol-1021-achterberg.wav",
@@ -102,7 +102,7 @@ CALLS = (
             CLOSING,
         ),
     ),
-    # Planted: an injury the agent saved as "No", and the agent never asks when it happened.
+    # An injury the agent saved as "No", and the agent never asks when it happened.
     Call(
         "fnol-1021-vellanki.wav",
         "Moira",

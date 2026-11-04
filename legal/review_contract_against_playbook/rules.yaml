@@ -15,7 +15,7 @@ thresholds:
   min_document_chars: 200   # a converted NDA shorter than this was not read: every position unclear
 
 # Which fields share one extract call. Each group is one GLiNER2 output_schema, sent once per
-# window. On the planted NDAs one schema with every field dropped governing law and the
+# window. On the sample NDAs one schema with every field dropped governing law and the
 # non-solicit, so these are the groups. Re-check them if you add fields or change descriptions.
 extract_groups:
   - [agreement_term, confidentiality_period, residuals, permitted_disclosures]

@@ -48,8 +48,8 @@ CASE = DOCKET.find_case("26-2-04418-1")
 RERANK, SUPPORT = RULES["models"]["rerank"], RULES["models"]["support"]
 OPEN, CLOSE, APOS, NBSP = chr(0x201C), chr(0x201D), chr(0x2019), chr(0xA0)
 
-# What the planted draft should come out as, row by row.
-PLANTED = [
+# What the sample draft should come out as, row by row.
+EXPECTED_ROWS = [
     ("214 Westm. 2d 377", "support_found"),
     ("Westm. Rev. Code § 23.40.020", "support_found"),
     ("Westm. Rev. Code § 23.10.010", "support_found"),
@@ -548,10 +548,10 @@ def check_prompt() -> None:
     print("prompt: injection line present; part labels stay in Python ok")
 
 
-def check_planted_flow() -> None:
+def check_examples_flow() -> None:
     client = StandIn()
     chart = run(client)
-    assert [(r.key, r.status) for r in chart.rows] == PLANTED, [
+    assert [(r.key, r.status) for r in chart.rows] == EXPECTED_ROWS, [
         (r.number, r.key, r.status, r.findings) for r in chart.rows
     ]
     assert chart.warnings == []
@@ -575,7 +575,7 @@ def check_planted_flow() -> None:
             assert r.quote
             assert r.quote in recipe.normalize(r.passage.text)
             assert r.findings == []
-    print("planted flow: every row comes out as planned on stand-in replies ok")
+    print("sample draft flow: every row comes out as planned on stand-in replies ok")
 
 
 def check_threshold() -> None:
@@ -749,7 +749,7 @@ def check_sie_failure() -> None:
 
 
 def check_injection() -> None:
-    # The model obeys an instruction planted in a passage and says "supported" with a quote it
+    # The model obeys an instruction written into a passage and says "supported" with a quote it
     # made up: the quote check stops it.
     def obey(answer: dict[str, Any], prompt: str) -> dict[str, Any]:
         return {**answer, "supported": True, "quote": "this sentence is fully supported here"}
@@ -801,7 +801,7 @@ if __name__ == "__main__":
     check_draft_quotes()
     check_answers()
     check_prompt()
-    check_planted_flow()
+    check_examples_flow()
     check_threshold()
     check_statuses()
     check_sie_failure()

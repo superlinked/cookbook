@@ -42,7 +42,7 @@ KEEP_BRANCHES = (
     "Food, Beverages & Tobacco > Food Items",
 )
 
-# (sku, supplier title, supplier description). Planted rows are marked.
+# (sku, supplier title, supplier description). Rows written to test a rule are marked.
 PRODUCTS: list[tuple[str, str, str]] = [
     # Apparel: color, size and material are required.
     (
@@ -64,7 +64,7 @@ PRODUCTS: list[tuple[str, str, str]] = [
         "Pullover hooded sweatshirt in forest green with a kangaroo pocket, cotton/polyester "
         "fleece, size L.",
     ),
-    # Planted: no size anywhere in the row, so the required attribute is missing.
+    # Test row: no size anywhere in the row, so the required attribute is missing.
     (
         "TT-A04",
         "Merino Crew Sweater - Charcoal",
@@ -186,7 +186,7 @@ PRODUCTS: list[tuple[str, str, str]] = [
         "Brenmoor BM-CD9 Portable CD Player",
         "Brand: Brenmoor. Model: BM-CD9. Portable CD player with anti-skip and headphone jack.",
     ),
-    # Planted: an accessory that names its host product. AV-H700 is the headphones' model
+    # Test row: an accessory that names its host product. AV-H700 is the headphones' model
     # number (TT-E01), not the cushions'.
     (
         "TT-E13",
@@ -252,7 +252,7 @@ PRODUCTS: list[tuple[str, str, str]] = [
         "Glass Meal Prep Containers w/ Lids 5pk",
         "Five food storage containers with snap-lock lids. Material: borosilicate glass.",
     ),
-    # Planted: a vacuum bottle sits between Water Bottles and Thermoses.
+    # Test row: a vacuum bottle sits between Water Bottles and Thermoses.
     (
         "TT-H12",
         "750ml Vacuum Insulated Bottle Matte Black",
@@ -297,7 +297,7 @@ PRODUCTS: list[tuple[str, str, str]] = [
         "70% Dark Chocolate Bar 100g",
         "Single-origin 70% cacao dark chocolate, one 100 g bar.",
     ),
-    # Planted: a pack-times-size net volume, the way food suppliers write it.
+    # Test row: a pack-times-size net volume, the way food suppliers write it.
     (
         "TT-F07",
         "Sparkling Mineral Water Lemon 12x330ml",
@@ -329,7 +329,7 @@ PRODUCTS: list[tuple[str, str, str]] = [
         "Crunchy Peanut Butter No Added Sugar 340g",
         "Crunchy peanut butter made from roasted peanuts and salt, 340 g jar.",
     ),
-    # Planted: garden hose nozzle. Lawn & Garden is not in the trimmed taxonomy.
+    # Test row: garden hose nozzle. Lawn & Garden is not in the trimmed taxonomy.
     (
         "TT-X01",
         "Brass Garden Hose Nozzle 7 Pattern",
@@ -338,7 +338,7 @@ PRODUCTS: list[tuple[str, str, str]] = [
 ]
 
 
-# Planted: a second sheet where one SKU covers two variants (black and white). The run stops on
+# A second sheet where one SKU covers two variants (black and white). The run stops on
 # it before any model call and names both rows.
 DUPLICATE_SKU_PRODUCTS: list[tuple[str, str, str]] = [
     (

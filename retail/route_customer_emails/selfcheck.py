@@ -226,7 +226,7 @@ def check_route_by_model() -> None:
     print("route by model: clear pick, low score, low margin, failed call, split, stray ok")
 
 
-def check_planted() -> None:
+def check_examples() -> None:
     routes = {r.email_id: r for r in route(EMAILS, Stand())}
     escalated = {k: (r.team, r.escalations) for k, r in routes.items() if r.method == "escalation"}
     assert escalated == {
@@ -239,10 +239,10 @@ def check_planted() -> None:
     assert routes["E-11"].method == "model"
     assert not routes["E-11"].escalations
     assert routes["E-05"].method == "model"  # "Sue" is a name
-    # Every planted item is an email: a .example sender, and E-04 is a reply in a thread.
+    # Every item in the data is an email: a .example sender, and E-04 is a reply in a thread.
     assert all(e.sender.endswith(".example") for e in EMAILS), [e.sender for e in EMAILS]
     assert [e.id for e in EMAILS if e.in_reply_to] == ["E-04"]
-    print("planted: E-03, E-04 and E-12 escalate, E-12 keeps both; E-11 and E-05 do not ok")
+    print("examples: E-03, E-04 and E-12 escalate, E-12 keeps both; E-11 and E-05 do not ok")
 
 
 TRANSIENT: list[SIEError] = [
@@ -441,7 +441,7 @@ if __name__ == "__main__":
     check_parse_emails()
     check_fields()
     check_route_by_model()
-    check_planted()
+    check_examples()
     check_sie_failure()
     check_escalations_written_first()
     print("all checks passed")

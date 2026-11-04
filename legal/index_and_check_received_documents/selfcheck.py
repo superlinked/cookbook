@@ -163,8 +163,8 @@ def document(*texts: str) -> recipe.Document:
 # --- Checks -----------------------------------------------------------------------------------
 
 
-def check_planted_volume() -> None:
-    """The committed volume end to end with the stand-in replies: every planted path."""
+def check_examples_volume() -> None:
+    """The committed volume end to end with the stand-in replies: every path we wrote in."""
     result = run()
     docs = by_location(result)
     expected = {
@@ -210,7 +210,7 @@ def check_planted_volume() -> None:
         "TFL0000006 is stamped on 2 pages: emails.pdf p2, emails.pdf p3",
         "TFL0000008 is inside the claimed range TFL0000001-TFL0000013 but was not found",
     ], bates["findings"]
-    print("planted volume: statuses, boundary notes, gap, duplicate and windows ok")
+    print("sample volume: statuses, boundary notes, gap, duplicate and windows ok")
 
 
 def check_statuses() -> None:
@@ -691,7 +691,7 @@ def check_committed_data() -> None:
     assert "General Counsel" not in windows[0]
     assert "advised" in windows[1]
     assert make_data.MATTER.endswith("(fictional)")
-    print("committed data: matter seeds, volume files, no PDF metadata, planted windows ok")
+    print("committed data: matter seeds, volume files, no PDF metadata, long email windows ok")
 
 
 def check_claimed_range() -> None:
@@ -740,7 +740,7 @@ def check_field_call_options() -> None:
 
 
 if __name__ == "__main__":
-    check_planted_volume()
+    check_examples_volume()
     check_statuses()
     check_document_breaks()
     check_bates()

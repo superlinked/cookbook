@@ -157,7 +157,7 @@ def check_data() -> None:
         with (recipe.DATA_DIR / name).open(encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
                 assert CATALOG.find_service(row["service"]) is not None, (name, row)
-    # The planted near misses stay unknown to the records, so they really reach the model.
+    # The near misses stay unknown to the records, so they really reach the model.
     assert CATALOG.find_service("checkout-v3") is None
     assert CATALOG.find_service("loyalty-points") is None
     assert INVENTORY.find_host("10.0.6.14:9308") is None
@@ -165,9 +165,9 @@ def check_data() -> None:
     print("data: 11 alerts, 8 teams, every owner a catalog team, inventory services in catalog ok")
 
 
-def check_planted() -> None:
+def check_examples() -> None:
     """The committed alerts end to end, with stand-in replies scored like the README's run: an
-    edit to a planted alert's labels that changes which alerts reach the model, or how one
+    edit to one of these alerts' labels that changes which alerts reach the model, or how one
     comes out, fails here."""
     records = json.loads(recipe.ALERTS_PATH.read_text(encoding="utf-8"))["alerts"]
     routes, _, client = run(
@@ -195,7 +195,7 @@ def check_planted() -> None:
     got = {alert_id: (route.status, route.team) for alert_id, route in routes.items()}
     assert got == expected, got
     assert routes["AL-10"].found_by == "app=checkout-ui", routes["AL-10"]
-    print("planted: the 11 committed alerts give the README's statuses and teams ok")
+    print("examples: the 11 committed alerts give the README's statuses and teams ok")
 
 
 def check_lookups() -> None:
@@ -540,7 +540,7 @@ def check_outputs() -> None:
 
 if __name__ == "__main__":
     check_data()
-    check_planted()
+    check_examples()
     check_lookups()
     check_records()
     check_model()

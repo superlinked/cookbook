@@ -201,7 +201,7 @@ class Stub:
         return reply
 
 
-TWO = "photo,work_order,assembly,x,y,width,height,planted\n"
+TWO = "photo,work_order,assembly,x,y,width,height,drawn\n"
 TWO += "FL-101,WO-4101,pipe_flange_8,0,0,640,640,a\nFL-102,WO-4102,pipe_flange_8,640,0,640,640,b\n"
 
 

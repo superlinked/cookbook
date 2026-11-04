@@ -93,6 +93,9 @@ later counts that incident more than once.
 
 Here are three of the work orders in `data/work_orders.csv`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the assets, part numbers, dates and text are
+invented.
+
 **1. Parts and hours, all in the note.** WO-26102, conveyor CV-203.
 - **Input:** "CV-203 tail pulley bearing worn, excessive play. Replaced 2 x bearing 6205-2RS and
   1 x lip seal LS-35. Labor 3.5 h."
@@ -100,21 +103,24 @@ Here are three of the work orders in `data/work_orders.csv`, and what should hap
   catalog with their quantities, and 3.5 h fits the time the order was open.
 - **Expected outcome:** `checks_passed`, with `6205-2RS x2; LS-35 x1` and 3.5 h.
 
-**2. A part number one digit off.** WO-26104, pump F-403.
-- **Input:** "... Fitted new impeller 44-0918 and 1 x wear ring WR-150. Labor 4 h."
-- **What should happen:** the catalog has 44-0919, not 44-0918, so the exact catalog match flags
-  the impeller and keeps the wear ring.
-- **Expected outcome:** `review`, parts used flagged: "44-0918 is not in the parts catalog".
-
-**3. A leak that wasn't there.** WO-26106, pump P-105.
+**2. A leak that wasn't there.** WO-26106, pump P-105.
 - **Input:** "Operator reported a leak at the P-105 seal. Ran the pump and checked, seal dry, no
   leak found. ..."
 - **What should happen:** the word "leak" is in the note, but there's no leak. The problem code
   must be no-fault or flagged, never leak.
-- **Expected outcome:** `review`, problem set to `NOF` because the note says "no leak", and flagged.
+- **Expected outcome:** `review`, problem set to `NOF` (no fault found) because the note says
+  "no leak", and flagged.
 
-On the live run, 7 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+**3. A follow-up found on a routine visit.** WO-26108, F-402.
+- **Input:** "Quarterly lubrication of F-402 per PM schedule. Greased both bearings. Found coupling
+  guard cracked at the mounting bracket, needs replacing: raise a follow-up order for a new guard.
+  Labor 1 h."
+- **What should happen:** the work type says preventive, but the note says something broke. The
+  problem code should be breakage, and the follow-up should be filled in so the planner sees it.
+- **Expected outcome:** problem `BRK` (breakage), follow-up filled.
+
+On the live run, 7 of 10 work orders came out as expected. [What came out](#what-came-out) has
+the results.
 
 ## How we'll solve it
 
@@ -255,33 +261,51 @@ flagged between them.
 
 ### The three examples
 
-- **WO-26102:** `checks_passed`, with `6205-2RS x2; LS-35 x1`, 3.5 h, and codes `WEAR` / `WEAR` /
-  `REPL`. As expected.
-- **WO-26104:** `review`: "44-0918 is not in the parts catalog", with `WR-150 x1` kept. Actions
-  were also flagged, since none were found. As expected for the part.
-- **WO-26106:** `review`. The model picked leak at 0.567, clearing both limits, and the "no leak"
-  cue set `NOF` and flagged it (the row is below). As expected.
+**1. Parts and hours, all in the note.** WO-26102, conveyor CV-203.
+- **Expected outcome:** `checks_passed`, with `6205-2RS x2; LS-35 x1` and 3.5 h.
+- **What came back:** `checks_passed`, with `6205-2RS x2; LS-35 x1`, 3.5 h, and codes `WEAR` /
+  `WEAR` / `REPL`.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A leak that wasn't there.** WO-26106, pump P-105.
+- **Expected outcome:** `review`, problem set to `NOF` (no fault found) because the note says
+  "no leak", and flagged.
+- **What came back:** `review`. The model picked leak at 0.567, clearing both limits, and the
+  "no leak" cue set `NOF` and flagged it (the row is below).
+- **Verdict:** Pass. The model was sure and wrong, so only the cue list caught it, and that list
+  only knows this wording.
 
-On the live run on 3 Nov 2026, 7 of 10 planted cases came out as expected. WO-26107 counts, with
-remedy and component flagged on top (not planted; they only add to its review). WO-26108 and
-WO-26110 came out only partly as planned, and WO-26101 not as planned.
+**3. A follow-up found on a routine visit.** WO-26108, F-402.
+- **Expected outcome:** problem `BRK` (breakage), follow-up filled.
+- **What came back:** `review`. `BRK` filled, follow-up not extracted but flagged by the
+  "follow-up" cue. Cause flagged (aging 0.318 vs wear 0.306), actions flagged, parts used flagged
+  (remedy `REPL`, no part).
+- **Verdict:** Miss. "raise a follow-up order for a new guard" didn't come back as a follow-up, so
+  the field the planner needs is empty. The flag tells whoever reads the draft to look, and they
+  have to fill it in themselves.
 
-| Planted | Order | Expected | What came out | Why |
-| --- | --- | --- | --- | --- |
-| Clean note | WO-26101, P-103 flange gasket | codes, component, actions, part filled; `checks_passed` | Not as planned. `review`: problem leak scored 0.436, under 0.50. Cause `AGE`, remedy `REPL`, `FG-100 x1`, 1.5 h filled | Everything the form needs is in the notes; the model was less sure than we were |
-| Parts and hours | WO-26102, CV-203 | both parts with quantities, 3.5 h | As planned. `checks_passed`: `6205-2RS x2; LS-35 x1`, 3.5 h, `WEAR` / `WEAR` / `REPL` | The storeroom and cost fields |
-| Vague note | WO-26103, "Pump not right. Fixed." | codes flagged; `review` | As planned. All three codes flagged (top scores 0.203, 0.410, 0.364, all "not stated") | Nothing to code from, so nothing is guessed |
-| Part not in the catalog | WO-26104, impeller 44-0918 (catalog has 44-0919) | part flagged | As planned. "44-0918 is not in the parts catalog"; `WR-150 x1` kept. Actions also flagged: none found | A neighbouring part number is a different part |
-| Different asset | WO-26105, booked to P-102, notes say P-104 | form flagged | As planned. "the notes name P-104 but the order is booked to P-102". Parts used also flagged: replaced, no part booked | The CMMS asset wins; a person decides which one is wrong |
-| Suspected leak, none found | WO-26106, P-105 seal dry | problem no-fault or flagged, never leak | As planned. The model said leak (0.567 vs no fault found 0.279); the "no leak" cue set `NOF` and flagged it. Remedy (0.483) and actions also flagged | The word "leak" is in the notes and there's no leak |
-| Follow-up needed | WO-26107, GB-501, 238 words | two windows; vibration; 2.5 h down; follow-up filled | As planned, plus two unplanned flags. Two windows; `VIB`, `MISAL`; downtime 2.5 h from "03:10 to 05:40"; labor 7 h from "2 x 3.5 h"; follow-up "vibration reading". Remedy flagged (adjust 0.492), component flagged ("output shaft; coupling") | The long note, the downtime and the follow-up the planner must not miss |
-| Fault found on a PM visit | WO-26108, F-402 preventive | breakage; follow-up filled | Partly. `BRK` filled; follow-up still not extracted, but now flagged by the "follow-up" cue. Cause flagged (aging 0.318 vs wear 0.306), actions flagged, parts used flagged (remedy `REPL`, no part) | The work type says preventive; the notes say something broke |
-| Electrical trip | WO-26109, P-106 | electrical; replace; 0.75 h down | As planned. `checks_passed`: `ELF`, `OVLD`, `REPL`, `CT-40 x1`, 0.75 h from "45 min" | A short note that still fills most of the form |
-| Part with no quantity | WO-26110, "Replaced drive belts" | part matched, quantity flagged | Partly. gliner2 still returned no parts span, but parts used is now flagged: "remedy REPL says a part went in, but no part is booked". Cause also flagged (0.499) | A part without a count can't be booked out of the storeroom |
+### Results
 
-The planted cases show the wiring working, not accuracy. Ten orders is a demo: 7 came out as planned
+On the live run on 3 Nov 2026, 7 of 10 work orders came out as expected. WO-26107 counts, with
+remedy and component flagged on top (we didn't expect those; they only add to its review).
+WO-26108 and WO-26110 came out only partly as planned, and WO-26101 not as planned.
+
+**Where it works:** It filled the form when the note said what happened (WO-26102, parts and hours;
+WO-26109, an electrical trip), got the downtime and follow-up out of a long note (WO-26107), and
+didn't guess on a vague note (WO-26103). It flagged a part number that isn't in the catalog
+(WO-26104) and a note naming a different asset (WO-26105), and it didn't file a leak when the note
+says none was found (WO-26106).
+
+**Where it fails:** Three orders came out short. WO-26101 is a plain note where the model scored the
+problem at 0.436, under 0.50, so someone reads a form that should have been clean. On WO-26108 and
+WO-26110 gliner2 returned no follow-up and no parts; the cross-checks flag both, but a person has to
+fill them in. Of those, WO-26108 is the one to worry about, since a follow-up in the notes box
+doesn't raise a new order by itself. The worse problem doesn't show up as a miss: no check catches a
+model that's sure and wrong unless a cue happens to cover it (WO-26106), and WO-26105 and WO-26106
+got a contamination cause at 0.800 and 0.779 with nothing in the note about why the part failed.
+That's why every draft goes past a person.
+
+These results show the wiring working, not accuracy. Ten orders is a demo: 7 came out as planned
 (WO-26107 with two extra flags), 2 partly (WO-26108, WO-26110) and 1 not (WO-26101). We left the
 thresholds alone and wrote down what happened.
 
@@ -311,7 +335,7 @@ thresholds alone and wrote down what happened.
   "FG-100" as another asset. A tag that's a catalog part number is now treated as a part.
 - **Three thresholds, three near misses of their own.** Remedy scored 0.492 on WO-26107 and
   0.483 on WO-26106, and cause 0.499 on WO-26110, all just under 0.50. They're starting values,
-  not tuned ones, and we didn't move them to make the table look better.
+  not tuned ones, and we didn't move them to make the results look better.
 
 ### What you do next
 

@@ -48,7 +48,7 @@ class Lot:
     """One delivered line: one heat, its certificate and its receiving inspection form."""
 
     lot: str
-    planted: str
+    what_it_tests: str
     po_number: str
     po_line: int
     item: str  # the fabricator's item number on the PO line
@@ -91,7 +91,7 @@ class Delivery:
     lots: tuple[Lot, ...]
 
 
-def _s355(lot: str, line: int, heat: str, planted: str, **more: Any) -> Lot:
+def _s355(lot: str, line: int, heat: str, what_it_tests: str, **more: Any) -> Lot:
     """An S355J2+N 12 mm lot on PO-48213 with consistent values unless `more` says otherwise."""
     values: dict[str, Any] = {
         "po_number": "PO-48213",
@@ -108,7 +108,7 @@ def _s355(lot: str, line: int, heat: str, planted: str, **more: Any) -> Lot:
         "thickness_readings": ("12.06", "12.11", "12.04", "12.09"),
     }
     values.update(more)
-    return Lot(lot=lot, planted=planted, **values)
+    return Lot(lot=lot, what_it_tests=what_it_tests, **values)
 
 
 DELIVERIES = [

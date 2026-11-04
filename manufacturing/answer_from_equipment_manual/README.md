@@ -87,10 +87,13 @@ The recipe never decides what to do with the machine. The technician does, from 
 
 Here are three of the questions in `data/questions.jsonl`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the manual, the chiller and every value in it are
+invented, so it isn't service advice.
+
 **1. An answer that's only on a drawing.** Q2, unit CH-03, revision C.
 - **Input:** "Which valve do I open to drain the coolant reservoir?"
-- **What should happen:** the page search finds the piping diagram, the reader names the valve
-  tag, and Python finds the quote printed on that page.
+- **What should happen:** a search over the manual's pages finds the piping diagram, a model reads
+  it and names the valve tag, and Python confirms the quote is printed on that page.
 - **Expected outcome:** `quote_checked`, page 4, valve V3.
 
 **2. A question the manual doesn't answer.** Q8, unit CH-03, revision C.
@@ -101,12 +104,13 @@ Here are three of the questions in `data/questions.jsonl`, and what should happe
 
 **3. The same question, two manual revisions.** Q6, unit CH-03, revision C.
 - **Input:** "What torque do the strainer cover bolts need?"
-- **What should happen:** the revision B strainer page gives another torque; the revision filter
-  must drop it before the shortlist, so only the revision C page is read.
+- **What should happen:** the revision B strainer page gives another torque. This unit runs on
+  revision C, so that page has to be dropped before we pick which pages to read, and only the
+  revision C page gets read.
 - **Expected outcome:** `quote_checked`, page 8 revision C, 20 N m.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 10 of 10 questions came out as expected. [What came out](#what-came-out) has
+the results.
 
 ## How we'll solve it
 
@@ -258,36 +262,48 @@ embedding and answer models.
 
 From the live run on 2026-11-03 14:31 UTC (`runs/20261103T143143Z`):
 
-- **Q2:** `quote_checked`, page 4: "Open valve V3 to drain the coolant reservoir." The contents
-  page scored a hair higher and was read first; the reader said it doesn't answer, so the recipe
-  read the piping diagram next. As expected.
-- **Q8:** `no_reliable_match`. The best revision C page scored 0.496, under the 0.50 threshold.
-  As expected.
-- **Q6:** `quote_checked`, page 8 revision C, 20 N m. The revision B strainer page scored 0.664
-  and was never read. As expected.
+**1. An answer that's only on a drawing.** Q2, unit CH-03, revision C.
+- **Expected outcome:** `quote_checked`, page 4, valve V3.
+- **What came back:** `quote_checked`, page 4: "Open valve V3 to drain the coolant reservoir."
+- **Verdict:** Pass. The contents page scored a hair higher and was read first; the model reading
+  it said it doesn't answer, so the recipe read the piping diagram next.
 
-### Every planted case
+**2. A question the manual doesn't answer.** Q8, unit CH-03, revision C.
+- **Expected outcome:** `no_reliable_match`.
+- **What came back:** `no_reliable_match`. The best revision C page scored 0.496, under the 0.50
+  threshold.
+- **Verdict:** Pass. It was close, though, and a low score is a hint, not proof. The recipe isn't
+  saying the manual doesn't cover this, and the technician still pages through the manual or calls
+  engineering.
 
-On the live run on 3 Nov 2026, 10 of 10 planted cases came out as expected.
+**3. The same question, two manual revisions.** Q6, unit CH-03, revision C.
+- **Expected outcome:** `quote_checked`, page 8 revision C, 20 N m.
+- **What came back:** `quote_checked`, page 8 revision C, 20 N m.
+- **Verdict:** Pass. The revision B strainer page scored 0.664 and was never read.
 
-| Question | Unit (revision) | Planted | Planned | Came out | Why |
-| --- | --- | --- | --- | --- | --- |
-| Q1 | CH-03 (C) | Fault code E07, in a table | `quote_checked`, p. 6 | `quote_checked`, p. 6 | A plain table row |
-| Q2 | CH-03 (C) | Drain valve: the answer is only the V3 tag on the piping diagram | `quote_checked`, p. 4 | `quote_checked`, p. 4 (second page read) | The reason the recipe exists: the answer is a diagram label |
-| Q3 | CH-03 (C) | Remote start wiring: terminal numbers only on the wiring diagram | `quote_checked`, p. 5 (TB1 1 and 2) | `quote_checked`, p. 5, terminals 1 and 2 | The terminal numbers in the answer are in the quote |
-| Q4 | CH-03 (C) | Refrigerant charge, in the spec table | `quote_checked`, p. 2 | `quote_checked`, p. 2 (second page read) | The contents page outranked p. 2 |
-| Q5 | CH-03 (C) | Condenser coil cleaning interval | `quote_checked`, p. 7 | `quote_checked`, p. 7 | A schedule row |
-| Q6 | CH-03 (C) | Strainer cover bolt torque. Near miss: the revision B strainer page gives another torque | `quote_checked`, p. 8 rev C, 20 N m | `quote_checked`, p. 8 rev C, 20 N m | The revision B page (0.664) was never read |
-| Q7 | CH-03 (C) | Amber lamp, a control-panel callout | `quote_checked`, p. 3 | `quote_checked`, p. 3 | A numbered callout on a drawing |
-| Q8 | CH-03 (C) | Pump impeller nut torque: in-domain, not in the manual. Near miss of Q6 | `no_reliable_match` | `no_reliable_match` | Best revision C page scored 0.496 against 0.50 |
-| Q9 | CH-03 (C) | Pump seal kit part number: in-domain, pages score above the threshold, no page answers | `review`, answer blank | `review`, answer blank | Two pages read, neither answers |
-| Q10 (new) | CH-01 (B) | The same torque question for the older unit | `quote_checked`, p. 8 rev B, 25 N m | `quote_checked`, p. 8 rev B, 25 N m | Read the revision B page, not revision C's (0.677), which outscored it |
+### Results
+
+On the live run on 3 Nov 2026, 10 of 10 questions came out as expected.
+
+**Where it works:** It found answers in tables: the E07 fault code (Q1), the refrigerant charge (Q4)
+and the condenser cleaning interval, a schedule row (Q5). It found answers that are only on a
+drawing: the drain valve (Q2), the remote start terminals (Q3) and the amber lamp (Q7). It read only
+the right revision's page for the strainer torque on both units (Q6, Q10). And it came back with no
+answer for the pump impeller nut torque, where no page scored high enough (Q8), and for the pump
+seal kit part number, where the two pages it read didn't answer (Q9).
+
+**Where it fails:** This run didn't test the hard cases: it's one synthetic manual, with no degraded
+scan or look-alike tags. The limit to worry about is that a checked quote doesn't make the answer
+right or complete. An answer like "open V3" doesn't bring along the cool-down warning on page 1, and
+a quote stitched from two labels can still pass (see Potential improvements), so the technician
+reads the cited page before acting. Q8's 0.496 against the 0.50 threshold also shows how little
+room that threshold had here.
 
 In all: 8 `quote_checked`, 1 `review` and 1 `no_reliable_match`, every one as planned. That's
 after one fix: in the run before it, Q6 and Q10 went to `review`, and the first bullet below says
 why.
 
-The planted cases show the wiring works; they don't measure accuracy. Ten questions about one
+These results show the wiring works; they don't measure accuracy. Ten questions about one
 synthetic manual can't tell you how this does on yours.
 
 **What we saw.**
@@ -317,7 +333,7 @@ synthetic manual can't tell you how this does on yours.
                            "title": "Strainer basket replacement", "score": 0.6774}]}
 ```
 
-- **The revision filter matters beyond the planted pair.** For Q8 the revision B strainer page
+- **The revision filter matters beyond Q6 and Q10.** For Q8 the revision B strainer page
   scored 0.501, just over the 0.50 threshold, while the best revision C page scored 0.496. Without
   the filter the LLM would have read the old revision's page for a revision C unit.
 - **The contents page still outranks the answer.** For Q2 the contents page scored 0.6245 against

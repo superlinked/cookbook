@@ -104,7 +104,7 @@ class Photo:
     work_order: str
     assembly: str
     box: tuple[int, int, int, int]  # x, y, width, height of the photo in the sprite sheet
-    planted: str
+    drawn: str
 
 
 def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
@@ -119,7 +119,7 @@ def load_photos(path: Path = PHOTOS_PATH) -> list[Photo]:
                 work_order=row["work_order"],
                 assembly=row["assembly"],
                 box=(int(row["x"]), int(row["y"]), int(row["width"]), int(row["height"])),
-                planted=row["planted"],
+                drawn=row["drawn"],
             )
             for row in csv.DictReader(handle)
         ]

@@ -90,6 +90,8 @@ their action item before the tickets are filed.
 
 Here are three of the incident channels in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: no real incident, company or person is in it.
+
 **1. A bad deploy, rolled back (INC-0101).**
 - **Input:** "checkout v2.14.0 went out at 13:52, a few minutes before the errors started." then
   "Decision: roll back checkout to v2.13.4. Dev, go ahead." and, next morning, "Final count from
@@ -97,7 +99,8 @@ Here are three of the incident channels in `data/`, and what should happen to ea
 - **What should happen:** the model names the deploy as the cause and quotes the line it came from,
   the impact numbers all appear in the lines cited, and the "Action items:" message gives Dev, Sam
   and Jules an item each.
-- **Expected outcome:** `checks_passed`, with the alert window computed in Python.
+- **Expected outcome:** `checks_passed`, with the alert window (first page firing to last resolve)
+  computed in Python.
 
 **2. Nobody found the cause (INC-0104).**
 - **Input:** "Latency is back to normal on its own and the alert resolved. We still don't know what
@@ -109,13 +112,14 @@ Here are three of the incident channels in `data/`, and what should happen to ea
 **3. A deploy in the middle of the outage (INC-0103).**
 - **Input:** "Gateway v3.8.1 just rolled out. Could it be the deploy?" then "Found it: the
   certificate for api.larkspur.example expired at 09:00:00 UTC."
-- **What should happen:** the deploy closest to the outage is a near miss. The root cause should
-  cite the certificate message; citing the deploy (it started after the alerts did) or the question
-  about it would fail the cause check.
-- **Expected outcome:** `checks_passed`, root cause on the expired certificate.
+- **What should happen:** the deploy sits right next to the outage, but it started after the alerts
+  did, so it can't be the cause. The root cause should cite the certificate message; citing the
+  deploy or the question about it sends the root cause to review. The draft should claim only what
+  the record says.
+- **Expected outcome:** `checks_passed`, root cause on the expired certificate, and nothing the
+  record doesn't say.
 
-On the live run, 9 of 9 planted cases came out as expected; [What came out](#what-came-out) has each
-one.
+On the live run, 8 of 9 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -266,16 +270,45 @@ took 37 seconds on our run.
 
 ### The three examples
 
-- **INC-0101:** `checks_passed`, 36.0 min alert window. The impact claim cites S11 and A02 and every
-  number in it checks out (quoted below). As expected.
-- **INC-0104:** `needs_review` with "Root cause not established in the record.", quoting "We still
-  don't know what caused it." (S04). As expected.
-- **INC-0103:** `checks_passed`, 43.5 min alert window, root cause citing only S04 (the certificate)
-  and never the deploy D01. As expected.
+**1. A bad deploy, rolled back (INC-0101).**
+- **Expected outcome:** `checks_passed`, with the alert window (first page firing to last resolve)
+  computed in Python.
+- **What came back:** `checks_passed`, 36.0 min alert window. The impact claim cites S11 and A02 and
+  every number in it checks out (quoted below).
+- **Verdict:** Pass.
 
-### Every planted case
+**2. Nobody found the cause (INC-0104).**
+- **Expected outcome:** `needs_review`, root cause not established.
+- **What came back:** `needs_review` with "Root cause not established in the record.", quoting "We
+  still don't know what caused it." (S04).
+- **Verdict:** Pass. The recipe stops there, and a person decides what to do about a cause nobody
+  found.
 
-On the live run on 4 Nov 2026, 9 of 9 planted cases came out as expected.
+**3. A deploy in the middle of the outage (INC-0103).**
+- **Expected outcome:** `checks_passed`, root cause on the expired certificate, and nothing the
+  record doesn't say.
+- **What came back:** `checks_passed`, 43.5 min alert window, root cause citing only S04 (the
+  certificate) and never the deploy D01.
+- **Verdict:** Miss. The root cause is right, but passing the checks isn't being right: this draft's contributing factor says
+  "a month", which is the model's arithmetic on "since September", and no check can tell that from a
+  fact.
+
+### Results
+
+On the live run on 4 Nov 2026, 8 of 9 cases came out as expected. The miss is INC-0103.
+
+**Where it works:** claims tie back to real lines. The plain deploy and rollback (INC-0101) and the
+flag flip (INC-0102) pass, the root cause lands on the certificate and not the nearby deploy, even in the draft that
+misses (INC-0103),
+and a flapping page keeps one window with its firing time shown (INC-0107). "We don't know" stays
+"we don't know" (INC-0104). A page still firing (INC-0105), no page at all (INC-0106) and an alert
+history cut off before the first message (also INC-0106) go to review, and support's count the next
+morning still counts as evidence (also INC-0101).
+
+**Where it fails:** the checks prove a quote is really in the line it cites, not that the claim is
+right. INC-0103 is the miss: its "a month" got through that way, and that's the one to worry about, because a real
+quote can sit under a claim it doesn't support. This run also didn't test a cause someone proposes
+and later takes back, and numbers written as words aren't checked at all.
 
 The input is the six seeds in [`data/`](./data), written by `make_data.py`:
 
@@ -291,20 +324,8 @@ The input is the six seeds in [`data/`](./data), written by `make_data.py`:
 
 All seven incidents are at a fictional shop, Larkspur Outfitters. The seeds also hold events for
 unrelated services on the same days (a search deploy, a recommendation memory alert, a search
-index lag alert, a later checkout deploy), which no report should pick up, and none did. Here's
-what our live run on 4 Nov 2026 (UTC) gave:
-
-| Case | What we planted | Came out | Why |
-| --- | --- | --- | --- |
-| INC-0101 | A deploy shrinks the payment client pool to 8; rollback fixes it | `checks_passed`, 36.0 min alert window | The straightforward case: deploy, symptom, rollback |
-| INC-0102 | A flag queries the DB once per line item; flag turned off | `checks_passed`, 45.0 min | The cause is a flag flip, not a deploy |
-| INC-0103 | A gateway deploy lands 12 min into the outage; the cause is an expired certificate | `checks_passed`, 43.5 min; root cause cites S04, never D01 | Near miss: the deploy closest to the outage didn't cause it |
-| INC-0104 | Latency recovers on its own; nobody finds the cause | `needs_review`: root cause not established | "We don't know" is an honest answer and a person decides what to do with it |
-| INC-0105 | The page is still firing when the record ends | `needs_review`: the alert window has not closed | No end time to report |
-| INC-0106 | Customer-reported; only a warning alert, no page | `needs_review`: no alert window | The window has to come from support data or metrics |
-| INC-0107 | The page flaps: fires, resolves, fires again | `checks_passed`, 50.3 min (39.7 min firing) | The gap between firings isn't proof customers recovered |
-| Truncated history (in INC-0106) | The warning fired at 10:21, six minutes after the bad deploy and more than the 60-minute lookback before the first message; only its resolve is in range | `needs_review`: the alert history is incomplete | The record can't show when the alert started, so the review item says when it fired |
-| Late impact confirmation (in INC-0101) | Support posts the final count the next morning, 18 hours after the alert resolved | the impact claim cites that message (S11) and passes | A late message is still evidence; nothing ties impact lines to the alert window |
+index lag alert, a later checkout deploy), which no report should pick up, and none did. Our live
+run was on 4 Nov 2026 (UTC).
 
 We put the truncated history in INC-0106 rather than add an eighth incident, because that's where it
 happens naturally (a warning that paged nobody, well over an hour before the customers noticed), so
@@ -379,7 +400,7 @@ the tickets and taking the draft to the review meeting.
   overlapping incidents on the same service would share events. Use the incident tool's linked
   alerts where it has them, or flag any event two records both picked.
 - **Withdrawn hypotheses and cancelled actions.** A channel where someone proposes a cause and
-  later takes it back, or agrees to an action and then cancels it, isn't planted here; the
+  later takes it back, or agrees to an action and then cancels it, isn't in these incidents; the
   checks would only catch it if the model cites the withdrawn line.
 - **Numbers written as words.** The number check reads digits only, so "sixty-three tickets" or
   "a month" isn't checked.

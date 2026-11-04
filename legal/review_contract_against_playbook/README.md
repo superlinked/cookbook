@@ -101,6 +101,8 @@ anything outside the five positions.
 
 Here are three of the NDAs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: every company and person is invented.
+
 **1. Our own paper.**
 - **Input:** `nda-brackenridge-analytics.docx`, a mutual NDA on our template: "This Agreement and
   the obligations in it last for two (2) years from the date of this Agreement." and "This Agreement
@@ -110,25 +112,24 @@ Here are three of the NDAs in `data/`, and what should happen to each.
 - **Expected outcome:** term, law and disclosures `matches_position`; non-solicit and residuals
   `not_found`.
 
-**2. Two clauses we never accept.**
-- **Input:** `nda-quillfeather-logistics.docx`: "neither party shall directly or indirectly solicit
-  for employment or hire any employee of the other party ..." and "Nothing in this Agreement
-  restricts either party from using Residuals for any purpose." Its term is "three (3) years from
-  the date above".
-- **What should happen:** Both forbidden clauses are found and deviate, each with the playbook's
-  standard wording and approver. The term sits exactly on the three-year limit, so it passes.
-- **Expected outcome:** non-solicit and residuals `deviates`; term `matches_position`.
-
-**3. Two clocks, three sections apart.**
+**2. Two time limits, three sections apart.**
 - **Input:** `nda-corrin-fabrication.docx`: Section 4 says the agreement "continues for two (2)
   years", and Section 7 says "The obligations of confidentiality in this Agreement survive for five
   (5) years after this Agreement expires or is terminated."
 - **What should happen:** Python adds the survival period to the term instead of taking the longer
-  of the two, so confidentiality lasts seven years, over the limit.
+  of the two, so confidentiality lasts seven years, over the three-year limit.
 - **Expected outcome:** term `deviates`, with the agreement term reported as two years.
 
-On the live run, 6 of 6 planted NDAs came out as expected; [What came out](#what-came-out) has each
-one.
+**3. A law clause the extractor misses.**
+- **Input:** `nda-lowfield-ridge-capital.docx`: Section 4 says "a period of five (5) years from the
+  date of this Agreement", and Section 5 says "This Agreement shall be governed by and construed in
+  accordance with the laws of the State of New York."
+- **What should happen:** Five years is over the limit, so the period deviates. New York is on the
+  playbook's allowed list, so the law should match. If the extractor doesn't find it, the row must
+  not pass: it says not found and points the lawyer at the section.
+- **Expected outcome:** period `deviates`; law `matches_position`.
+
+On the live run, 3 of 6 NDAs came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -295,20 +296,43 @@ took 34 s on ours.
 
 ### The three examples
 
-1. **Brackenridge:** term, law and disclosures `matches_position`; non-solicit and residuals
-   `not_found`. As expected; the two `not_found` rows still go to the lawyer.
-2. **Quillfeather:** non-solicit and residuals `deviates`, term `matches_position`. As expected. The
-   non-solicit row carries "Delete the clause. Our NDAs place no restriction on hiring or engaging
-   people." for the Head of People and General Counsel.
-3. **Corrin:** term `deviates`, "Confidentiality lasts 7 years (five (5) years after an agreement
-   term of 2 years), longer than 3 years". As expected.
+**1. Our own paper.**
+- **Expected outcome:** term, law and disclosures `matches_position`; non-solicit and residuals
+  `not_found`.
+- **What came back:** term, law and disclosures `matches_position`; non-solicit and residuals
+  `not_found`.
+- **Verdict:** Pass. The two `not_found` rows still go to the lawyer.
 
-### Every planted case
+**2. Two time limits, three sections apart.**
+- **Expected outcome:** term `deviates`, with the agreement term reported as two years.
+- **What came back:** term `deviates`, "Confidentiality lasts 7 years (five (5) years after an
+  agreement term of 2 years), longer than 3 years".
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026 (UTC), 6 of 6 planted NDAs came out as expected on the positions we
-planted. The extractor also missed three clauses we didn't plant as misses (Lowfield Ridge's New
+**3. A law clause the extractor misses.**
+- **Expected outcome:** period `deviates`; law `matches_position`.
+- **What came back:** period `deviates`; law `not_found`, with Section 5 cited.
+- **Verdict:** Miss. The extractor missed a New York clause that's plainly in Section 5, so the
+  lawyer reads that section to confirm it. That's why "not found" never passes.
+
+### Results
+
+On the live run on 4 Nov 2026 (UTC), 3 of 6 NDAs came out as expected. The three misses are Lowfield
+Ridge, Orlaith and Velloway: the extractor missed a clause that's there in each (Lowfield Ridge's New
 York law, and the permitted disclosures of Orlaith and Velloway), each `not_found` with its sections
 cited.
+
+**Where it works:** the departures with a clause to point at. Our own paper (Brackenridge) matches
+on term, law and disclosures. Lowfield Ridge's five years, Quillfeather's non-solicit and residuals,
+Orlaith's Singapore law and missing term, and Corrin's seven years all came out as they should, and
+Quillfeather's three years sits on the limit and passes. Velloway's non-solicit, reworded as
+"neither party shall engage any of the other party's personnel", never reads as a match.
+
+**Where it fails:** the extractor. It missed the three clauses above, and Velloway's reworded
+non-solicit came out `unclear`, not `deviates`. All of those still reach the lawyer, at the cost of
+a read. The one to worry about is a `not_found` on a forbidden clause: it's what you hope for, but
+the recipe can't promise it, so someone still has to read the sections listed. The run didn't test
+"five years, or as long as it remains a trade secret", which parses as five years today.
 
 The input is six NDA requests: `data/clm_intake.csv` (one intake record per request) and the six
 drafts it points at in [`data/`](./data). Five are on the counterparty's paper; Brackenridge is
@@ -320,15 +344,6 @@ on ours.
 > The .docx files carry no document properties (no author, company or dates).
 
 Our live run was on 4 Nov 2026 (UTC), with the settings as committed.
-
-| Case | What we planted | Should come out | What came out | Why |
-| --- | --- | --- | --- | --- |
-| `nda-brackenridge-analytics.docx` (ours, mutual) | Compliant | Term, law and disclosures `matches_position`; non-solicit and residuals `not_found` | As planned | No forbidden clause is there, but "not found" still goes to the lawyer |
-| `nda-lowfield-ridge-capital.docx` (theirs, one-way) | Five-year period; definitions long enough to need two windows; New York law; legal-process carve-out in Section 3 | Period `deviates`; law `matches_position` if found, `not_found` if not; carve-out `unclear` if the extractor marks only the definitions | Period `deviates`; law `not_found`; disclosures `matches_position` | The extractor misses New York, so it reaches the lawyer with Section 5 cited. It marks Section 3 as well as the definitions, and Section 3's sentences grant both carve-outs |
-| `nda-quillfeather-logistics.docx` (theirs, mutual) | Non-solicit and residuals clauses; a term of exactly 3 years | Non-solicit and residuals `deviates`; term `matches_position` | As planned | A boundary: three years is the limit, not over it |
-| `nda-orlaith-marine.docx` (theirs, one-way) | Singapore law; no term clause at all | Law `deviates`; term `not_found` | As planned, plus disclosures `not_found` | A missing term is a gap, never a pass. The extractor misses Section C |
-| `nda-corrin-fabrication.docx` (term vs survival) | A two-year agreement term in Section 4; confidentiality survives five years after it ends, in Section 7 | Confidentiality period `deviates`; agreement term reported as two years | Term `deviates`, "Confidentiality lasts 7 years (five (5) years after an agreement term of 2 years)" | The two clocks are added, not compared: taking the longest period alone would say five years |
-| `nda-velloway-robotics.docx` (reworded non-solicit) | "neither party shall engage any of the other party's personnel", with no "solicit" or "hire" | Non-solicit `not_found` or `unclear`, never `matches_position` | Non-solicit `unclear`, plus disclosures `not_found` | The extractor did mark something in "3. Personnel" ("one (1) year"), but the section lacks the non-solicit wording, so the position is `unclear` with the section cited, not `not_found`. Either way it reaches the lawyer |
 
 These six NDAs show the wiring works; they are not an accuracy measure. Six drafts tell you each
 path through the checks runs, not how often the extractor finds a clause.
@@ -353,7 +368,7 @@ things worth noticing:
   matched on "4. Duration" (two years), and the non-solicit became `unclear` instead of quietly
   vanishing. `unclear` is the more useful of the two answers it could give, since it points at
   the section.
-- **Not every miss is a planted one.** The extractor didn't find Lowfield Ridge's New York law, or
+- **Not every miss is one we wrote.** The extractor didn't find Lowfield Ridge's New York law, or
   the permitted-disclosures clauses of Orlaith and Velloway. Each is `not_found` with the
   sections that use the position's wording cited, so the lawyer knows where to read. It's a fair
   reminder that "not found" means "not found in the passages read", which is why it never passes.
@@ -413,7 +428,7 @@ nothing else, and ran the recipe on SIE Cloud on 4 Nov 2026 (UTC).
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `document` | `docling:ocr` | Same status for all 30 NDA and position rows. |
-| `extract` | `fastino/gliner2-base-v1` | 20 of 30 statuses match. It found no term in Brackenridge or Lowfield Ridge (both `not_found`, so Lowfield Ridge's planted five-year period is no longer `deviates`), marked "term of this Agreement" as Quillfeather's term (`unclear`), missed Quillfeather's residuals (`unclear`, the wording is there) and its disclosures (`not_found`), read Corrin's two years from Section 4 but nothing from the survival section (`unclear`), and marked Velloway's "one (1) year" as a term (`unclear`). It did find Lowfield Ridge's New York law and the disclosures of Orlaith and Velloway, which the default missed (`matches_position`). Without the check for an unread survival section, Corrin's term would come out `matches_position` with this model. |
+| `extract` | `fastino/gliner2-base-v1` | 20 of 30 statuses match. It found no term in Brackenridge or Lowfield Ridge (both `not_found`, so Lowfield Ridge's five-year period is no longer `deviates`), marked "term of this Agreement" as Quillfeather's term (`unclear`), missed Quillfeather's residuals (`unclear`, the wording is there) and its disclosures (`not_found`), read Corrin's two years from Section 4 but nothing from the survival section (`unclear`), and marked Velloway's "one (1) year" as a term (`unclear`). It did find Lowfield Ridge's New York law and the disclosures of Orlaith and Velloway, which the default missed (`matches_position`). Without the check for an unread survival section, Corrin's term would come out `matches_position` with this model. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

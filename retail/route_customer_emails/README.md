@@ -67,36 +67,40 @@ is just a nicer-looking inbox.
 
 Two limits up front. Escalation is phrase-only: an email has to contain one of the listed
 phrases, in its subject or body, to escalate, so an injury told in other words gets past it
-(E-11 below is planted to show exactly that). And everything here is English: the phrases, the
-team descriptions and the planted emails.
+(we wrote E-11 below to show exactly that). And everything here is English: the phrases, the
+team descriptions and the sample emails.
 
 ### Examples
 
 Here are three of the emails in `data/emails.json`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the retailer, its stores, customers and orders
+are invented.
+
 **1. A routine question.** E-01.
 - **Input:** "Hi, my order LK-204517 was supposed to arrive on Tuesday and the tracking page still
   says label created. Can you tell me where it is?"
-- **What should happen:** no safety or legal phrase, so the team model picks a team, and the order
-  number passes the `LK` + 6 digits check.
+- **What should happen:** nothing in it about safety or a lawyer, so a model picks the team. The
+  order number has the right shape (`LK` plus 6 digits), so it goes on the row.
 - **Expected outcome:** `orders-delivery` by `model`, order `LK-204517`.
 
 **2. A safety report.** E-03.
 - **Input:** "The space heater I bought at the Cedar Falls store started sparking last night and
   my son burned his hand on the front grille. Order LK-199402. Has this model been recalled?"
-- **What should happen:** the safety phrases fire before any model call, and the email is in
-  `escalations.csv` even if SIE never answers. The order and store are still read.
+- **What should happen:** "burned" and "sparking" are on the safety list, so this one goes to
+  product safety before any model is asked, and it's in `escalations.csv` even if the models never
+  answer. The order number and the store still get copied out for whoever picks it up.
 - **Expected outcome:** `product-safety` by `escalation`, on `burned`, `sparking`, `recalled`.
 
-**3. A near miss.** E-05, subject "Thank you to Sue".
-- **Input:** "Just wanted to say Sue at the Maple Grove store was so helpful finding the right
-  stain for my fence."
-- **What should happen:** "Sue" is a name, and bare "sue" isn't a legal phrase, so it must not
-  escalate. The team model picks a team.
-- **Expected outcome:** `store-experience` by `model`, not `legal-escalations`.
+**3. A child hurt, in words the list doesn't have.** E-11, subject "Patio table".
+- **Input:** "The glass top on the patio table from order LK-211904 shattered when I set a mug on
+  it, and a piece cut my child's cheek. What should I do?"
+- **What should happen:** this is a safety report and product safety should see it. But "cut" and
+  "shattered" aren't on the safety list, and we wrote this email knowing it would get past the list.
+- **Expected outcome:** you'd want `product-safety` by `escalation`. Expect it to miss.
 
-On the live run, 8 of 12 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 8 of 12 emails came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -228,35 +232,42 @@ matched, and `also_send_to` the queues after the first.
 
 ### The three examples
 
-- **E-01:** `orders-delivery`, model, score 0.98. As expected.
-- **E-03:** `product-safety`, escalation, on `burned`, `sparking`, `recalled`, with the order and
-  store still read. As expected.
-- **E-05:** `store-experience`, model, score 0.98, and no legal escalation. As expected.
+**1. A routine question.** E-01.
+- **Expected outcome:** `orders-delivery` by `model`, order `LK-204517`.
+- **What came back:** `orders-delivery`, model, score 0.98.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A safety report.** E-03.
+- **Expected outcome:** `product-safety` by `escalation`, on `burned`, `sparking`, `recalled`.
+- **What came back:** `product-safety`, escalation, on `burned`, `sparking`, `recalled`, with the
+  order and store still read.
+- **Verdict:** Pass.
 
-On the live run on 2 Nov 2026, 8 of 12 planted cases came out as expected.
+**3. A child hurt, in words the list doesn't have.** E-11.
+- **Expected outcome:** you'd want `product-safety` by `escalation`. Expect it to miss.
+- **What came back:** `customer-care-general`, top guess `product-help` at 0.39, not escalated.
+- **Verdict:** Miss. It reached a person in the general queue only because the model wasn't sure
+  what it was either. That's luck, and this is the limit of a phrase list you can read.
 
-| Email | Planted | Route on our live run | Why |
-| --- | --- | --- | --- |
-| E-01 | Where is order LK-204517 | `orders-delivery`, model (0.98) | Plain delivery question |
-| E-02 | Refund for an in-store return, order written `lk 208 331` | `returns-refunds`, model (0.80); `LK-208331`, Riverside Plaza | The order check turns `lk 208 331` into `LK-208331`; the model read "Riverside Plaza", the store's full name |
-| E-03 | Heater sparked and burned a child's hand | `product-safety`, escalation; order and store still read | `burned`, `sparking`, `recalled` |
-| E-04 | Third reply on a refund thread, mentions an attorney | `legal-escalations`, escalation; `in_reply_to` kept | `attorney` |
-| E-05 | Near miss: "Sue at the Maple Grove store was so helpful", subject "Thank you to Sue" | `store-experience`, model (0.98); "Sue" is a name, not a legal threat | Bare "sue" is not a legal phrase |
-| E-06 | Two issues: charged twice and not delivered | `orders-delivery`, model (0.65 vs `billing` 0.33) | Margin 0.32, over the 0.20 limit |
-| E-07 | Rewards points missing | `loyalty`, model (0.68, margin 0.52) | Clear enough to pass both limits |
-| E-08 | Vague call-back request naming an unknown "Northgate store" | `store-experience`, model (0.98); store flagged as not in the list | "Northgate store" isn't on the store list |
-| E-09 | Assembly question for a garden bed picked up at the Eastport store | `store-experience`, model (0.59 vs `product-help` 0.38) | "picked up at the store" matches the `in-store pickup` cue |
-| E-10 | "I need some help with something. Could someone get back to me?" | `customer-care-general`: top `orders-delivery` 0.32 | Under 0.50 |
-| E-11 | Near miss: a glass table top shattered and "a piece cut my child's cheek", no listed phrase | `customer-care-general`: top `product-help` 0.39; not escalated | Phrase-only escalation: nothing in the list matches |
-| E-12 | A ladder collapsed, "my husband was injured", and "we have spoken to a lawyer" | `product-safety`, escalation; `also_send_to` `legal-escalations` | Both flags kept: `injured` and `lawyer` |
+### Results
+
+On the live run on 2 Nov 2026, 8 of 12 emails came out as expected.
+
+**Where it works:** where the email uses the words on the list, or asks one clear thing. The burn
+(E-03), the attorney (E-04) and the injury with a lawyer (E-12) all escalated, and E-05's "Sue"
+stayed out of legal. The plain questions (E-01, E-02, E-07) went to the right team, even with an
+order number typed as `lk 208 331`, and the email with no detail at all (E-10) went to the general
+queue with a top score of 0.32.
+
+**Where it fails:** when an injury is told in other words (E-11, the one to worry about), when an
+email has two problems (E-06), when an email is too vague to route but the model picks a team anyway
+(E-08), and when a team description has a cue that fits the wrong email (E-09).
 
 On our live run (2026-11-02, UTC) the 12 emails came out as 3 escalated, 7 by model and 2 to
 `customer-care-general`. Four emails didn't go where we wrote them to go, and we left the
 rules and thresholds alone after seeing them: E-06, E-08 and E-09 (more below), and E-11, which
-we planted knowing it would miss the escalation and which is the one to worry about. Treat the
-table as a demo that the wiring works, not as a measure of accuracy: twelve emails tell you
+we wrote knowing it would miss the escalation and which is the one to worry about. Treat the
+results as a demo that the wiring works, not as a measure of accuracy: twelve emails tell you
 the pipeline runs end to end, not how often it's wrong.
 
 A few things worth noticing:
@@ -279,7 +290,7 @@ A few things worth noticing:
   the general queue only because GLiNER2.5-Decide wasn't sure what it was either (top
   `product-help` at 0.39, `store-experience` next). That's luck, not a rule. A slightly more
   confident model would have sent it to `product-help` as an assembly question. We didn't add
-  "cut" to the list to make this row look better; for a home and garden retailer, "the mower
+  "cut" to the list to make this result look better; for a home and garden retailer, "the mower
   won't cut" is a Tuesday.
 - **E-06 was written to split between billing and delivery**, but the model chose delivery with
   a margin of 0.32, clear of the 0.20 limit. The customer has two problems and the row names
@@ -333,12 +344,12 @@ the agent what to ask the customer.
   can't tell a purchase store from a return store; a person should pick.
 - **Find order numbers with the pattern directly.** They have a fixed format, so a regex over
   the text would catch them without depending on the model finding the span first.
-- **Send long emails to a person instead of merging windows.** None of the planted emails
+- **Send long emails to a person instead of merging windows.** None of the sample emails
   runs past 120 words, and `merge_probabilities` adds code that a "too long, read it yourself"
   rule wouldn't.
 - **Test a reply above a quoted old complaint.** A "Thanks, resolved" over a quoted email that
   names a burn and another store would test stale escalations and store mix-ups.
-- **Other languages.** The phrases, team descriptions and planted emails are all English;
+- **Other languages.** The phrases, team descriptions and sample emails are all English;
   another language needs its own phrase list and a check of the descriptions.
 
 ## Try another model

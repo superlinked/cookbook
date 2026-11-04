@@ -81,6 +81,9 @@ makes a decision: the statuses come from plain Python reading `rules.yaml`.
 
 Here are three of the rows in `data/supplier-products.csv`, and what should happen to each.
 
+The supplier rows are synthetic, written for this recipe, from a fictional supplier. The taxonomy
+they get sorted into is real: Shopify's public one (MIT license).
+
 **1. A clear row.** TT-A02, "Womens High Rise Skinny Jean INDIGO 28"
 - **Input:** "High-rise skinny jeans with five pockets. Material: stretch denim (98% cotton, 2%
   elastane). Color: indigo. Size: 28."
@@ -92,21 +95,23 @@ Here are three of the rows in `data/supplier-products.csv`, and what should happ
 - **Input:** "Fine-knit crew neck sweater with ribbed cuffs and hem. Material: 100% merino wool.
   Color: charcoal grey."
 - **What should happen:** the category is easy, but clothing needs a size and there isn't one, so
-  the attribute check fires and the supplier gets a question.
-- **Expected outcome:** `review`, size not found, and a row in `questions.csv`.
+  the row goes to the specialist and the supplier gets a question.
+- **Expected outcome:** `review`, size not found, and a row in `questions.csv`, the list of
+  questions for the supplier.
 
-**3. An accessory that names its host.** TT-E13, "Replacement Ear Cushions for Aurivox AV-H700
-Headphones"
+**3. An accessory that names the product it fits.** TT-E13, "Replacement Ear Cushions for Aurivox
+AV-H700 Headphones"
 - **Input:** "Brand: Aurivox. Genuine replacement ear cushions for the Aurivox AV-H700 over-ear
   headphones, one pair. ..."
-- **What should happen:** the title is full of headphone words, but the pick has to be a cushion
-  category, and AV-H700 only ever follows "for", so a rule that checks what follows "for" or
-  "fits" should catch it as the headphones' model number.
+- **What should happen:** the title is full of headphone words, but these are ear cushions, so the
+  category has to be a cushion one. AV-H700 is the headphones' model number, not the cushions',
+  and it only ever comes after "for". We check for "for" or "fits" in front of a model number, so
+  the row should go to the specialist.
 - **Expected outcome:** `review`, category *Headphone Cushions & Tips*, never *Headphones*, with
   the reason that the model number follows "for".
 
-On the live run, 10 of 12 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 10 of 12 cases came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -287,48 +292,64 @@ On our live run on 4 Nov 2026 (UTC), 51 rows came back as 33 `checks_passed`, 17
 
 ### The three examples
 
-- **TT-A02 jeans:** `checks_passed`, *Jeans*. As expected.
-- **TT-A04 sweater:** `review`, size not found, and the questions file has
-  `TT-A04,Merino Crew Sweater - Charcoal,size,missing,...`. As expected.
-- **TT-E13 cushions:** `review`, category *Headphone Cushions & Tips*, never *Headphones*. Right
-  status and category, but for other reasons: the reranker couldn't separate it from *Headphone
-  Replacement Parts*, and the extract call got SIE's empty-result HTTP 500, so the model number
-  was never read and the "for" rule didn't run. Not the outcome we planned.
+**1. A clear row.** TT-A02, "Womens High Rise Skinny Jean INDIGO 28"
+- **Expected outcome:** `checks_passed`, category *Jeans*.
+- **What came back:** `checks_passed`, *Jeans*.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A missing size.** TT-A04, "Merino Crew Sweater - Charcoal"
+- **Expected outcome:** `review`, size not found, and a row in `questions.csv`, the list of
+  questions for the supplier.
+- **What came back:** `review`, size not found, and the questions file has
+  `TT-A04,Merino Crew Sweater - Charcoal,size,missing,...`.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026, 10 of 12 planted cases came out as expected (counting each of the
+**3. An accessory that names the product it fits.** TT-E13, "Replacement Ear Cushions for Aurivox
+AV-H700 Headphones"
+- **Expected outcome:** `review`, category *Headphone Cushions & Tips*, never *Headphones*, with
+  the reason that the model number follows "for".
+- **What came back:** `review`, category *Headphone Cushions & Tips*, never *Headphones*. The
+  reasons were different: the reranker couldn't separate it from *Headphone Replacement Parts*,
+  and the extract call got SIE's empty-result HTTP 500, so the model number was never read.
+- **Verdict:** Miss. Right status and category, but the "for" rule didn't run, so this run doesn't
+  show it working. The specialist still sees the row.
+
+### Results
+
+On the live run on 4 Nov 2026, 10 of 12 cases came out as expected (counting each of the
 five clear rows on its own, and the duplicate-SKU pair as one case); TT-F07 and the cushions
 (TT-E13) are the two that didn't.
 
-| Case | What we planted | Came out | Why |
-| --- | --- | --- | --- |
-| Clear rows | TT-A02 jeans, TT-A09 sneakers, TT-E01 headphones, TT-H05 French press, TT-F01 coffee beans: one obvious category, every required attribute in the text | `checks_passed`, as planned: *Jeans*, *Sneakers*, *Over-Ear Headphones*, *French Presses*, *Coffee Beans & Ground Coffee* | The rows the specialist should only have to glance at |
-| Thermos or water bottle | TT-H12, a vacuum-insulated bottle | `review`, as planned: *Thermoses* 0.93 vs *Water Bottles* 0.88, log-odds margin 0.60 | Two real categories fit; a person picks. Material was still read |
-| Missing size | TT-A04 merino sweater, no size anywhere | `review`, as planned: size not found, and a question for the supplier | The supplier has to be asked; a guessed size ends up on the product page |
-| Branch not in the taxonomy | TT-X01 brass hose nozzle (Lawn & Garden is not in the trimmed file) | `review`, as planned: best path plain *Home & Garden* at 0.47, so both the low score and the top-level rule fired | The right answer isn't on the list, and a top-level branch is not a category |
-| Net volume in an odd format | TT-F07 sparkling water, "Net volume: 12 x 330 ml" | `review`: GLiNER2's reply had no `data` at all, which counts as a failed call | A pack-times-size quantity is how food suppliers write it |
-| Duplicate SKU | Two rows with the same SKU, a black and a white variant | The run stopped before any model call and named both rows, as planned | One SKU, two products: the result for one would silently replace the other |
-| Accessory naming its host | Replacement ear cushions "for the Aurivox AV-H700 over-ear headphones" | `review`, category *Headphone Cushions & Tips*, never *Headphones*. The model number was never read: the extract call got SIE's empty-result HTTP 500 | The title is full of headphone words, and AV-H700 is the headphones' model number, not the cushions' |
-| Carry-over product (from the PIM lookup) | TT-A08 hiking socks, already PIM product P-10231 | `in_pim`, *Crew Socks*, no model call | A product the store already sells keeps what it has |
+**Where it works:** rows with one obvious category and every required attribute in the text pass
+with the right category: the jeans (TT-A02), sneakers (TT-A09), headphones (TT-E01), French press
+(TT-H05) and coffee beans (TT-F01). The rows a person has to look at go to review: a bottle that
+could be a thermos or a water bottle (TT-H12), a sweater with no size (TT-A04), a hose nozzle whose
+branch isn't in the taxonomy (TT-X01). The sheet with one SKU on two products (TT-A13) stops the run
+before any model call, and the hiking socks already in the PIM (TT-A08) keep what they have.
 
-Two planted cases came out differently from the plan, and we left them that way. TT-F07 was meant to
-show whether "12 x 330 ml" gets read; this time GLiNER2 answered without a `data` key, so it went to
+**Where it fails:** the sparkling water (TT-F07) and the ear cushions (TT-E13) both reached review,
+but not for what we wrote them to test: the extraction call failed on both. So this run doesn't tell
+you whether "12 x 330 ml" gets read or whether the "for" rule fires. The thing to worry about is the
+failed calls: SIE Cloud's empty-result 500 hit four rows that do have the attribute (TT-E13 and
+three more, below), and each one is a row the specialist has to read by hand.
+
+Two cases came out differently from the plan, and we left them that way. TT-F07 was meant to show
+whether "12 x 330 ml" gets read; this time GLiNER2 answered without a `data` key, so it went to
 review as a failed call, and we can't say whether it would have read the volume (the offline check
 shows the recipe accepts "12 x 330 ml" when it is read). And the cushions went to review for two
-reasons other than the one we planted: the reranker couldn't separate *Headphone Cushions & Tips*
-from *Headphone Replacement Parts* (both fair), and the extraction call came back with the 500. So
-the "for the AV-H700" rule did not run on this run; `selfcheck.py` shows it sending exactly this
-row's text to review, and it did fire live when we swapped in the smaller extraction model (see Try
-another model). Treat all of this as a demo that the pipeline works, not as a measure of accuracy:
-51 rows tell you the wiring is right, not how often it's wrong.
+reasons other than the one we wrote it for: the reranker couldn't separate *Headphone Cushions &
+Tips* from *Headphone Replacement Parts* (both fair), and the extraction call came back with the
+500. So the "for the AV-H700" rule did not run on this run; `selfcheck.py` shows it sending exactly
+this row's text to review, and it did fire live when we swapped in the smaller extraction model (see
+Try another model). Treat all of this as a demo that the pipeline works, not as a measure of
+accuracy: 51 rows tell you the wiring is right, not how often it's wrong.
 
 A few things worth noticing:
 
 - **Most of the review pile is the reranker being honest.** Nine rows went to review on a thin
   margin. Seven were between two real categories: *T-Shirts* vs *Shirts* (TT-A01), *Rain Coats*
   vs *Rain Suits*, *Activewear > Leggings* vs *Pants > Leggings*, *DAB Radios* vs *AM/FM
-  Radios*, *Mixing Bowls* vs *Cookware Sets*, *Oat Drinks* vs *Milk*, and the planted bottle.
+  Radios*, *Mixing Bowls* vs *Cookware Sets*, *Oat Drinks* vs *Milk*, and the TT-H12 bottle.
   The eighth is the cushions (TT-E13), between two fair accessory paths. The ninth, TT-F09
   honey, was close to *Honey Jars*, which is a container under Home & Garden, so the recipe
   didn't read its attributes at all: it doesn't know which branch's list to use. The T-shirt is
@@ -410,7 +431,7 @@ import the batch into the PIM. Nothing is imported automatically.
   optional `color` field to the electronics schema, the error hit five of twelve electronics
   rows even though brand and model were in the text. That is why the schema asks only for the
   required attributes.
-- **Measure it.** Fifty-one planted rows prove the wiring. Before you trust the statuses, run it
+- **Measure it.** Fifty-one made-up rows prove the wiring. Before you trust the statuses, run it
   on a few of your own past supplier sheets and compare with what your specialists chose.
 
 ## Try another model
@@ -422,7 +443,7 @@ at a time, changed nothing else, and ran the recipe on SIE Cloud. The default ru
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `embed` | `tencent/R3-embedding-0.6b` | 32 `checks_passed`, 18 `review`. TT-A01 passed as *T-Shirts*, because *Shirts* wasn't in its top 10. TT-F12 peanut butter went to review with a low score (0.14): its top 10 was butter and margarine, no *Nut Butters*. TT-F04 spaghetti went to review between *Pasta Dough* and *Wheat* |
-| `embed` | `Snowflake/snowflake-arctic-embed-l-v2.0` | 36 `checks_passed`, 14 `review`. The planted TT-H12 bottle passed as *Water Bottles* with no review: its top 10 was bottle caps, vacuum sealers and water bottles, no *Thermoses*. TT-A01 and TT-H04 passed for the same reason. TT-X01 still went to review (best score 0.03) |
+| `embed` | `Snowflake/snowflake-arctic-embed-l-v2.0` | 36 `checks_passed`, 14 `review`. The TT-H12 bottle passed as *Water Bottles* with no review: its top 10 was bottle caps, vacuum sealers and water bottles, no *Thermoses*. TT-A01 and TT-H04 passed for the same reason. TT-X01 still went to review (best score 0.03) |
 | `rerank` | `Qwen/Qwen3-Reranker-0.6B` | 19 `checks_passed`, 31 `review`. Its scores crowd even closer to 1.0, so the log-odds margin of 1.0 flags many rows, including the clear TT-E01 and TT-F01. It passed TT-F09 honey as *Honey Jars* (a container, with material "glass jar") and TT-F04 spaghetti as *Wheat*. Our first try hit a read timeout on one taxonomy batch while the model was cold, and every row went to review with `shortlist_incomplete`; the numbers here are from the second try |
 | `rerank` | `tencent/R3-rerank-0.6b` | 1 `checks_passed` (TT-H03), 49 `review`. Its best scores sit near 0.8 (median 0.78), so `min_logit_margin` 1.0 is far too strict for its scale. Its pick for TT-X01 was plain *Home & Garden* at 0.53, above `min_top_score`; the top-level rule sent it to review |
 | `extract` | `fastino/gliner2-base-v1` | 26 `checks_passed`, 24 `review`, with the same categories. SIE's empty-result HTTP 500 hit 15 rows instead of 4, the clear TT-H05 French press among them. It did read TT-F07's "12 x 330 ml", TT-F10's "2 kg", TT-F02's "40 g" and TT-A10's material, which the default missed. And on the cushions (TT-E13) it returned AV-H700 as the model number, so the "for" rule fired live: `names_another_product: model_number 'AV-H700' follows 'for'` |

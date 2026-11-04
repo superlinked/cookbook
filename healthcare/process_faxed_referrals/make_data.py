@@ -101,7 +101,7 @@ PACKETS = (
         ),
         seed=101,
     ),
-    # Planted: member ID left blank, and the patient has no chart here.
+    # Member ID left blank, and the patient has no chart here.
     Packet(
         filename="fax-1021-hollis-creek-internal-medicine.pdf",
         clinic="Hollis Creek Internal Medicine",
@@ -131,7 +131,7 @@ PACKETS = (
         ),
         seed=202,
     ),
-    # Planted: the order is not signed; the clinic note behind it is electronically signed.
+    # The order is not signed; the clinic note behind it is electronically signed.
     Packet(
         filename="fax-1021-quarry-hill-medical-group.pdf",
         clinic="Quarry Hill Medical Group",
@@ -161,7 +161,7 @@ PACKETS = (
         ),
         seed=303,
     ),
-    # Planted: marked urgent on the cover and the order; an existing patient.
+    # Marked urgent on the cover and the order; an existing patient.
     Packet(
         filename="fax-1021-fenwick-street-clinic.pdf",
         clinic="Fenwick Street Clinic",
@@ -192,7 +192,7 @@ PACKETS = (
         ),
         seed=404,
     ),
-    # Planted: member ID left blank, but the patient has a chart here with the member ID on
+    # Member ID left blank, but the patient has a chart here with the member ID on
     # file. The EHR also has his son, with the same name and another date of birth.
     Packet(
         filename="fax-1021-millbrook-community-health.pdf",
@@ -223,7 +223,7 @@ PACKETS = (
         ),
         seed=505,
     ),
-    # Planted: a time frame with no urgent keyword, member ID blank, a new patient, and a
+    # A time frame with no urgent keyword, member ID blank, a new patient, and a
     # referring provider the directory doesn't know yet.
     Packet(
         filename="fax-1021-juniper-road-family-practice.pdf",
@@ -255,7 +255,7 @@ PACKETS = (
         ),
         seed=606,
     ),
-    # Planted: the order is for Ann Lee; the clinic note attached is Joann Lee's, with
+    # The order is for Ann Lee; the clinic note attached is Joann Lee's, with
     # another date of birth.
     Packet(
         filename="fax-1021-cobble-lane-health-center.pdf",
@@ -286,7 +286,7 @@ PACKETS = (
         note_patient="Joann Lee",
         note_dob="02/03/1971",
     ),
-    # Planted: the patient has a chart here under her maiden name (Helena Voss, the same
+    # The patient has a chart here under her maiden name (Helena Voss, the same
     # date of birth and phone); the member ID on file is not hers until someone checks.
     Packet(
         filename="fax-1021-orchard-bend-medical.pdf",

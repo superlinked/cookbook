@@ -98,11 +98,14 @@ make up a step, which is why the responder reads it against the runbook before d
 
 Here are three of the alerts in `data/alertmanager-webhooks.jsonl`, and what should happen to each.
 
+All of this is synthetic, written for this recipe. The service names and fault flags follow the
+OpenTelemetry demo (Apache-2.0), and the runbooks and the incident are invented.
+
 **1. Payment charges failing in production.**
 - **Input:** "oteldemo.PaymentService/Charge error rate 48% over 5m (threshold 5%)", one of 7 alerts
   across payment, checkout and frontend with no runbook link.
 - **What should happen:** the seven should land in one group, the best-scoring runbook should be
-  "Payment: Charge requests failing" (RB-01), and the note should pass its citation checks.
+  "Payment: Charge requests failing" (RB-01), and the note should pass its checks.
 - **Expected outcome:** `runbook_suggested`, RB-01.
 
 **2. Kafka backing up, and no runbook for it.**
@@ -112,15 +115,17 @@ Here are three of the alerts in `data/alertmanager-webhooks.jsonl`, and what sho
   written and the group goes on the gap list.
 - **Expected outcome:** `no_confident_match`.
 
-**3. The same words from staging.**
-- **Input:** "oteldemo.PaymentService/Charge error rate 100% over 5m (threshold 5%)", with
-  `env=staging`, during the same storm.
-- **What should happen:** it reads like the production alert, but grouping each environment on its
-  own should keep it out of production's group, so its note sees staging's own log lines.
-- **Expected outcome:** its own group, `runbook_suggested` RB-01.
+**3. Recommendation alerts, and a note that only has to cite them.**
+- **Input:** "frontend calls to recommendation ListRecommendations p95 2.1s" (A-27), one of 6 alerts
+  on recommendation and frontend.
+- **What should happen:** the six should land in one group under RB-03, and the note should say
+  only what the group shows. Its checks prove every ID it cites is in the group, not that what it
+  says is true, so a wrong claim with a real citation gets through and the responder has to catch
+  it.
+- **Expected outcome:** `runbook_suggested`, RB-03, with a note that says only what the group
+  shows.
 
-On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each
-one.
+On the live run, 7 of 8 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -250,7 +255,7 @@ join production's group; environment and time boundaries; the score limit and th
 log selection by environment, service and window; a dozen bad notes (an alert from another
 group, two IDs in one bracket, `A-011`, another runbook, `RB-010`, a runbook named only in the
 JSON field, too many or too long lines); the prompt's injection line; the committed data and
-that `make_data.py` rebuilds it byte for byte; the planted flow end to end; and the SIE failure
+that `make_data.py` rebuilds it byte for byte; the whole flow end to end; and the SIE failure
 rule with a transient error, a refusal, every call failing, replies missing their key, a NaN
 score, a zero vector and a duplicated score. [`make_data.py`](./make_data.py) writes the three
 data files.
@@ -277,16 +282,43 @@ first calls can wait a few minutes while SIE Cloud starts the three models; our 
 
 ### The three examples
 
-- **Payment, production:** `runbook_suggested` RB-01 at 0.9998, the note passed its checks. As
-  expected.
-- **Kafka:** `no_confident_match`, best RB-09 at 0.0011, no note, one row in `runbook-gaps.csv`. As
-  expected.
-- **Payment, staging:** its own group G7, `runbook_suggested` RB-01 at 0.9996, with a note that
-  blames the v1.9.0 client upgrade instead of the flag (quoted below). As expected.
+**1. Payment charges failing in production.**
+- **Expected outcome:** `runbook_suggested`, RB-01.
+- **What came back:** `runbook_suggested` RB-01 at 0.9998, and the note passed its checks.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. Kafka backing up, and no runbook for it.**
+- **Expected outcome:** `no_confident_match`.
+- **What came back:** `no_confident_match`, best RB-09 at 0.0011, no note, one row in
+  `runbook-gaps.csv`.
+- **Verdict:** Pass.
 
-On the two live runs on 2026-11-04, 8 of 8 planted cases came out as expected.
+**3. Recommendation alerts, and a note that only has to cite them.**
+- **Expected outcome:** `runbook_suggested`, RB-03, with a note that says only what the group
+  shows.
+- **What came back:** `runbook_suggested` RB-03 at 0.9998, and the note passed its checks. Its
+  second line in the latest run says "impacting frontend checkout and product views
+  [A-14][A-23][A-27]".
+- **Verdict:** Miss. The status and the runbook are right, but nothing in the group mentions
+  checkout. Every citation is in the group, so
+  the checks can't see it, and only the responder reading the note can.
+
+### Results
+
+On the two live runs on 2026-11-04, 7 of 8 cases came out as expected. The miss is the
+recommendation group (G3), for what its note says.
+
+**Where it works:** each cause's alerts land in their own group under the right runbook:
+`paymentFailure` (RB-01), `adHighCpu` (RB-02) and `productCatalogFailure` (RB-04), and
+`recommendationCacheFailure` gets that far too (RB-03). `kafkaQueueProblems` goes on the gap list with no improvised note,
+since no runbook covers Kafka. The runbooks for services that are fine are never chosen (RB-05 to
+RB-10), links that already exist get used as they are (A-29, A-30), and staging's charge errors stay
+out of production's group (A-31, A-32).
+
+**Where it fails:** a note can pass its checks and still say something untrue, like G3's checkout
+claim, and that's the one to worry about. This run also didn't test a messy storm: it's one storm
+with five tidy faults, and only grouping values from about 0.635 to 0.675 separate them. Log lines
+are picked by service and time, so a note can see another fault's lines (G1 did).
 
 The input is one storm, incident INC-4127 on 2026-10-14, in [`data/`](./data):
 
@@ -307,17 +339,6 @@ The input is one storm, incident INC-4127 on 2026-10-14, in [`data/`](./data):
 > not captured from a running demo. The runbooks are invented, and every URL is on
 > `example.internal`. [`make_data.py`](./make_data.py) writes all three files and rebuilds them
 > byte for byte.
-
-| Case | What we planted | Expected | Came out | Why |
-| --- | --- | --- | --- | --- |
-| `paymentFailure` | 7 alerts across payment, checkout and frontend (A-01 A-03 A-08 A-11 A-16 A-21 A-26) | `runbook_suggested` RB-01 | `runbook_suggested` RB-01, 0.9998 | One cause seen from three services |
-| `adHighCpu` | 6 alerts on ad and frontend (A-02 A-06 A-12 A-17 A-22 A-28) | `runbook_suggested` RB-02 | `runbook_suggested` RB-02, 0.9997 | CPU and latency wording for the same fault |
-| `recommendationCacheFailure` | 6 alerts on recommendation and frontend (A-04 A-09 A-14 A-18 A-23 A-27) | `runbook_suggested` RB-03 | `runbook_suggested` RB-03, 0.9998 | Memory, cache and latency wording |
-| `productCatalogFailure` | 4 alerts on product-catalog, checkout and frontend (A-07 A-13 A-19 A-24) | `runbook_suggested` RB-04 | `runbook_suggested` RB-04, 0.9999 (RB-10 next at 0.8565) | Shares checkout and the frontend with other groups |
-| `kafkaQueueProblems` | 5 alerts on accounting, fraud-detection and kafka (A-05 A-10 A-15 A-20 A-25); no runbook covers Kafka | `no_confident_match` | `no_confident_match`, best RB-09 at 0.0011 | A real gap; the note isn't written, the group goes on the gap list |
-| Distractors | RB-05 to RB-10 cover services that are fine | never chosen | never chosen | Runbooks that read close but don't fit |
-| Link already there | Two payment alerts (A-29 A-30) carry `runbook_url` for RB-01 | `linked_runbook` for those two | `linked_runbook` RB-01 | The structured link wins; no model is asked about them |
-| Same symptoms, other environment | Charge errors from `env=staging` (A-31 A-32) during the same storm | a separate group from production's payment group | its own group, `runbook_suggested` RB-01, 0.9996 | Near miss: identical words, different incident |
 
 Both runs used the settings as first written and gave 7 groups and 12 SIE calls, and all five notes
 passed their checks. Treat that as a demo that the wiring works, not as a measure of accuracy. One

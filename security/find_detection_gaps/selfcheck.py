@@ -654,7 +654,7 @@ assert murkbell.sentences[0] == (
     " Saltmarsh Kettle."
 ), murkbell.sentences
 assert "Northfold CERT" in murkbell.publishers, murkbell
-print("backlog: the planted cases on the committed reports ok")
+print("backlog: the README's cases on the committed reports ok")
 
 # A tool reaches the backlog only through a group that targets our sectors: without R-02's
 # freight broker, Velvet Gorse targets only water utilities, so it drops off Larchwick, and

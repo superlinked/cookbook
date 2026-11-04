@@ -318,7 +318,7 @@ def check_injection() -> None:
     print("injection: zero-width and tag characters flagged, normalize ok")
 
 
-def check_planted() -> None:
+def check_examples() -> None:
     prompts = recipe.load_prompts()
     texts = {prompt.prompt_id: prompt.text for prompt in prompts}
     # Every attached screenshot exists, and P-10 to P-12 are the ones that attach one.
@@ -343,7 +343,7 @@ def check_planted() -> None:
     for prompt_id in ["P-08", "P-13", "P-14"]:
         assert secret_kinds(texts[prompt_id]) == [], prompt_id
         assert injection_kinds(texts[prompt_id]) == [], prompt_id
-    print("planted: P-04 secrets, P-05 three markers, P-06 four markers, P-08/13/14 none ok")
+    print("examples: P-04 secrets, P-05 three markers, P-06 four markers, P-08/13/14 none ok")
 
 
 def check_decide() -> None:
@@ -375,5 +375,5 @@ if __name__ == "__main__":
     check_screen()
     check_screenshots()
     check_injection()
-    check_planted()
+    check_examples()
     check_decide()

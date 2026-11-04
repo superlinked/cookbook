@@ -465,7 +465,7 @@ def check_sie_failure() -> None:
 
 def check_data() -> None:
     assert list(LISTINGS) == [f"P{n:02d}" for n in range(1, 19)], list(LISTINGS)
-    # The planted cases are really in the data.
+    # The example listings are really in the data.
     assert listing("P17").material == ""
     assert "100% Cotton" in listing("P17").bullets
     assert "cotton" not in listing("P17").title.lower()
@@ -497,7 +497,7 @@ def check_data() -> None:
     (data / "pim_listings.csv").write_text(text, encoding="utf-8")
     caught = raised(lambda: pim.get_listing(pim.connect(data), "P01", data))
     assert type(caught) is ValueError, caught
-    print("data: 18 listings, planted cases present, photos without metadata, safe paths ok")
+    print("data: 18 listings, example listings present, photos without metadata, safe paths ok")
 
 
 if __name__ == "__main__":

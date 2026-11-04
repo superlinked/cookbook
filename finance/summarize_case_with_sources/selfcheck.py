@@ -396,7 +396,8 @@ def check_good_summary() -> None:
 
 
 def check_amounts_and_payments() -> None:
-    # The planted selfcheck case: an amount the card system doesn't have.
+    # The selfcheck's own case: the Quillon payment given as 98.99, an amount the card system
+    # doesn't have.
     wrong = changed(
         "disputed_payments",
         0,

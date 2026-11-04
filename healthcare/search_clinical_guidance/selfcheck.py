@@ -473,8 +473,10 @@ def check_run_outputs() -> None:
     assert recipe.csv_safe("Q-04") == "Q-04"
     folder = Path(tempfile.mkdtemp())
     rows_in = json.loads(recipe.SEARCHES_PATH.read_text(encoding="utf-8"))["searches"]
-    planted = [{**rows_in[3], "question": "=cmd|' /C calc'!A0 hypnotherapy"}]
-    (folder / "searches.json").write_text(json.dumps({"searches": planted}), encoding="utf-8")
+    formula_search = [{**rows_in[3], "question": "=cmd|' /C calc'!A0 hypnotherapy"}]
+    (folder / "searches.json").write_text(
+        json.dumps({"searches": formula_search}), encoding="utf-8"
+    )
     with contextlib.redirect_stdout(io.StringIO()):
         recipe.run(
             cast(SIEClient, StandIn(scored({}))), RULES, folder / "out", folder / "searches.json"

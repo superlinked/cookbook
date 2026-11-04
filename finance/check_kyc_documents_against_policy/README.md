@@ -90,22 +90,27 @@ the customer's risk; those are separate steps in the same onboarding.
 Here are three of the cases in `data/`, and what should happen to each. All three were received
 on 26 October 2026.
 
+All of this is synthetic, written for this recipe and stamped SPECIMEN. Every person, address and
+number is invented.
+
 **1. A bill that words things differently (`kyc-02`).**
 
-- **Input:** the form row "kyc-02,2026-10-26,Okafor-Bell,Tobias James,1979-11-02,2,114,Harbour
-  Road,Port Ellery,UT 40381,...", the ID card on page 2 of `id-documents.pdf`, and a bill on page
-  2 of `address-documents.pdf` that drops the middle name, adds "Mr", writes "Flat 2, 114 Harbour
+- **Input:** the form for Tobias James Okafor-Bell, born 2 November 1979, at flat 2, 114 Harbour
+  Road, Port Ellery, UT 40381, the ID card on page 2 of `id-documents.pdf`, and a bill on page 2
+  of `address-documents.pdf` that drops the middle name, adds "Mr", writes "Flat 2, 114 Harbour
   Rd" and is 89 days old.
 - **What should happen:** the name, address and date checks should see the same person at the
   same flat, inside three months.
 - **Expected outcome:** `checks_passed`.
 
-**2. A bill that's too old (`kyc-05`).**
+**2. One digit, different house (`kyc-06`).**
 
-- **Input:** the bill on page 5 of `address-documents.pdf`, dated 12 May 2026.
-- **What should happen:** the address document has to be dated on or after 26 July 2026, so the
-  age check fails and the customer is asked for a newer one.
-- **Expected outcome:** `review`, with `address_age` not met.
+- **Input:** the form says 8 Quillon Street, Westmarch; the bill on page 6 of
+  `address-documents.pdf` is at number 18.
+- **What should happen:** it's not the address on the form, so the customer is asked for a bill
+  that shows it.
+- **Expected outcome:** `review`, with `address_matches` (the bill shows the address on the form)
+  not met.
 
 **3. Same words, different flat (`kyc-09`).**
 
@@ -115,8 +120,8 @@ on 26 October 2026.
   it's compared, so the swap shows.
 - **Expected outcome:** `review`, with `address_matches` not met.
 
-On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 12 of 12 cases came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -242,7 +247,7 @@ pattern, flat words, street types, abbreviations), the date formats and every th
 | Outputs | `write_outputs`, `requests_markdown`, `csv_safe` | none | `cases/<case>.json`, `checklist.csv`, `cases.csv` and `requests.md`. Any cell a spreadsheet would run as a formula gets a leading `'` |
 
 [`selfcheck.py`](./selfcheck.py) checks all of this offline with hand-written OCR pages and
-stand-in model replies: all 12 planted cases end to end (including that `kyc-11` reads only its
+stand-in model replies: all 12 cases end to end (including that `kyc-11` reads only its
 ID, and that every extraction call asks for `overflow_policy: error`); the MRZ with OCR quirks,
 and a changed character in the optional data that fails only the composite digit on a TD1 and a
 TD3; an MRZ on a document declared as a driving licence; addresses (the swapped flat and house number, a glued "Flat2", "114A"
@@ -281,18 +286,46 @@ run with both warm took 89 s.
 
 ### The three examples
 
-- **`kyc-02`** came out `checks_passed`: same person, same flat, inside three months. As
-  expected.
-- **`kyc-05`** came out `review` with `address_age` not met. As expected.
-- **`kyc-09`** came out `review` with `address_matches` not met, and the reason in
-  `checklist.csv` reads "house number '2', application '114'; flat '114', application '2'". As
-  expected.
+**1. A bill that words things differently (`kyc-02`).**
 
-### Every planted case
+- **Expected outcome:** `checks_passed`.
+- **What came back:** `checks_passed`: same person, same flat, inside three months.
+- **Verdict:** Pass.
 
-On the live runs on 2026-11-04 (UTC), 12 of 12 planted cases came out as expected, with the
-planted status and the planted requirement; `kyc-06` also had one extra requirement not met (see
-below).
+**2. One digit, different house (`kyc-06`).**
+
+- **Expected outcome:** `review`, with `address_matches` not met.
+- **What came back:** `review`, with `address_matches` not met and also `id_mrz` not met: "MRZ check
+  digit fails for: document_number, composite".
+- **Verdict:** Pass. The address was caught. The extra failure is the OCR model's: it read the ID
+  card's first MRZ line without the document number's check digit, so the analyst has one more
+  thing to look at, and on a clean case that alone would send it to review.
+
+**3. Same words, different flat (`kyc-09`).**
+
+- **Expected outcome:** `review`, with `address_matches` not met.
+- **What came back:** `review`, with `address_matches` not met. The reason in `checklist.csv` reads
+  "house number '2', application '114'; flat '114', application '2'".
+- **Verdict:** Pass.
+
+### Results
+
+On the live runs on 2026-11-04 (UTC), 12 of 12 cases came out as expected, with the status and the
+requirement we wrote each one to show; `kyc-06` also had one extra requirement not met (see below).
+
+**Where it works:** a fault you can state as a rule against the form and the policy: an expired ID
+(`kyc-03`), a wrong check digit (`kyc-04`), an old bill (`kyc-05`), an address off by a digit or
+with the numbers swapped (`kyc-06`, `kyc-09`), a bill in a family member's name (`kyc-07`), day and
+month swapped on the form (`kyc-08`), two recent bills at different addresses (`kyc-10`), a blank
+occupation with the ID card as the only address proof (`kyc-11`), and a document of the wrong kind
+(`kyc-12`). And it doesn't flag a clean case (`kyc-01`) or a bill that only words things differently
+(`kyc-02`).
+
+**Where it fails:** it depends on the scan being read properly. The OCR model's misread on `kyc-06`
+added a failure that isn't on the card, and with either of the other two OCR models we tried, every
+case went to review (see [Try another model](#try-another-model)). This run also doesn't test a
+forged document: the recipe doesn't check that a document is genuine, and `checks_passed` isn't an
+approval.
 
 The input is twelve personal-account cases, all received on 26 October 2026, in
 [`data/`](./data):
@@ -316,28 +349,13 @@ The input is twelve personal-account cases, all received on 26 October 2026, in
 Every case is dated 26 October 2026, so an address document must be dated 26 July 2026 or
 later.
 
-| Case | What we planted | Came out | Why |
-| --- | --- | --- | --- |
-| `kyc-01` | Form complete, ID and bill all consistent | `checks_passed` | Nothing to look at |
-| `kyc-02` | Near miss: the bill drops the middle name and adds "Mr", writes "Flat 2, 114 Harbour Rd" for "114 HARBOUR ROAD FLAT 2", is 89 days old | `checks_passed` | Same person, same flat, inside three months |
-| `kyc-03` | ID expired 31 August 2026 | `review`: `id_valid` not met; ask for an ID that's in date | The policy doesn't accept an expired ID |
-| `kyc-04` | MRZ birth-date check digit wrong | `review`: `id_mrz` not met, for the analyst | A bad check digit is a misread or an altered document |
-| `kyc-05` | Bill dated 12 May 2026 | `review`: `address_age` not met | Too old to prove the current address |
-| `kyc-06` | Bill at number 18, application at number 8 | `review`: `address_matches` not met, and `id_mrz` (see below) | One digit, different house |
-| `kyc-07` | Bill in another family member's name | `review`: `address_holder` not met | Same address, different person |
-| `kyc-08` | The application says 03/04/1988 (stored as 1988-04-03), the passport 04 MAR 1988 | `review`: `id_date_of_birth` not met, "day and month swapped" | Day and month swapped on the form, or not the applicant's ID |
-| `kyc-09` | Near miss: application "Flat 2, 114 Harbour Road", bill "Flat 114, 2 Harbour Road" | `review`: `address_matches` not met | Same words, different flat |
-| `kyc-10` | Two recent bills in the applicant's name, at different addresses | `review`: `address_matches` not met on the second, `address_documents_agree` not met | Two in-date bills that disagree prove neither address; the recipe never keeps one and drops the other |
-| `kyc-11` | Occupation left blank, and the only address proof is the ID card itself | `review`: `form_occupation` and `address_document` missing; no OCR needed to say so | The policy, not the documents, is what's unmet |
-| `kyc-12` | Uploaded as a "utility bill", but it's a mobile phone bill | `review`: `address_type` not met | The customer's label isn't the document's type |
-
 `kyc-06` came out with one extra requirement not met on every run. Treat that as a demo that the
 wiring works, not as a measure of accuracy: twelve cases tell you each path through the
 checks runs, not how often a real scan gets misread.
 
 A few things worth noticing:
 
-- **`kyc-06` has the planted fault and one we didn't plant.** LightOnOCR read the ID card's
+- **`kyc-06` has the fault we wrote into it and one we didn't.** LightOnOCR read the ID card's
   first MRZ line without the document number's check digit, so the document number and the
   composite check fail. The check digits did their job, the case was already going to review for
   the address, and we left it as found. Since an MRZ failure has no customer ask, the request
@@ -426,9 +444,9 @@ nothing else, and ran the recipe on the twelve cases above on SIE Cloud on 2026-
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `ocr` | `lightonai/LightOnOCR-2-1B` | No MRZ was found on any of the 12 IDs, and GLiNER2 found no fields on the 11 ID cards, so every case went to review, `kyc-01` and `kyc-02` included, and `kyc-04`'s planted check digit was never seen. The passport's printed fields were read, and `kyc-08` still got its day and month swap. Every address document came out as with the default: the planted faults in `kyc-05`, `kyc-06`, `kyc-07`, `kyc-09`, `kyc-10` and `kyc-12` were caught and nothing else. 48 calls |
-| `ocr` | `zai-org/GLM-OCR` | Worse. No MRZ and no ID fields on any of the 12 IDs, so every case went to review. On the passport it kept writing `<` fillers until the page took 58 extraction windows, and the run made 101 SIE calls instead of 48. On 8 bills GLiNER2 then took the subtitle ("Electricity and gas", "Water and sewerage") as the issuer; neither is on the issuer list, so `address_type` was not met on those too. The planted address faults were still caught |
-| `extract` | `fastino/gliner2-base-v1` | 10 of 12 cases came out exactly as with the default, `kyc-01` and `kyc-02` still `checks_passed`. On `kyc-07` and `kyc-08` it didn't find the surname on the ID, so each case got `id_name` not met ("surname not read") on top of its planted reason. 48 calls, 86 s warm |
+| `ocr` | `lightonai/LightOnOCR-2-1B` | No MRZ was found on any of the 12 IDs, and GLiNER2 found no fields on the 11 ID cards, so every case went to review, `kyc-01` and `kyc-02` included, and `kyc-04`'s wrong check digit was never seen. The passport's printed fields were read, and `kyc-08` still got its day and month swap. Every address document came out as with the default: the faults we wrote into `kyc-05`, `kyc-06`, `kyc-07`, `kyc-09`, `kyc-10` and `kyc-12` were caught and nothing else. 48 calls |
+| `ocr` | `zai-org/GLM-OCR` | Worse. No MRZ and no ID fields on any of the 12 IDs, so every case went to review. On the passport it kept writing `<` fillers until the page took 58 extraction windows, and the run made 101 SIE calls instead of 48. On 8 bills GLiNER2 then took the subtitle ("Electricity and gas", "Water and sewerage") as the issuer; neither is on the issuer list, so `address_type` was not met on those too. The address faults we wrote in were still caught |
+| `extract` | `fastino/gliner2-base-v1` | 10 of 12 cases came out exactly as with the default, `kyc-01` and `kyc-02` still `checks_passed`. On `kyc-07` and `kyc-08` it didn't find the surname on the ID, so each case got `id_name` not met ("surname not read") on top of the reason we wrote it to fail. 48 calls, 86 s warm |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

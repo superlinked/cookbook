@@ -770,7 +770,7 @@ def check_adversarial() -> None:
 
 
 def check_data() -> None:
-    # Every planted claim finds exactly one term on its loss date, and its packet splits.
+    # Every claim in the data finds exactly one term on its loss date, and its packet splits.
     for claim in CLAIMS.queue():
         lookup = ADMIN.packet_on(claim.policy_number, claim.date_of_loss)
         assert lookup.status == FOUND, (claim, lookup.note)

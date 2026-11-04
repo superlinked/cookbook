@@ -96,33 +96,37 @@ the claim, approves the callback, or hands the flagged claim to an adjuster.
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
-**1. A complete call.**
+All of this is synthetic, written for this recipe. The calls are scripts spoken by macOS `say`, and
+no real person, policy or claim is in them.
+
+**1. A complete call.** Quintero.
 - **Input:** `fnol-1021-quintero.wav`, a call where the caller gives every field ("It's H M 4 4 7 1
   2 0 9 3.", "On Tuesday night, October 20th, around nine o'clock.", "No, nobody was hurt."), and
-  the saved claim `CLM-26-104417,HM44712093,Marisol Quintero,(415) 555-0141,2026-10-20,"214 Alder
-  Creek Road, Millbrook",Hail and wind,No`.
+  the saved claim `CLM-26-104417` for Marisol Quintero: policy HM44712093, phone (415) 555-0141,
+  date of loss 2026-10-20, at 214 Alder Creek Road, Millbrook, hail and wind, injuries "No".
 - **What should happen:** every required field is in the claim and the call agrees, so nothing
   needs fixing and no flag goes up.
 - **Expected outcome:** `checks_passed`, no flag.
 
-**2. An injury the claim lost, and a date nobody asked for.**
+**2. An injury the claim lost, and a date nobody asked for.** Vellanki.
 - **Input:** `fnol-1021-vellanki.wav`, where the caller says "My husband cut his arm on the broken
   glass when he went out to look. We took him to urgent care and he needed stitches." The saved
   claim `CLM-26-104419` has injuries "No" and a blank date of loss, and the agent never asks when
   it happened.
-- **What should happen:** the injury compare finds the claim and the call disagree and raises the
-  injury flag; the date of loss is in neither, so it becomes a callback question.
+- **What should happen:** the claim says nobody was hurt and the caller says someone was, so both
+  values get shown and the injury flag goes up. The date of loss is in neither, so it becomes a
+  question for a callback.
 - **Expected outcome:** `callback_needed` (date of loss), injuries `differs`, `injury_reported`.
 
-**3. A near miss on the injury rule.**
+**3. Hurt, but "he didn't need an ambulance".** Okafor.
 - **Input:** `fnol-1021-okafor.wav`, where the caller says "My son was out on the porch. He was
   hurt but he didn't need an ambulance." The saved claim `CLM-26-104420` has injuries "No".
-- **What should happen:** the sentence rule has to see that the "didn't" is about the ambulance,
-  not the injury, so the flag goes up and says the sentence is ambiguous.
+- **What should happen:** the "didn't" is about the ambulance, not the injury, so this can't read
+  as nobody hurt. The injury flag goes up and says the sentence is ambiguous, and a person listens
+  to it. That costs a second look, which is cheaper than a missed injury.
 - **Expected outcome:** `differs` on injuries, `injury_reported (ambiguous)`.
 
-On the live run, 7 of 7 planted cases came out as expected; [What came out](#what-came-out) has each
-one.
+On the live run, 7 of 7 cases came out as expected. [What came out](#what-came-out) has the results.
 
 ## How we'll solve it
 
@@ -251,18 +255,17 @@ and matches the recording's file name exactly: one claim is found, none or sever
 
 [`selfcheck.py`](./selfcheck.py) checks all of this offline with hand-written transcript lines
 and stand-in model replies: the claims lookup (found, not found, several, a neighboring file
-name); the sentence rule on every planted wording plus "not badly hurt", "nobody else was hurt"
-and a trigger phrase that holds its own negation ("no power"); the transposed house number, the
-dropped unit, a neighboring street type and another town; spoken dates with times, glued
+name); the sentence rule on every wording in the sample calls plus "not badly hurt", "nobody else
+was hurt" and a trigger phrase that holds its own negation ("no power"); the transposed house
+number, the dropped unit, a neighboring street type and another town; spoken dates with times, glued
 ordinals, a day with no month, another year, relative words, a weekday alone and two dates in one
-span; values a digit apart ("October 2" and "October 20", "HM4471209" and "HM44712093") kept as
-two values; a denial span heard before a real injury; saved injury text such as "Not injured" and
-"Pending"; a value not said in its own window; a transcript too short to trust; a
-near-identical policy number and one off the pattern; the cause by peril; `overflow_policy` on
-every window call; the statuses and the worklist order; `csv_safe`; and
-the SIE failure rule with a transient error, a refusal, every call failing, a reply missing its
-key and the empty-result 500. [`make_data.py`](./make_data.py) writes the claims seed and renders
-the call audio.
+span; values a digit apart ("October 2" and "October 20", "HM4471209" and "HM44712093") kept as two
+values; a denial span heard before a real injury; saved injury text such as "Not injured" and
+"Pending"; a value not said in its own window; a transcript too short to trust; a near-identical
+policy number and one off the pattern; the cause by peril; `overflow_policy` on every window call;
+the statuses and the worklist order; `csv_safe`; and the SIE failure rule with a transient error, a
+refusal, every call failing, a reply missing its key and the empty-result 500.
+[`make_data.py`](./make_data.py) writes the claims seed and renders the call audio.
 
 ## Run it
 
@@ -285,16 +288,39 @@ The first calls can wait a few minutes while SIE Cloud starts the speech and ext
 
 ### The three examples
 
-- **Quintero, the complete call:** `checks_passed`, no flag. As expected.
-- **Vellanki, the lost injury:** `callback_needed` with "date_of_loss: On what date, and at about
-  what time, did the damage happen?", plus "injuries: claim 'No', call 'Yes' [00:26]" and
-  `injury_reported`. As expected.
-- **Okafor, the near miss:** `differs` with "injuries: claim 'No', call 'Yes' [00:36]" and
-  `injury_reported (ambiguous)`. As expected.
+**1. A complete call.** Quintero.
+- **Expected outcome:** `checks_passed`, no flag.
+- **What came back:** `checks_passed`, no flag.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. An injury the claim lost, and a date nobody asked for.** Vellanki.
+- **Expected outcome:** `callback_needed` (date of loss), injuries `differs`, `injury_reported`.
+- **What came back:** `callback_needed` with "date_of_loss: On what date, and at about what time,
+  did the damage happen?", plus "injuries: claim 'No', call 'Yes' [00:26]" and `injury_reported`.
+- **Verdict:** Pass.
 
-On the live run on 2026-11-04 (UTC), 7 of 7 planted cases came out as expected.
+**3. Hurt, but "he didn't need an ambulance".** Okafor.
+- **Expected outcome:** `differs` on injuries, `injury_reported (ambiguous)`.
+- **What came back:** `differs` with "injuries: claim 'No', call 'Yes' [00:36]" and
+  `injury_reported (ambiguous)`.
+- **Verdict:** Pass. The recipe doesn't settle what the sentence means. It marks it ambiguous and an
+  adjuster hears it, so a sentence like this one always costs a second look.
+
+### Results
+
+On the live run on 2026-11-04 (UTC), 7 of 7 cases came out as expected.
+
+**Where it works:** when the call and the saved claim can be read side by side. The complete call
+(Quintero) passes clean. The policy number the agent found by name stays out of the callbacks, and
+the transposed house number shows both values (both Achterberg). The lost injury and the date nobody
+asked for both come up (both Vellanki). "He didn't need an ambulance" (Okafor) and the rain still
+coming in on a complete call (Delacroix) still raise their flags.
+
+**Where it fails:** what this run didn't test. These are five clean text-to-speech recordings in
+voices Parakeet hears well; with other voices, the same values came out as `differs`. "Yesterday" or
+"Tuesday night" comes out as `differs` too, because it can't be compared with a saved date, a cause
+told with a negation ("hail, no wind") reads as both perils, and we haven't tried a noisy,
+interrupted call. Try those on your own calls first.
 
 The input is five synthetic calls in [`data/`](./data) (16 kHz mono WAV, 39 to 44 s each) and
 [`data/claims.csv`](./data/claims.csv), the five claims the intake agent saved from them.
@@ -305,19 +331,7 @@ The input is five synthetic calls in [`data/`](./data) (16 kHz mono WAV, 39 to 4
 > address and the insurer (Harborline Mutual) is invented; the phone numbers are in the
 > 555-0100 to 555-0199 range set aside for fiction.
 
-Here's what we planted and what the run on 2026-11-04 (UTC) gave:
-
-| Case | What we planted | Should come out | Came out | Why |
-| --- | --- | --- | --- | --- |
-| Quintero | Complete call (hail and wind, nobody hurt); the saved claim has every field and agrees | `checks_passed` | `checks_passed`, no flag | The clean case |
-| Achterberg | Near miss: the caller has no policy number to hand; the agent found the policy by name, so the claim has it | Policy `in_claim`, no callback | Policy `in_claim`, no callback question | Not said on the call is not missing from the claim |
-| Achterberg | Changed: the caller says "87 Maple Street, unit 2", the agent saved "78 Maple Street" | `differs`: location, both values shown | `differs`: claim "78 Maple Street, Oakdale", call "87 Maple Street, Unit 2, Oakdale" at 00:22 | Two transposed digits send the field adjuster next door |
-| Vellanki | The husband cut his arm and needed stitches; the agent left the injury field at "No" | `differs`: injuries, `injury_reported` | `differs`: claim "No", call "Yes" at 00:26; `injury_reported` | The caller said it, the claim lost it, and this is the claim that should be seen first |
-| Vellanki | The agent never asked when it happened, and the claim's date of loss is blank | `callback_needed`: date of loss | `callback_needed`, with the date-of-loss question | Neither the call nor the claim has it, so this is a real callback |
-| Okafor | Near miss: "He was hurt but he didn't need an ambulance"; the claim says no injury | `differs`: injuries, `injury_reported`, marked ambiguous | `differs`: claim "No", call "Yes" at 00:36; `injury_reported (ambiguous)` | The negation is about the ambulance, not the injury |
-| Delacroix | Near miss: a complete call where the caller says rain is still coming through the ceiling and they're staying with family; the claim has every field | `checks_passed`, `urgent_assistance` | `checks_passed`, `urgent_assistance` | Every field filled in, and it still can't wait two business days |
-
-Seven planted cases on five calls show the wiring works end to end; they don't measure accuracy, and
+Seven cases on five calls show the wiring works end to end; they don't measure accuracy, and
 your calls will find things these don't.
 
 - **The worklist reads the way a reviewer works.** Here are its first two rows, the two injury
@@ -355,11 +369,11 @@ your calls will find things these don't.
   until it is fixed." Parakeet wrote the street as "62 Harborview Road"; the address compare drops
   the spaces in the street name, so it matched "62 Harbor View Road".
 
-- **The voices are picked so Parakeet hears the planted values.** With the `Fred` voice,
+- **The voices are picked so Parakeet hears the values in the scripts.** With the `Fred` voice,
   Parakeet heard "87 Larkspur Lane, Fenwick" as "87 larks per lane, unit 2, fanny"; with `Kathy`
   it heard "P R 7 1 9 4 0 2 5 8" as "TR71940258" and "Harbor View" as "Harperview". Those come
   out as `differs`, the safe direction (a reviewer listens and finds the claim was right), but
-  they bury the planted cases, so Achterberg uses `Karen` and "87 Maple Street, unit 2, Oakdale"
+  they bury the cases we wrote, so Achterberg uses `Karen` and "87 Maple Street, unit 2, Oakdale"
   and Delacroix uses `Tessa`. Spelled-out letters and unusual street names in synthetic speech are
   a weak spot. `say` output can change between macOS versions; the committed WAVs are the inputs
   of record.
@@ -407,7 +421,7 @@ to an adjuster today. Nothing changes in the claims system and nobody is called 
 - **Relative dates.** "Yesterday" or "Tuesday night" can't be compared with a saved date today,
   so it comes out as `differs`. Passing the call's own date from the telephony system would let the recipe resolve
   it.
-- **Harder calls to plant next.** A caller who corrects the policy number in a later window, a
+- **Harder calls to add next.** A caller who corrects the policy number in a later window, a
   call that gives both the day the damage happened and the day it was found, a cause told with a
   negation ("hail, no wind", which reads as both perils today) and a noisy, interrupted call.
 
@@ -418,8 +432,8 @@ nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `transcribe` | `openai/whisper-large-v3-turbo` | Six of the seven planted cases came out the same. Okafor gained a second `differs`: Whisper heard "455 Birch Avenue" as "455 Bridge Avenue". Delacroix kept `checks_passed` and `urgent_assistance`, but the flag came out ambiguous: Whisper ran the last turns together without punctuation, so "nobody was hurt" shared a clause with "staying with family". |
-| `extract` | `fastino/gliner2-base-v1` | Every planted case came out the same. On Vellanki it also returned "urgent care" as urgent help, so that claim gained `urgent_assistance (ambiguous)`. It missed Quintero's date of loss; the claim has it, so the field stayed `in_claim`. |
+| `transcribe` | `openai/whisper-large-v3-turbo` | Six of the seven cases came out the same. Okafor gained a second `differs`: Whisper heard "455 Birch Avenue" as "455 Bridge Avenue". Delacroix kept `checks_passed` and `urgent_assistance`, but the flag came out ambiguous: Whisper ran the last turns together without punctuation, so "nobody was hurt" shared a clause with "staying with family". |
+| `extract` | `fastino/gliner2-base-v1` | Every case came out the same. On Vellanki it also returned "urgent care" as urgent help, so that claim gained `urgent_assistance (ambiguous)`. It missed Quintero's date of loss; the claim has it, so the field stayed `in_claim`. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

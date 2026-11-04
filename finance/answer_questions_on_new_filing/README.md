@@ -94,12 +94,16 @@ investment advice.
 Here are three of the standing questions in `data/questions.yaml`, the passages in `data/` they
 meet, and what should happen to each.
 
+The passages are real paragraphs from Apple's and Target's 10-K filings on SEC EDGAR ([Data and
+licenses](#data-and-licenses) says what the SEC allows). The questions were written for this recipe.
+
 **1. Apple's manufacturing purchase obligations (AAPL-1).**
 
-- **Input:** P06 in the FY2025 10-K: "As of September 27, 2025, the Company had manufacturing
-  purchase obligations of $56.2 billion, with $55.4 billion payable within 12 months." Next to
-  it, P07 gives "other purchase obligations of $14.8 billion" in the same shape of sentence.
-- **What should happen:** the reranker puts both near the top, the answer model cites P06, and
+- **Input:** passage P06 in the FY2025 10-K: "As of September 27, 2025, the Company had
+  manufacturing purchase obligations of $56.2 billion, with $55.4 billion payable within 12
+  months." Next to it, P07 gives "other purchase obligations of $14.8 billion" in the same shape
+  of sentence.
+- **What should happen:** both rank near the top, a model answers from P06 and not P07, and
   Python checks the quote is in P06 and both figures are in it as billions for 2025.
 - **Expected outcome:** `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months.
 
@@ -108,20 +112,20 @@ meet, and what should happen to each.
 - **Input:** the question "How much revenue did Apple Vision Pro generate in fiscal 2025?" The
   passages that mention Vision Pro, such as P12 in Item 1, describe the product and give no
   figure.
-- **What should happen:** no passage scores high enough to answer, so the answer model has
-  nothing to guess from.
+- **What should happen:** no passage ranks high enough to answer, so no model gets asked and
+  there's nothing to guess from.
 - **Expected outcome:** `no_answer_found` in both years, compared as `neither_year`.
 
 **3. Target's tax rate, with two years in one sentence (TGT-2).**
 
-- **Input:** P28: "Our 2025 effective income tax rate was 22.3 percent compared with 22.2 percent
-  in 2024."
-- **What should happen:** the year check has to tie 22.3 to 2025 and 22.2 to 2024, so an answer
-  calling 22.2 percent the 2025 rate fails.
+- **Input:** passage P28: "Our 2025 effective income tax rate was 22.3 percent compared with 22.2
+  percent in 2024."
+- **What should happen:** we check the year next to each number: 22.3 goes with 2025 and 22.2
+  with 2024, so an answer calling 22.2 percent the 2025 rate fails.
 - **Expected outcome:** `draft_answer` from P28, 22.3 percent.
 
-On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 8 of 8 questions came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -271,18 +275,44 @@ EDGAR asks every client to identify itself) and run `uv run fetch_data.py`.
 
 ### The three examples
 
-- **AAPL-1** came out `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months, and
-  last year's P33 gave $53.0 billion with $52.9 billion (`both_years`). P07 scored 0.9961 against
-  P06's 0.9998 and the answer model still cited P06. As expected.
-- **AAPL-4** came out `no_answer_found` in both years (best P12 at 0.16, P39 at 0.14),
-  `neither_year`. As expected.
-- **TGT-2** came out `draft_answer` from P28, 22.3 percent, with last year's P52 at 22.2 percent
-  (`both_years`). The model wrote "22.3 percent, up from 22.2 percent in fiscal 2024" and the year
-  check agreed on both figures. As expected.
+**1. Apple's manufacturing purchase obligations (AAPL-1).**
 
-### Every planted case
+- **Expected outcome:** `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months.
+- **What came back:** `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months. Last
+  year's P33 gave $53.0 billion with $52.9 billion (`both_years`).
+- **Verdict:** Pass. P07 scored 0.9961 against P06's 0.9998, so the ranking barely separated them
+  and the answer model is what picked P06. Had it cited P07, the row would be `needs_review`.
 
-On the live run on 4 Nov 2026 (UTC), 8 of 8 planted cases came out as expected.
+**2. Vision Pro revenue (AAPL-4).**
+
+- **Expected outcome:** `no_answer_found` in both years, compared as `neither_year`.
+- **What came back:** `no_answer_found` in both years (best P12 at 0.16, P39 at 0.14),
+  `neither_year`.
+- **Verdict:** Pass. That means "not in the passages read", not "not disclosed", so the analyst
+  still has to check the source.
+
+**3. Target's tax rate, with two years in one sentence (TGT-2).**
+
+- **Expected outcome:** `draft_answer` from P28, 22.3 percent.
+- **What came back:** `draft_answer` from P28, 22.3 percent, with last year's P52 at 22.2 percent
+  (`both_years`). The model wrote "22.3 percent, up from 22.2 percent in fiscal 2024".
+- **Verdict:** Pass. The year check agreed on both figures.
+
+### Results
+
+On the live run on 4 Nov 2026 (UTC), 8 of 8 questions came out as expected.
+
+**Where it works:** finding the one paragraph that answers among others that look like it:
+manufacturing purchase obligations next to the other ones (AAPL-1), the tax rate against last year
+and not the statutory rate (AAPL-2), Greater China next to the other segments (AAPL-3), next year's
+capex plan and not last year's spend (TGT-1), and why inventory changed (TGT-3). It keeps two years
+in one sentence apart (TGT-2), and it says there's no answer instead of guessing on Vision Pro
+revenue (AAPL-4) and Target's manufacturing purchase obligations (TGT-4).
+
+**Where it fails:** this run never tested what the analyst reads first: no row came out
+`new_this_year` or `missing_this_year`. An answer with the wrong scale or the wrong year only
+shows up in `selfcheck.py`, as a hand-written stand-in reply. The one to watch is AAPL-1, where the
+ranking barely separated the right paragraph from the wrong one and the answer step had to choose.
 
 The input is two companies' standing questions in [`data/questions.yaml`](./data/questions.yaml)
 (four each) and 56 passages from four 10-K filings: Apple FY2025 (16) and FY2024 (14), Target
@@ -293,22 +323,9 @@ on manufacturing purchase obligations with no figure, the tax rate against the s
 last year's capex, the inventory accounting estimate and the operating cash flow paragraph that
 mentions inventory. Each filing's every passage is scored for every question.
 
-Here's our live run on 4 Nov 2026 (UTC), with the settings as written:
-
-| Question | What we planted | This year (FY2025) | Last year (FY2024) | Comparison | Why |
-| --- | --- | --- | --- | --- | --- |
-| AAPL-1 manufacturing purchase obligations, and how much is due in 12 months | Near misses: other purchase obligations (P07), leases (P05), notes (P04), all on topic | `draft_answer`: P06, $56.2 billion with $55.4 billion in 12 months | `draft_answer`: P33, $53.0 billion with $52.9 billion | `both_years` | Same shape of sentence, different obligation; P07 scored 0.9961 and the answer model still cited P06 |
-| AAPL-2 why the tax rate moved from the prior year | The paragraph comparing with the statutory rate (P10, P37) | `draft_answer`: P11, the $10.7 billion State Aid decrease | `draft_answer`: P38, the $10.2 billion one-time charge | `both_years` | Two explanations of the same rate; the model cited the one against the prior year both times |
-| AAPL-3 what drove Greater China sales | Services and Wearables explanations in the same section | `draft_answer`: P15 | `draft_answer`: P42, with the renminbi | `both_years` | Same sentence pattern, different segment |
-| AAPL-4 Vision Pro revenue | Hits mention Vision Pro and Wearables, never a Vision Pro figure | `no_answer_found` (best P12, 0.16) | `no_answer_found` (best P39, 0.14) | `neither_year` | Not in these passages; the analyst gets no guess |
-| TGT-1 capex plan for next year and what it's for | The 2025 capex paragraph (P23) and the store network | `draft_answer`: P22, about $5 billion in 2026 | `draft_answer`: P49, $4 billion to $5 billion in 2025 | `both_years` | Last year's actual is not next year's plan, and last year's plan is the comparison |
-| TGT-2 effective tax rate and why it moved | One sentence gives 22.3 percent for 2025 and 22.2 percent for 2024 | `draft_answer`: P28, 22.3 percent | `draft_answer`: P52, 22.2 percent | `both_years` | The filing's year is not the year of every figure in it |
-| TGT-3 why inventory changed | Other year-end balances, the inventory accounting estimate (P44, P55) | `draft_answer`: P30 | `draft_answer`: P54, with its two bullets | `both_years` | A "why" that only MD&A answers |
-| TGT-4 manufacturing purchase obligations | Only a general paragraph that points to the notes | `no_answer_found` (best P26, 0.06) | `no_answer_found` (best P50, 0.04) | `neither_year` | The next step is in the notes, and the brief shows P26 saying so |
-
 No row came out `new_this_year` or `missing_this_year`:
 Apple and Target answered the same standing questions in both years, which is what you'd hope
-from two consecutive 10-Ks and also why we couldn't plant one from real filings. The near miss
+from two consecutive 10-Ks and also why we couldn't show one from real filings. The near miss
 the data can't hold, an answer that quotes the right sentence but says "$56.2 million", is in
 `selfcheck.py` as a hand-written stand-in reply, along with an answer that calls 22.2 percent
 Target's 2025 rate; both go to `needs_review`. Treat all of this as a demo that the wiring works,
@@ -342,7 +359,7 @@ A few things worth noticing:
   rate was 22.3 percent compared with 22.2 percent in 2024." The model wrote "22.3 percent, up
   from 22.2 percent in fiscal 2024", and the year check agreed on both figures: 22.3 takes the
   2025 earlier in the sentence, 22.2 the 2024 right after it. Last year's filing says 22.2
-  percent for 2024, so the two columns agree with each other too.
+  percent for 2024, so the two years agree with each other too.
 - **TGT-4 is a "look in the notes".** No passage scored anywhere near 0.50, and the closest one is
   shown in the brief with its last sentence, "The Notes to the Consolidated Financial Statements
   provide additional information." That's the analyst's next step, and the recipe doesn't
@@ -429,7 +446,10 @@ Four 10-K filings from [SEC EDGAR](https://www.sec.gov/edgar), listed in
 The CSV also lists each company's FY2023 10-K (no passages), so a date like "February 3, 2024"
 maps to Target's fiscal 2023.
 
-**License.** EDGAR filings are US government records in the public domain. Each passage is one
+**License.** The SEC says information on sec.gov "may be copied or further distributed by users
+of the web site without the SEC's permission" ([its policy](https://www.sec.gov/privacy)). The
+companies wrote these filings, and the SEC's statement doesn't speak for any copyright they hold,
+so we keep short passages and cite the filing for each. Each passage is one
 paragraph of the filing's HTML with only whitespace collapsed and a leading bullet removed; P54
 also takes in the two bullet paragraphs that finish its sentence. `fetch_data.py` lists the
 phrase that picks each one. The standing questions are neutral research questions written for

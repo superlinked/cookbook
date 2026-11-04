@@ -212,7 +212,7 @@ def facing(shown_answer: dict[str, str] | None, boxes: int = 1) -> tuple[str, st
 def check_facing() -> None:
     # B is the tag's own product, Peanut Butter Banana.
     assert facing(answer("B"))[0] == "in_place"
-    # Another listed product: the planted case, with what the model saw.
+    # Another listed product: the wrong-product case, with what the model saw.
     wrong = facing(answer("C", "Grandy Organics bag with a rainbow logo"))
     assert wrong == (
         "wrong_product",
@@ -276,7 +276,7 @@ def check_parse_answer() -> None:
 
 
 def check_price_and_status() -> None:
-    # A planted price that differs from the tag.
+    # A catalog price that differs from the tag.
     price = decide(MUESLI_TAG)
     assert (price["status"], price["findings"]) == ("price_mismatch", "price_mismatch"), price
     assert "Tag $10.99, catalog $11.49 (-$0.50)." in price["reason"], price
@@ -424,7 +424,7 @@ def read_csv(path: Path) -> list[dict[str, str]]:
 
 
 def check_outputs() -> None:
-    # Photo 1: Peanut Butter Banana with a Grandy bag in its slot (the planted case) and an
+    # Photo 1: Peanut Butter Banana with a Grandy bag in its slot (the wrong-product case) and an
     # empty Hazelnut Butter slot. Photo 2: the tag's own product, in place. Both tags are read
     # before either slot is asked about.
     _, output, client = run(
@@ -470,7 +470,7 @@ def check_outputs() -> None:
     assert [(p["tags_kept"], p["packages_in_slots"]) for p in photos] == [("2", "1"), ("1", "1")]
     assert (output / "crops" / "shelf-1-T01-slot.jpg").is_file()
     assert (output / "annotated" / "shelf-1.jpg").is_file()
-    # The planted empty Truwhip slot's failure: the model names the tag's own product, but the
+    # The empty Truwhip slot's failure: the model names the tag's own product, but the
     # detector found no box in the slot. That's review, never in_place.
     _, output, _ = run(
         TWO_SLOTS, ocr(PB_BANANA), ocr(HAZELNUT_TAG), chat("B"), chat("A"), n_photos=1

@@ -96,6 +96,9 @@ calendar or calls whoever is needed, and decides what to share. A one-off questi
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: one fictional household, with every name and
+number invented.
+
 **1. The furnace filter, written down once.**
 
 - **Input:** `notes.md`: "Furnace filter size is 16x25x1, MERV 11. Change it every three months..."
@@ -110,7 +113,7 @@ Here are three of the inputs in `data/`, and what should happen to each.
   with Doctor Haldane is moved to Monday, October 26th, at 2:15 in the afternoon." The calendar
   still has "Eye exam, Dr. Haldane" at 2026-10-22 09:30.
 - **What should happen:** the memo says "moved to" and is dated later, so it replaces the note.
-  Then the calendar check sees the one matching event disagrees.
+  Then we look it up on the calendar, and the one matching event disagrees.
 - **Expected outcome:** `conflict`, at the top of the to-sort-out list: Mon Oct 26 at 2:15 PM
   against the calendar's Thu Oct 22 at 9:30 AM.
 
@@ -118,12 +121,12 @@ Here are three of the inputs in `data/`, and what should happen to each.
 
 - **Input:** `memo-2026-10-27.wav`, nine seconds of wind, titled "Plumber, kitchen sink" in the
   voice memo app, with no transcript. No other file mentions the visit.
-- **What should happen:** the memo reads empty and goes on the unread list. Its title names the
-  plumber, so the fact can't honestly be `not_found`.
+- **What should happen:** the memo comes back empty, so it goes on the list of files we couldn't
+  read. Its title names the plumber, so the fact can't honestly be `not_found`.
 - **Expected outcome:** `needs_review`, naming the memo as unread.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 10 of 10 facts came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -280,7 +283,7 @@ reads top to bottom in the same order as the flow.
 | Outputs | `changes`, `previous_sheet`, `render_markdown`, `write_outputs` | none | `facts.md` and `facts.json`, with what changed since the newest earlier sheet in `runs/` |
 
 [`selfcheck.py`](./selfcheck.py) checks all of this offline with hand-written OCR pages, memo
-segments and stand-in model replies: the ten planted facts; the lookups; the OCR table
+segments and stand-in model replies: the ten facts in `facts.yaml`; the lookups; the OCR table
 flattening, glued numbers ("$2,150", "26th", "3.5h"), times ("2:15 in the afternoon") and days;
 the value check ("$240" against "$420", words stitched together, a passage it wasn't shown,
 "Larkspur Inn" for "Larkspur Hotel", words over the limit); the registration near miss coming
@@ -326,16 +329,46 @@ from scratch took 26 s and the cached one 17 s.
 
 ### The three examples
 
-- **The furnace filter** came back `found`, citing `notes.md`. As expected.
-- **The eye exam** came back `conflict`, with the value "Monday, October 26th, at 2:15 in the
-  afternoon", the note shown as replaced, and the reason ending "the calendar still says Thu Oct
-  22 at 9:30 AM (Eye exam, Dr. Haldane)." As expected; the full record is below.
-- **The plumber's visit** came back `needs_review`, naming the wind memo as unread. Its best
-  passage scored 0.009, so without the unread rule it would have been `not_found`. As expected.
+**1. The furnace filter, written down once.**
 
-### Every planted case
+- **Expected outcome:** `found`, 16x25x1, MERV 11, citing `notes.md`.
+- **What came back:** `found`, citing `notes.md`.
+- **Verdict:** Pass.
 
-On the live runs on 2026-11-04 (UTC), 10 of 10 planted cases came out as expected.
+**2. The eye exam that moved.**
+
+- **Expected outcome:** `conflict`, at the top of the to-sort-out list: Mon Oct 26 at 2:15 PM
+  against the calendar's Thu Oct 22 at 9:30 AM.
+- **What came back:** `conflict`, with the value "Monday, October 26th, at 2:15 in the afternoon",
+  the note shown as replaced, and the reason ending "the calendar still says Thu Oct 22 at 9:30 AM
+  (Eye exam, Dr. Haldane)."
+- **Verdict:** Pass. The full record is below.
+
+**3. The plumber, in a memo nobody can hear.**
+
+- **Expected outcome:** `needs_review`, naming the memo as unread.
+- **What came back:** `needs_review`, naming the wind memo as unread. Its best passage scored
+  0.009.
+- **Verdict:** Pass. Without the unread rule it would have been `not_found`. You still don't get an
+  answer: the visit is in no other file, so Jordan has to check the memo.
+
+### Results
+
+On the live runs on 2026-11-04 (UTC), 10 of 10 facts came out as expected.
+
+**Where it works:** facts written down in one place come out `found`, whether that's a note (the
+furnace filter), a memo (the brake job price), a photo (the seat to Denver) or a scanned lease (the
+notice to move out), and so does a line built from two sources (the Denver flight and hotel). It
+tells a real update (the wifi password, `updated`) from a calendar that never got one (the eye exam,
+`conflict`). It says `not_found` when nothing it read gives a fact (blood type, and the car
+registration cost, where a note has the due date but not the cost), and `needs_review` when a file
+couldn't be read (the plumber's visit).
+
+**Where it fails:** nothing missed here, but ten facts don't show how often a real memo gets
+misheard, and the recipe can't promise the OCR read the paper correctly. A scan page that reads
+half isn't caught, and the Denver line can look complete when only one of its two things is in the
+files. The limit to worry about is the cut-off: a contrary passage outside the 8 nearest chunks, or
+scoring under 0.30, is never read, and a stale line is worse than a blank one.
 
 The input is one fictional household's files in [`data/`](./data):
 
@@ -358,22 +391,9 @@ The input is one fictional household's files in [`data/`](./data):
 > our live run. The wind memo, the notes, the photo, the PDF and the two CSVs are rebuilt byte
 > for byte. The photo and the PDF carry no metadata (no EXIF, no XMP, no author).
 
-The ten facts in `facts.yaml` are the planted cases. Two of them test what the files alone
+The ten facts in `facts.yaml` are the examples. Two of them test what the files alone
 can't show: the calendar export with the eye exam still at the old time, and a memo that reads
 empty.
-
-| Fact | What we planted | Came out | Why |
-| --- | --- | --- | --- |
-| Furnace filter | A note: "16x25x1, MERV 11" | `found`, cites `notes.md` | The plain case |
-| Brake job price | Only in a memo ("They quoted $420"); a note mentions the garage, not the price | `found`, cites `memo-2026-10-12.wav` | A price said on the phone that nobody wrote down |
-| Seat to Denver | Only on the boarding-pass photo, "SEAT 14C" | `found`, cites the PNG, with the note that the airline app has the current seat | OCR table flattening; the airline app is the source for a current seat |
-| Notice to move out | Only in the scanned lease, clause 6: sixty days | `found`, cites the PDF page 2 | No text layer, so OCR or nothing |
-| Denver flight and hotel | Flight on the photo, hotel in a note | `found`, cites both | One line from two sources |
-| Next eye exam | Note: October 22 at 9:30 am; memo: "moved to Monday, October 26th"; calendar still at October 22 | `conflict`, top of the to-sort-out list: the memo says Mon Oct 26 at 2:15 PM, the calendar says Thu Oct 22 at 9:30 AM | The update is real, but the calendar never got it. That's the line that sends you to the wrong appointment |
-| Wifi password | March note: copper-kettle-42; September note: "The wifi password is now juniper-lantern-77" | `updated`: juniper-lantern-77, both cited, shown as "was copper-kettle-42" | "is now" says the old one is replaced; not a conflict |
-| Blood type | Nowhere | `not_found` ("No reliable match in the passages read; check the source."), no language model call | Nothing close in the files |
-| Car registration cost | A note says it's due by November 30, not the cost | `not_found` | A near miss: the topic matches, the fact isn't there |
-| Plumber's visit | A memo that reads empty (wind noise), and the visit is in no other file | `needs_review`, naming the memo as unread | "Not found" would be a lie when a file was never read |
 
 We ran it twice with the settings as first written: once from scratch and once from the cache, with
 the same statuses and values both times. The second run's sheet says "Nothing changed since the
@@ -467,7 +487,7 @@ worth a second look.
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
 nothing else, and built the sheet from scratch on SIE Cloud on 4 Nov 2026 (UTC). The default
-gives the ten statuses in the table above.
+gives the ten statuses in [Results](#results).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

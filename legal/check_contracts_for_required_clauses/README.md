@@ -98,35 +98,36 @@ important gets a note saying those are unchecked.
 
 Here are three of the contract packages in `data/`, and what should happen to each.
 
+All of this is synthetic, written for this recipe: the bank, the suppliers and every person are
+invented.
+
 **1. A clean contract.**
 - **Input:** `nimbusline-cloud-hosting.pdf` (`EB-ICT-0117`, text layer), with all eight clauses
   plainly worded, for example "6.1 When an ICT incident related to the Services occurs, the Supplier
   shall provide the Customer with all reasonable assistance to contain, investigate and recover from
   it, at no additional cost to the Customer."
-- **What should happen:** docling reads the pages, the reranker puts each clause's paragraph at the
-  top, and every quote checks out word for word.
+- **What should happen:** The pages get read, the paragraph that holds each clause ranks at the top,
+  and every quote checks out word for word.
 - **Expected outcome:** `found` on all eight clauses.
 
-**2. Assistance that's only discretionary.**
-- **Input:** `tallowmere-analytics.pdf` (`EB-ICT-0142`): "6.1 When an ICT incident related to the
-  Services occurs, the Supplier may, at its discretion, provide such assistance as it considers
-  reasonable. Any assistance is charged at the Supplier's then-current time-and-materials rates."
-- **What should happen:** The clause is there but weaker than Article 30(2)(f) asks. The model
-  should say so, and if it doesn't, the review terms "at its discretion" and "then-current" in
-  `rules.yaml` send the row to review anyway.
-- **Expected outcome:** `incident_assistance` `needs_review`, the other seven `found`.
-
-**3. A clean clause, changed by a scanned amendment.**
+**2. A clean clause, changed by a scanned amendment.**
 - **Input:** Brindlecote's agreement (`EB-ICT-0076`) says "The Customer may also terminate for
   convenience on six (6) months' written notice." The scanned `brindlecote-amendment-1.pdf`, signed
   in 2025, adds to clause 9.2 that such a termination "is subject to a termination fee equal to the
   fees payable for the six (6) months following the date of termination."
-- **What should happen:** Read alone, clause 9.2 is a `found`. The amendment check should find the
-  later document naming clause 9.2 and hold the row for the lawyer.
+- **What should happen:** Read alone, clause 9.2 is a `found`. But a later document in the package
+  names clause 9.2, so the row should be held for the lawyer.
 - **Expected outcome:** `termination_rights` `needs_review`, with both passages cited.
 
-On the live run, 5 of 5 planted contracts came out as expected; [What came out](#what-came-out) has
-each one.
+**3. A scan with one page too blurred to read.**
+- **Input:** `brackwater-records-archive.pdf` (`EB-ICT-0051`), a scanned agreement whose schedules
+  page, page 3, is blurred past reading. The agreement pages before it hold every clause.
+- **What should happen:** Every clause is there, but the page nobody can read could hold a fee or a
+  carve-out, so no clause should come out as a clean `found`. All of them wait for the lawyer.
+- **Expected outcome:** all eight clauses `needs_review`.
+
+On the live run, 5 of 5 contracts came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -274,7 +275,7 @@ around a negation), section numbers and what an amendment changes (including an 
 another clause, one signed before the agreement, one signed the same day, and one the reranker
 ranked below the top 3), the review terms on discretionary, negated, "worldwide" and
 "then-current" wording, a heading-only quote, the unreadable-page and page-count rules, missing
-schedules, the register lookups, the five planted contracts end to end, a missing file, a file
+schedules, the register lookups, the five contracts end to end, a missing file, a file
 name that points outside the data folder, a reranker reply that skips or repeats a paragraph,
 the outputs, the committed data, and the SIE failure rule with a transient error, a refusal,
 every call failing and replies missing their keys. [`make_data.py`](./make_data.py)
@@ -301,20 +302,43 @@ warm, our run on 2026-11-04 (UTC) took 90 s for its 96 calls.
 
 ### The three examples
 
-1. **Nimbusline:** 8 x `found`. As expected.
-2. **Tallowmere:** `incident_assistance` `needs_review`, the other seven `found`. The model said
-   `needs_review` itself, quoting "the Supplier may, at its discretion, provide such assistance". As
-   expected.
-3. **Brindlecote:** `termination_rights` `needs_review`, citing Amendment No. 1 p1 with clause 9.2
-   on p2 as "Read with". As expected. The contract also got one row we didn't plant:
-   `incident_assistance` `needs_review`, because the model shortened its quote with "..." (more on
-   that below).
+**1. A clean contract.**
+- **Expected outcome:** `found` on all eight clauses.
+- **What came back:** 8 x `found`.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A clean clause, changed by a scanned amendment.**
+- **Expected outcome:** `termination_rights` `needs_review`, with both passages cited.
+- **What came back:** `termination_rights` `needs_review`, citing Amendment No. 1 p1 with clause 9.2
+  on p2 as "Read with". `incident_assistance` also came back `needs_review`, which we didn't expect,
+  because the model shortened its quote with "..." (more on that below). The other six `found`.
+- **Verdict:** Pass. The extra row is a small cost: the lawyer reads one more paragraph.
 
-On the live run on 2026-11-04 (UTC), 5 of 5 planted contracts came out as expected (27 `found`, 11
-`needs_review`, 2 `not_found` across the 40 rows), with one unplanted row on Brindlecote sent to
-review.
+**3. A scan with one page too blurred to read.**
+- **Expected outcome:** all eight clauses `needs_review`.
+- **What came back:** all eight `needs_review`, though the model said `found` on all eight: "Would
+  be found, but part of the package couldn't be read (ICT Services Agreement with Schedules 1 to 4
+  p3: only 0 characters read) and could hold this clause or a qualifier."
+- **Verdict:** Pass. This is the trade-off. One blurred page sends all eight clauses to the
+  lawyer, including the ones the model read correctly.
+
+### Results
+
+On the live run on 2026-11-04 (UTC), 5 of 5 contracts came out as expected (27 `found`, 11
+`needs_review`, 2 `not_found` across the 40 rows), with one row on Brindlecote we didn't expect sent
+to review.
+
+**Where it works:** the clean contract (Nimbusline, `EB-ICT-0117`) came out 8 x `found`. It reports
+the gaps in Brennick (`EB-ICT-0098`, no locations or incident-assistance clause, and a note that
+Schedule 4 is missing), the weak incident-assistance wording in Tallowmere (`EB-ICT-0142`) and the
+fee added by Brindlecote's amendment (`EB-ICT-0076`), each with the passage to read, and it holds
+back Brackwater (`EB-ICT-0051`) rather than trust what it could read.
+
+**Where it fails:** it costs review. Brindlecote's harmless shortened quote went to the lawyer, because
+Python can't tell a harmless gap from one that matters. The one to worry about is a `not_found`: it
+means not found in the passages read, so Brennick's two still need checking in the package before
+anyone asks the supplier for anything. The run didn't test a requirement split between the agreement
+and a schedule, and the recipe doesn't check Article 30(2)(i) or 30(3).
 
 The input is five contract packages in [`data/`](./data) and the register that points at them:
 
@@ -335,19 +359,11 @@ The input is five contract packages in [`data/`](./data) and the register that p
 > metadata (no title, author or dates). The scans are drawn with Pillow with skew, speckle and
 > blur; the text-layer PDFs come from a small PDF writer in the same file.
 
-| Contract | What we planted | Came out | Why |
-| --- | --- | --- | --- |
-| `EB-ICT-0117` Nimbusline (text layer) | All eight clauses, plainly worded | 8 x `found` | The plain case |
-| `EB-ICT-0098` Brennick (scan) | No locations clause and no incident-assistance clause; the agreement refers to Schedule 4, which the package doesn't hold | `data_locations` and `incident_assistance` `not_found`, the other six `found`, and a note on the missing Schedule 4 | The gaps the lawyer is looking for, reported as not found in the passages read |
-| `EB-ICT-0142` Tallowmere (text layer) | Incident assistance "at its discretion", billed at "then-current" rates | `incident_assistance` `needs_review`, the other seven `found` | A near miss: the clause is there, but weaker than Article 30(2)(f) asks |
-| `EB-ICT-0076` Brindlecote (text layer, scanned amendment) | A compliant termination clause (9.2), then Amendment No. 1 in 2025 adding a termination fee | `termination_rights` `needs_review` with both passages cited; `incident_assistance` `needs_review` too (not planted, see below); the other six `found` | The original wording alone would read as `found` |
-| `EB-ICT-0051` Brackwater (scan) | The schedules page blurred past reading; the agreement pages hold every clause | All eight `needs_review`; the model said `found` on all eight | The lost page could hold a qualifier, so `found` is held back as well as `not_found` |
-
-The unplanted review row is Brindlecote's `incident_assistance`, where the model shortened its quote
-with "...". The three critical-or-important contracts (Nimbusline, Tallowmere, Brindlecote) got the
-note that the Article 30(3) terms are unchecked. Treat that as a demo that the wiring works, not as
-a measure of accuracy: five synthetic contracts built from one template tell you each path through
-the checks runs, not how often a real supplier's drafting gets past it.
+The review row we didn't expect is Brindlecote's `incident_assistance`, where the model shortened
+its quote with "...". The three critical-or-important contracts (Nimbusline, Tallowmere,
+Brindlecote) got the note that the Article 30(3) terms are unchecked. Treat that as a demo that the
+wiring works, not as a measure of accuracy: five synthetic contracts built from one template tell
+you each path through the checks runs, not how often a real supplier's drafting gets past it.
 
 A few things worth noticing:
 
@@ -432,11 +448,10 @@ and the vendor-risk analyst records the review in the register.
   would fix it.
 - **Fewer shortened quotes.** The prompt already asks for consecutive words; a retry that sends
   the model its own "..." quote back and asks for the exact words would save the lawyer a read.
-- **Plant more near misses.** A requirement split between the agreement and a schedule, and a
-  referenced schedule that is in the package but scanned badly, are the next cases worth
-  adding.
+- **Add more near misses.** A requirement split between the agreement and a schedule is the next
+  case worth adding.
 - **Try the 4B model as the default.** `Qwen/Qwen3.5-4B` gave the same totals on these 40 rows
-  (see below). Five planted contracts aren't enough to switch on, but it's the first swap to try
+  (see below). Five sample contracts aren't enough to switch on, but it's the first swap to try
   on your own packages.
 
 ## Try another model
@@ -454,7 +469,7 @@ run on the five packages here.
 | `rerank` | `Qwen/Qwen3-Reranker-0.6B` | Same verdict and page for all 24 rows (three scanned contracts). |
 | `rerank` | `tencent/R3-rerank-0.6b` | Same verdict and page for all 24 rows (three scanned contracts). Its scores are on a lower scale, which does not matter here: the recipe passes the top 3 paragraphs, not a score threshold. |
 | `verdict` | `google/gemma-4-31B-it` | Did not run: SIE Cloud answered "Generation route is unavailable for this deployment" on two tries. |
-| `verdict` | `Qwen/Qwen3.5-4B` | Run on the five packages on 2026-11-04 (UTC): 27 `found`, 11 `needs_review`, 2 `not_found`, the same totals as the default, and every planted case as above. The same status on 38 of 40 rows. The two that differ are both the "..." rule: it quoted Brindlecote's incident clause in full (`found`, where the default shortened it), and it ended Brennick's termination quote with "..." (`needs_review`, where the default said `found`). Same document and page for 36 of 40: for `service_levels` it cited the review sentence on page 1 instead of Schedule 2 on page 3, on the four contracts that weren't held back. 10 of 40 quotes are word for word the same. |
+| `verdict` | `Qwen/Qwen3.5-4B` | Run on the five packages on 2026-11-04 (UTC): 27 `found`, 11 `needs_review`, 2 `not_found`, the same totals as the default, and every case we wrote in as above. The same status on 38 of 40 rows. The two that differ are both the "..." rule: it quoted Brindlecote's incident clause in full (`found`, where the default shortened it), and it ended Brennick's termination quote with "..." (`needs_review`, where the default said `found`). Same document and page for 36 of 40: for `service_levels` it cited the review sentence on page 1 instead of Schedule 2 on page 3, on the four contracts that weren't held back. 10 of 40 quotes are word for word the same. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

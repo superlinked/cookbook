@@ -61,9 +61,9 @@ class Invoice:
     location: str  # the service address, or the vehicle and its VIN
     items: tuple[LineItem, ...]
     tax_rate: Decimal  # percent
-    printed_subtotal: Decimal | None = None  # a planted error; None prints the true subtotal
-    printed_total: Decimal | None = None  # a planted error; None prints subtotal + tax
-    tax_blank: bool = False  # a planted gap: the tax line has a rate and no amount
+    printed_subtotal: Decimal | None = None  # an error we added; None prints the true subtotal
+    printed_total: Decimal | None = None  # an error we added; None prints subtotal + tax
+    tax_blank: bool = False  # a gap we added: the tax line has a rate and no amount
 
     @property
     def subtotal(self) -> Decimal:
@@ -80,8 +80,8 @@ class Invoice:
 
 @dataclass(frozen=True)
 class Claim:
-    document: str  # the invoice's document id in the claims system; the planted case
-    planted: str
+    document: str  # the invoice's document id in the claims system (clm-01 etc.)
+    what_it_tests: str
     claim_number: str
     policy_number: str
     line: str

@@ -287,7 +287,7 @@ def check_word_matching() -> None:
     def agree(claimed: str, printed: str) -> bool:
         return recipe.words_agree(claimed, printed, RULES)[0]
 
-    # Every planted pair that should agree does.
+    # Every pair from the sample claims that should agree does.
     for claimed, printed in [
         ("Nimbus 55in TV", "NIMBUS 55IN 4K TV"),
         ("TV wall mount", "TILT WALL MOUNT KIT"),
@@ -315,10 +315,10 @@ def check_word_matching() -> None:
         ("Stand mixer bowl lid", "STAND MIXER"),
     ]:
         assert not agree(claimed, printed), (claimed, printed)
-    print("word matching: planted pairs agree; one shared word or another size does not ok")
+    print("word matching: sample pairs agree; one shared word or another size does not ok")
 
 
-def check_planted_shapes() -> None:
+def check_example_claims() -> None:
     # CLM-26-1001's shape: a mixed receipt, the cable not claimed, the TV written shorter.
     page = inventory([("Nimbus 55in TV", "$549.00"), ("TV wall mount", "$39.99")], "$636.11")
     (result,), _, files = run(Spec(receipts=[receipt(TV)], inventory=page))
@@ -392,7 +392,7 @@ def check_planted_shapes() -> None:
     assert statuses(result) == [("Walnut bar stool", "matched"), ("TV stand", "ambiguous")]
     assert result.requests == [], result.requests
     assert not any(i.startswith("ocr/inventories") for i in client.ids), "portal rows need no OCR"
-    print("planted shapes: matched, price_differs, not_read, after_loss, ambiguous ok")
+    print("example claims: matched, price_differs, not_read, after_loss, ambiguous ok")
 
 
 def check_proof_threshold() -> None:
@@ -800,28 +800,28 @@ def check_committed_data() -> None:
         raw = (DATA / name).read_bytes()
         for marker in (b"/Info", b"/Title", b"/Author", b"/CreationDate", b"Exif", b"xmpmeta"):
             assert marker not in raw, f"{name} carries {marker!r}"
-    # The planted inventories in make_data.py (read as text: it needs the data group to run).
+    # The inventories in make_data.py (read as text: it needs the data group to run).
     source = (Path(recipe.__file__).parent / "make_data.py").read_text(encoding="utf-8")
     assert 'Owned("HDMI cable"' not in source, "the cable is no longer on CLM-26-1001's list"
-    for planted in (
+    for item in (
         'Owned("Acoustic guitar", "479.00")',
         'Owned("Aurora wireless headphones", "279.00")',
         'Owned("Doormat", "24.00")',
         'Owned("TV stand", "39.99")',
     ):
-        assert planted in source, planted
+        assert item in source, item
     # CLM-26-1005's written total and claims-system amount include the doormat: the four
     # items plus the 8% the policyholder adds.
     items = sum(Decimal(a) for a in ("899.00", "24.99", "279.00", "24.00"))
     assert (items * Decimal("1.08")).quantize(Decimal("0.01")) == Decimal("1325.15")
     assert Decimal(GUIDE["proof_threshold"]) == Decimal("100.00")
-    print("committed data: 8 claims in the claims system, no PDF metadata, planted items ok")
+    print("committed data: 8 claims in the claims system, no PDF metadata, inventory items ok")
 
 
 if __name__ == "__main__":
     check_parsing()
     check_word_matching()
-    check_planted_shapes()
+    check_example_claims()
     check_proof_threshold()
     check_review_paths()
     check_statuses()

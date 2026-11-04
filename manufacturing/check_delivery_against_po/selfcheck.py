@@ -679,7 +679,7 @@ def check_committed_data() -> None:
         raw = (DATA / name).read_bytes()
         for marker in (b"/Info", b"/Title", b"/Author", b"/CreationDate", b"Exif", b"xmpmeta"):
             assert marker not in raw, f"{name} carries {marker!r}"
-    # The planted quantities: lot-02 partial, lot-03 over, the rest of the order filled.
+    # The quantities we wrote: lot-02 partial, lot-03 over, the rest of the order filled.
     import make_data
 
     expected = {
@@ -694,7 +694,7 @@ def check_committed_data() -> None:
         assert {"min_j", "test_temp_c"} <= set(spec["impact"]), name
     assert len(RULES["inspection_plan"]) == 6
     assert make_data.CUSTOMER.endswith("(fictional)"), make_data.CUSTOMER
-    print("committed data: 4 deliveries, 12 lots, no PDF metadata, planted quantities ok")
+    print("committed data: 4 deliveries, 12 lots, no PDF metadata, quantities ok")
 
 
 if __name__ == "__main__":

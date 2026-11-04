@@ -91,18 +91,18 @@ def check_data() -> None:
     assert "Corvane" not in every, "the old brand name is still in the data"
     assert "Kestrel" not in every
     assert "Halden" not in every
-    # The planted accessory names its host's model number, which is TT-E01's.
+    # The accessory row names its host's model number, which is TT-E01's.
     assert "AV-H700" in PRODUCTS["TT-E01"].text()
     assert "for the Aurivox AV-H700" in (PRODUCTS["TT-E13"].text())
     # The trimmed taxonomy has the cushions' category and no Lawn & Garden branch.
     paths = [c.path for c in recipe.load_taxonomy(recipe.taxonomy_path(RULES))]
     assert any(p.endswith("> Headphone Cushions") for p in paths)
     assert not any("Lawn & Garden" in p for p in paths)
-    print("data: 51 rows, planted SKUs present, old brand names gone, taxonomy trimmed ok")
+    print("data: 51 rows, example SKUs present, old brand names gone, taxonomy trimmed ok")
 
 
 def check_sheet() -> None:
-    # The planted duplicate-SKU sheet stops before any model call and names both rows.
+    # The duplicate-SKU sheet stops before any model call and names both rows.
     caught = raised(
         lambda: recipe.load_products(recipe.DATA_DIR / "supplier-products-duplicate-sku.csv")
     )

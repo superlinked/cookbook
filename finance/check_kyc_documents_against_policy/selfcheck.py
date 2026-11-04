@@ -233,8 +233,8 @@ def doc_read(purpose: str, declared: str = "", **fields: str) -> recipe.Document
 # --- Checks -----------------------------------------------------------------------------------
 
 
-def check_planted_cases() -> None:
-    """Every planted case through the whole recipe, with well-behaved stand-in models."""
+def check_examples() -> None:
+    """Every case through the whole recipe, with well-behaved stand-in models."""
     results, client = run()
     got = {r.case: unmet(r) for r in results}
     expected: dict[str, list[tuple[str, str, str]]] = {
@@ -292,7 +292,7 @@ def check_planted_cases() -> None:
     assert all(o == {"overflow_policy": "error"} for o in client.extract_options), set(
         map(str, client.extract_options)
     )
-    print("planted cases: all 12 through the recipe with stand-in models ok")
+    print("cases: all 12 through the recipe with stand-in models ok")
 
 
 def check_statuses() -> None:
@@ -352,7 +352,7 @@ def check_mrz() -> None:
     assert mrz.format == "TD1", mrz
     assert not mrz.valid
     assert [name for name, ok in mrz.checks.items() if not ok] == ["composite"], mrz.checks
-    print("mrz: TD1, TD3, OCR quirks, a planted bad check digit ok")
+    print("mrz: TD1, TD3, OCR quirks, a bad check digit ok")
 
 
 def check_parsing() -> None:
@@ -898,7 +898,7 @@ if __name__ == "__main__":
     check_dates()
     check_form()
     check_document_types()
-    check_planted_cases()
+    check_examples()
     check_statuses()
     check_conflicting_fields()
     check_adversarial()

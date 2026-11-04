@@ -250,7 +250,7 @@ NOTE_01 = (DATA / "outside_notes" / "note-01.txt").read_text(encoding="utf-8")
 # --- Checks -----------------------------------------------------------------------------------
 
 
-def check_planted_cases() -> None:
+def check_examples() -> None:
     drafts = run()
     status = {doc: draft.status for doc, draft in drafts.items()}
     assert status == {
@@ -312,7 +312,7 @@ def check_planted_cases() -> None:
     assert [p["code"] for p in d.problems] == ["R73.03"]
     assert d.left_out[0]["item"] == "type 2 diabetes"
     assert d.left_out[0]["reason"] == "family history"
-    print("planted cases: the ten notes come out as the README says (stand-in replies) ok")
+    print("examples: the ten notes come out as the README says (stand-in replies) ok")
 
 
 def check_statuses_renamed() -> None:
@@ -833,7 +833,7 @@ def check_committed_data() -> None:
 
 
 if __name__ == "__main__":
-    check_planted_cases()
+    check_examples()
     check_statuses_renamed()
     check_medication_state()
     check_doses()

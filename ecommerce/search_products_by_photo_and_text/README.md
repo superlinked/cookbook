@@ -95,6 +95,9 @@ tell the exact product from a lookalike in the same color, and an embedding does
 
 Here are three of the searches in `data/queries.csv`, and what should happen to each.
 
+The catalog and the shopper photos are real listings from Amazon Berkeley Objects (CC BY 4.0). The
+words searches were written for this recipe, and the `available` flag is made up.
+
 **1. A photo cropped to the lamp.** Q07, department LAMP
 - **Input:** a room shot from `query-photos.jpg` with the P11 lamp in the corner, cropped by the
   shopper to the lamp.
@@ -115,8 +118,8 @@ Here are three of the searches in `data/queries.csv`, and what should happen to 
   should change the answer that the photo alone gives.
 - **Expected outcome:** `results`, P34 only, and the chrome P11 not shown.
 
-On the live run, 13 of 13 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 13 of 13 searches came out as expected. [What came out](#what-came-out) has the
+results.
 
 ## How we'll solve it
 
@@ -287,31 +290,39 @@ The input is four files in [`data/`](./data):
 
 ### The three examples
 
-- **Q07:** `results`, P11 first (0.876), then four more lamps above 0.70. As expected.
-- **Q04:** `no_good_match`, logged; the best product was P05, a recliner, at 0.013. As expected.
-- **Q11:** `results`, P34 only (photo 0.774, words 0.098); the chrome P11 not shown. As expected,
-  though by a thin margin (see below).
+**1. A photo cropped to the lamp.** Q07, department LAMP
+- **Expected outcome:** `results`, P11 first.
+- **What came back:** `results`, P11 first (0.876), then four more lamps above 0.70.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. Something the store doesn't sell.** Q04, no department
+- **Expected outcome:** `no_good_match`, logged.
+- **What came back:** `no_good_match`, logged; the best product was P05, a recliner, at 0.013.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026, 13 of 13 planted cases came out as expected.
+**3. This, but with a wood base.** Q11, department LAMP
+- **Expected outcome:** `results`, P34 only, and the chrome P11 not shown.
+- **What came back:** `results`, P34 only (photo 0.774, words 0.098); the chrome P11 not shown.
+- **Verdict:** Pass. By a thin margin, though: the 0.09 words bar sits in a small gap, so move it a
+  hair and the oak lamp or the glass lamp comes along (see below).
 
-The planted cases, from our live run on 4 Nov 2026 (UTC):
+### Results
 
-| Case | What we planted | Came out | Why |
-| --- | --- | --- | --- |
-| Three sets of glasses | Q01 "stemless wine glasses" in DRINKING_CUP | `results`: P27 only (0.193); P28 (0.098) and P26 (0.096) not shown | Every hit has to clear the bar, not only the best one |
-| Same words, two departments | Q02 "grey laptop bag" with no filter, Q03 the same in BACKPACK | Q02: the grey messenger bag P17 first (0.153), then three backpacks; Q03: the backpack P22 (0.144) | The department facet does its job |
-| Nothing like it | Q04 "cordless power drill"; the catalog sells no tools | `no_good_match`, logged; best P05, a recliner, at 0.013 | A recliner is not a drill |
-| Stale department | Q05 "navy ballet flat" in SANDAL, a category the catalog doesn't have | `unknown_department`, logged, no model call | The shopper gets a way out, not an empty page or a wait |
-| Room shot | Q06, a room with the P11 lamp small in the corner | `no_good_match`, logged; best P09 at 0.640 | The shopper didn't say which thing in the room they meant |
-| Cropped room shot | Q07, the same photo cropped to the lamp, in LAMP | `results`: P11 first (0.876), then four more lamps above 0.70 | A crop is how the shopper says which thing |
-| Worn bag | Q08, a man wearing the P17 messenger bag | `results`: P17 (0.895) | A photo from the real world finds the catalog photo |
-| Other color | Q09, the black Madison flat; the catalog has only the navy one (P33) | `results`: P33 (0.929), logged as a close style | Right style, wrong color, and the team may want to know shoppers ask for black |
-| Wrong department entirely | Q10, a claw hammer | `no_good_match`, logged; best P28, a drinking glass, at 0.619 | The best hit is below the bar |
-| This, but with a wood base | Q11, the cropped lamp photo from Q07 plus "but the base should be dark wood"; the catalog has the same faux wood table lamp in espresso dark brown (P34) and oak (P35), both from ABO | `results`: P34 only (photo 0.774, words 0.098); the chrome P11 not shown | The words change the answer; the photo alone returns P11 first |
-| Words the catalog can't meet | Q12, the worn messenger bag photo plus "in brown leather"; the catalog has only the grey fabric one | `no_good_match`, logged with the words; P17 words score 0.041 | Showing the grey bag as a match ignores what the shopper asked; the buyer sees the request |
-| Exact match unavailable | Q13, another ABO photo of the P15 rug, which the PIM marks unavailable; P16 is the same pattern in grey | `results`: P16 (0.738); P15 never shown; logged as a close style | A shopper can't buy the closest match if it's out of stock |
+On the live run on 4 Nov 2026, 13 of 13 searches came out as expected.
+
+**Where it works:** words alone find the stemless wine glasses (Q01) and the grey laptop bag, with
+and without a department (Q02, Q03). A crop finds the lamp (Q07), a photo of a man wearing the bag
+finds the bag (Q08), and a photo with words finds the dark wood lamp (Q11). It also says so when
+nothing fits, instead of showing a lookalike: the drill (Q04), the uncropped room shot (Q06), the
+claw hammer (Q10) and the brown leather bag (Q12). It handles a department that no longer exists
+(Q05), and logs a close style when the color or the stock is off: the black flat (Q09) and the
+unavailable rug (Q13).
+
+**Where it fails:** not in these 13 searches, and that's a weak claim, because the thresholds were
+fitted to this same data. Worry about Q11: the words separate the lamps by 0.022 at most, so move
+the bar a hair and the answer changes. Q06 shows a limit too: an uncropped room shot gets "no close
+match", so the shopper has to crop. And the recipe can't tell the exact product from a lookalike in
+the same color, and an embedding doesn't understand "not".
 
 That's with the rules as committed. The thresholds were fitted to this
 data (the comments in `rules.yaml` say from which numbers), so treat
@@ -403,7 +414,7 @@ changed nothing else, and ran the recipe on SIE Cloud.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `embed` | `google/siglip2-base-patch16-224` | 10 of 13 searches came out as planted. Q03 returned the other grey laptop backpack, P21, first (0.145 vs 0.131 for P22). Q06, the room shot, became `results` with the wrong lamp, P09, first at 0.758 (and was logged as a close style): its photo scores run higher, so the 0.70 photo bar no longer separates a small object in a room from a real match. Q13 put a different rug, P13, first (0.741) ahead of P16 (0.728). Q11 still put the dark wood lamp first (words 0.102) but also showed the oak lamp (0.100) and the glass lamp P09 (0.096); Q12 stayed `no_good_match` |
+| `embed` | `google/siglip2-base-patch16-224` | 10 of 13 searches came out as expected. Q03 returned the other grey laptop backpack, P21, first (0.145 vs 0.131 for P22). Q06, the room shot, became `results` with the wrong lamp, P09, first at 0.758 (and was logged as a close style): its photo scores run higher, so the 0.70 photo bar no longer separates a small object in a room from a real match. Q13 put a different rug, P13, first (0.741) ahead of P16 (0.728). Q11 still put the dark wood lamp first (words 0.102) but also showed the oak lamp (0.100) and the glass lamp P09 (0.096); Q12 stayed `no_good_match` |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

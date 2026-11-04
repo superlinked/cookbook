@@ -49,7 +49,7 @@ Reply = dict[str, Any] | BaseException | Callable[[str], dict[str, Any]]
 
 # What a PII model would tag in the committed notes: the people and places no EHR field holds.
 # Hand-written; the live run's spans are in the README.
-PLANTED_TAGS = (
+STAND_IN_TAGS = (
     ("Ines Vance", "person"),
     ("Corrimore Freight", "organization"),
     ("27 Quillfeather Lane, Harrowgate, MA", "street address"),
@@ -83,7 +83,7 @@ def tags(*phrases: tuple[str, str]) -> Callable[[str], dict[str, Any]]:
 
 
 NOTHING = tags()
-PLANTED = tags(*PLANTED_TAGS)
+STAND_IN_REPLY = tags(*STAND_IN_TAGS)
 
 
 class StandIn:
@@ -150,7 +150,7 @@ def one(text: str, *replies: Reply, patient: str = "P-1001", **kwargs: Any) -> r
 
 
 def committed(*replies: Reply, req: recipe.Request | None = None, seed: int = 7) -> recipe.Result:
-    return run(RECORDS, *(replies or (PLANTED,) * 4), req=req, seed=seed)
+    return run(RECORDS, *(replies or (STAND_IN_REPLY,) * 4), req=req, seed=seed)
 
 
 def refused(call: Callable[[], object]) -> str:
@@ -447,7 +447,7 @@ def check_names_and_overlap() -> None:
 
 def check_committed() -> None:
     # The committed request and notes with a stand-in reply shaped like the live model's: the
-    # planted statuses come out.
+    # expected statuses come out.
     result = committed()
     by_type = {w.note.note_type: w for w in result.works}
     status = {kind: w.status for kind, w in by_type.items()}
@@ -519,7 +519,7 @@ def check_committed() -> None:
         recipe.REVIEW,
         recipe.ESCALATE,
     } == {"checks_passed", "review", "escalate"}
-    print("committed: planted statuses, extract vs held, no value in the shared files ok")
+    print("committed: expected statuses, extract vs held, no value in the shared files ok")
 
 
 TRANSIENT: list[SIEError] = [
@@ -570,7 +570,7 @@ def check_sie_failure() -> None:
     long = "connection refused " + "x" * 300
     prefix = "window 1 was not read: the SIE call failed: "
     for error in [*TRANSIENT, SIEConnectionError(long)]:
-        works = committed(error, PLANTED, PLANTED, PLANTED).works
+        works = committed(error, STAND_IN_REPLY, STAND_IN_REPLY, STAND_IN_REPLY).works
         assert works[0].status == recipe.ESCALATE
         why = works[0].errors[0]
         assert why.startswith(prefix), why
@@ -578,16 +578,21 @@ def check_sie_failure() -> None:
         assert str(error) not in why, why
     assert why == prefix + "SIEConnectionError; the run summary has the message", why
     # A reply missing `entities` is a failed call on the same path, not "nothing found".
-    works = committed({"error": {"code": "x"}}, PLANTED, PLANTED, PLANTED).works
+    works = committed(
+        {"error": {"code": "x"}}, STAND_IN_REPLY, STAND_IN_REPLY, STAND_IN_REPLY
+    ).works
     assert works[0].errors[0] == prefix + "SIEError; the run summary has the message"
-    works = committed({"id": "no entities"}, PLANTED, PLANTED, PLANTED).works
+    works = committed({"id": "no entities"}, STAND_IN_REPLY, STAND_IN_REPLY, STAND_IN_REPLY).works
     assert works[0].status == recipe.ESCALATE
     # An empty list is a real "nothing found": the rules decide, the call counts as a success.
-    works = committed({"entities": []}, PLANTED, PLANTED, PLANTED).works
+    works = committed({"entities": []}, STAND_IN_REPLY, STAND_IN_REPLY, STAND_IN_REPLY).works
     assert not works[0].errors, works[0].errors
     # A span whose offsets don't match its text escalates the note.
     bad = {"entities": [{"start": 0, "end": 4, "label": "person", "text": "nope"}]}
-    assert committed(bad, PLANTED, PLANTED, PLANTED).works[0].status == recipe.ESCALATE
+    assert (
+        committed(bad, STAND_IN_REPLY, STAND_IN_REPLY, STAND_IN_REPLY).works[0].status
+        == recipe.ESCALATE
+    )
 
     # Every call failed: the run stops with the full message and nothing is returned to write.
     message = stopped(functools.partial(committed, *[SIEConnectionError(long)] * 4))
@@ -599,7 +604,9 @@ def check_sie_failure() -> None:
     assert "may still be starting or SIE is busy; run again in a few minutes." in message
     # A refusal on a later call stops the run at once, with SIE's full message.
     message = stopped(
-        functools.partial(committed, PLANTED, InsufficientCreditsError("no credits " + "y" * 300))
+        functools.partial(
+            committed, STAND_IN_REPLY, InsufficientCreditsError("no credits " + "y" * 300)
+        )
     )
     assert message.startswith(f"SIE refused the call to {PII}, "), message
     assert "InsufficientCreditsError (HTTP 402, code INSUFFICIENT_CREDITS)" in message, message
@@ -611,7 +618,9 @@ def check_sie_failure() -> None:
     assert "SIE_API_KEY" not in message, message
     assert "SIE_BASE_URL" in message, message
     # A bug in our own code is not hidden, and main turns only SIEStopped into a clean exit.
-    caught = raised(lambda: committed(TypeError("bad argument"), PLANTED, PLANTED, PLANTED))
+    caught = raised(
+        lambda: committed(TypeError("bad argument"), STAND_IN_REPLY, STAND_IN_REPLY, STAND_IN_REPLY)
+    )
     assert type(caught) is TypeError, f"TypeError became {type(caught).__name__}"
 
     def bug() -> None:

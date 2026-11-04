@@ -19,8 +19,8 @@ Everything else is made up here. ESCI has no stock, sizes or facets, so:
 
 - data/inventory.csv, the variant stock feed, has one row per sellable variant. Each product's
   listing is one variant: the size its title names (SIZES below) in the PIM color, in stock.
-  PLANTED below adds or replaces variants for the planted cases, and leaves one product out of
-  the feed.
+  VARIANTS below adds or replaces the variants the sample searches need, and leaves one product out
+  of the feed.
 - data/queries.json holds the filters each shopper picked. They follow the query's words
   ("black", "size 8"). Q-08 is written for this recipe; the other seven are ESCI's query text.
 """
@@ -125,7 +125,7 @@ SIZES: dict[str, tuple[str, str]] = {
     "B01555SCZE": ("6-12", "sock"),
     "B017768WEA": ("7", "girls"),
     "B018YJH5SI": ("9", "toddler"),
-    "B0198WS0NY": ("12", "women"),  # no size in the title; replaced in PLANTED
+    "B0198WS0NY": ("12", "women"),  # no size in the title; replaced in VARIANTS
     "B01B77VO7C": ("XL", "apparel"),
     "B01ESD61JI": ("8.5", "women"),
     "B01HFFXLNA": ("XL", "apparel"),
@@ -179,10 +179,10 @@ SIZES: dict[str, tuple[str, str]] = {
     "B08FRPL9DV": ("L", "apparel"),
 }
 
-# Planted variants: product_id -> its rows (color, size, size_system, in stock), replacing the
+# Variants set by hand: product_id -> its rows (color, size, size_system, in stock), replacing the
 # one listed variant; color None means the PIM color. An empty list leaves the product out of
 # the feed entirely (stock unknown).
-PLANTED: dict[str, list[tuple[str | None, str, str, bool]]] = {
+VARIANTS: dict[str, list[tuple[str | None, str, str, bool]]] = {
     # Q-01: black size 8 sold out, while white size 8 and black size 9 are in stock.
     "B071LF8XSF": [
         (None, "8", "women", False),
@@ -279,14 +279,14 @@ def read_pim(path: Path) -> dict[str, dict[str, str]]:
 
 
 def feed_rows(pim: dict[str, dict[str, str]]) -> list[dict[str, str]]:
-    """One row per variant: the listed one from SIZES, or the planted ones."""
+    """One row per variant: the listed one from SIZES, or the ones in VARIANTS."""
     missing = sorted(set(pim) - set(SIZES))
     if missing:
         raise SystemExit(f"no size in SIZES for {missing}")
     rows: list[dict[str, str]] = []
     for pid in sorted(pim):
         size, system = SIZES[pid]
-        variants = PLANTED.get(pid, [(None, size, system, True)])
+        variants = VARIANTS.get(pid, [(None, size, system, True)])
         for color, v_size, v_system, in_stock in variants:
             rows.append(
                 {

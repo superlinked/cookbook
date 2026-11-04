@@ -214,7 +214,7 @@ def _() -> None:
     assert injury("The roof is gone.") is None
 
 
-@check("a negation about the ambulance doesn't cancel the injury (planted Okafor case)")
+@check("a negation about the ambulance doesn't cancel the injury (the Okafor call)")
 def _() -> None:
     assert injury("He was hurt but he didn't need an ambulance.") == recipe.AMBIGUOUS
     assert injury("No one was hurt, but my husband has a burn on his hand.") == recipe.AMBIGUOUS
@@ -270,7 +270,7 @@ def _() -> None:
 # --- Comparing fields with the saved claim ----------------------------------------------------
 
 
-@check("location: transposed house number and a dropped unit differ (planted Achterberg)")
+@check("location: transposed house number and a dropped unit differ (the Achterberg call)")
 def _() -> None:
     found = compare("loss_location", "78 Maple Street, Oakdale", "87 Maple Street, Unit 2, Oakdale")
     assert found.status == recipe.DIFFERS
@@ -320,7 +320,7 @@ def _() -> None:
     assert compare("date_of_loss", "2026-10-20", "yesterday evening").status == recipe.DIFFERS
 
 
-@check("policy: in the claim and not said is in_claim, never a callback (planted Achterberg)")
+@check("policy: in the claim and not said is in_claim, never a callback (the Achterberg call)")
 def _() -> None:
     found = compare("policy_number", "HM30958821")
     assert found.status == recipe.IN_CLAIM
@@ -367,7 +367,7 @@ def _() -> None:
     assert len(found.heard) == 2
 
 
-@check("injury field: saved No against a reported injury differs (planted Vellanki)")
+@check("injury field: saved No against a reported injury differs (the Vellanki call)")
 def _() -> None:
     flag = recipe.Flag(recipe.INJURY, "d", [{"line": 1, "at": "00:26", "text": "t"}])
     found = recipe.compare_injuries("No", recipe.REPORTED, flag, "Q?")
