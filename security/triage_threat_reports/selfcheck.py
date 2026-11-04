@@ -1,4 +1,4 @@
-"""Check the recipe's indicator regexes, alias rules and review rules offline.
+"""Check the recipe's indicator regexes, alias rules, lookups and status rules offline.
 
 The checks use hand-written strings, the committed data/ and hand-written stand-in model
 replies. Nothing here calls SIE or replays a recorded response. Run it with
@@ -15,6 +15,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+from asset_inventory import AssetInventory
+from scanner import Scanner
 from sie_sdk import SIEClient
 from sie_sdk.client.errors import (
     AccountInactiveError,
@@ -34,6 +36,7 @@ from sie_sdk.client.errors import (
 import recipe
 
 RULES = recipe.load_rules()
+SCANNER, INVENTORY = Scanner(), AssetInventory()
 
 
 def iocs(text: str) -> list[tuple[str, str]]:
@@ -84,6 +87,14 @@ def check_live() -> None:
     assert iocs("hxxps://r[.]example/?u=https%3a%2f%2fevil.example") == [
         ("url", "hxxps://r[.]example/?u=hxxps%3a%2f%2fevil[.]example")
     ]
+    # hunt.csv refangs every scheme defang wrote, the nested one too.
+    nested = "hxxps://go[.]example[.]com/r?u=hxxp://evil[.]example/x"
+    assert recipe.refang(nested) == "https://go.example.com/r?u=http://evil.example/x"
+    assert recipe.refang("hxxps://r[.]example/?u=hxxps%3a%2f%2fe") == (
+        "https://r.example/?u=https%3a%2f%2fe"
+    )
+    [url] = recipe.find_indicators("see " + nested.replace("hxxp:", "http:") + " now", RULES)
+    assert recipe.refang(url.value) == "https://go.example.com/r?u=http://evil.example/x"
     print("live: live scheme and host, defanged hosts, nested and encoded schemes ok")
 
 
@@ -164,7 +175,7 @@ class StandIn:
     """Stands in for SIEClient: returns hand-written entity dicts, one reply per window."""
 
     def __init__(self, replies: list[dict[str, Any]]) -> None:
-        self.replies = replies
+        self.replies = list(replies)
 
     def extract(self, model: str, items: list[Any], **_: Any) -> list[dict[str, Any]]:
         return [self.replies.pop(0) for _ in items]
@@ -175,13 +186,19 @@ def span(text: str, name: str, label: str) -> dict[str, Any]:
     return {"text": name, "label": label, "start": start, "end": start + len(name), "score": 0.9}
 
 
-def run(text: str, replies: list[dict[str, Any]], **policy: bool) -> recipe.TaggedReport:
+def run(
+    text: str,
+    replies: list[dict[str, Any]],
+    scanner: Scanner = SCANNER,
+    inventory: AssetInventory = INVENTORY,
+    **policy: bool,
+) -> recipe.TaggedReport:
     rules = {**RULES, "policy": {**RULES["policy"], **policy}}
     techniques = recipe.load_techniques()
     table = recipe.AliasTable.build(rules, techniques)
     client = cast(SIEClient, StandIn(replies))
     report = recipe.Report("T-1", "2099-01-01", "test", text)
-    return recipe.tag_reports(client, [report], table, techniques, rules)[0]
+    return recipe.tag_reports(client, [report], table, techniques, rules, scanner, inventory)[0]
 
 
 def check_review() -> None:
@@ -203,11 +220,15 @@ def check_review() -> None:
     ]
     quiet = run(text, [{"entities": found}], unknown_actor=False, unknown_malware=False)
     assert [t.status for t in quiet.tags if t.mention != "Chisel"].count("new") == 2
+    chisel = run(
+        text, [{"entities": found}], unknown_actor=False, unknown_malware=False, unmapped_tool=False
+    )
+    assert (chisel.status, chisel.reasons) == ("filed", []), chisel.reasons
     bad = {"text": "Heron", "label": "threat actor", "start": 0, "end": 5, "score": 0.9}
     assert "invalid span" in run(text, [{"entities": [bad]}]).reasons[0]
-    failed = run(text, [{"error": "model timed out"}])
-    assert failed.reasons == ["window 1 was not tagged: model timed out"]
-    assert failed.actors == ["Ashen Heron"]  # the alias table still finds known names
+    # A reply with no `entities` is a failed call: with one call, every call failed.
+    message = stopped(lambda: run(text, [{"error": "model timed out"}]))
+    assert "the reply has no `entities` (item error: model timed out)" in message, message
     print("review: techniques, unknown names, policy off, bad span, failed window ok")
 
 
@@ -230,7 +251,7 @@ def check_fallback() -> None:
     text = "LX-0417 ran powershell; ASHEN HERON again."
     report = run(text, [{"entities": []}])
     assert (report.status, report.actors, report.tools) == (
-        "tagged",
+        "filed",
         ["Ashen Heron"],
         ["PowerShell"],
     )
@@ -301,12 +322,12 @@ def check_sie_failure() -> None:
     def tag(*errors: Exception | None) -> list[recipe.TaggedReport]:
         client = cast(SIEClient, Broken(*errors))
         with contextlib.redirect_stdout(io.StringIO()):  # the run's "1 of 2 failed" line
-            return recipe.tag_reports(client, reports, table, techniques, rules)
+            return recipe.tag_reports(client, reports, table, techniques, rules, SCANNER, INVENTORY)
 
     # A transient error on one call of two: that report goes to review, the other is tagged.
     for error in TRANSIENT:
         tagged = tag(error, None)
-        assert [r.status for r in tagged] == ["review", "tagged"], type(error).__name__
+        assert [r.status for r in tagged] == ["review", "filed"], type(error).__name__
     long = "connection refused " + "x" * 300
     tagged = tag(SIEConnectionError(long), None)
     reason = "window 1 was not tagged: the SIE call failed: SIEConnectionError: connection refused"
@@ -314,7 +335,7 @@ def check_sie_failure() -> None:
     assert len(tagged[0].reasons[0]) == len(reason) - len("connection refused") + 200
     assert tagged[0].actors == ["Ashen Heron"]  # the table still finds known names
     with tempfile.TemporaryDirectory() as folder:
-        recipe.write_outputs(Path(folder), tagged)
+        recipe.write_outputs(Path(folder), tagged, RULES)
         assert (Path(folder) / "entities.csv").read_text(encoding="utf-8").count("\n") == 5
     # Every call failed (a dead SIE_BASE_URL): the run stops, with the full message.
     message = stopped(lambda: tag(SIEConnectionError(long), SIEConnectionError(long)))
@@ -386,7 +407,7 @@ def check_held_reason() -> None:
     ]
     assert [t["id"] for t in report.candidate_techniques] == ["T1003.001"]
     with tempfile.TemporaryDirectory() as folder:
-        recipe.write_outputs(Path(folder), [report])
+        recipe.write_outputs(Path(folder), [report], RULES)
         rows = (Path(folder) / "entities.csv").read_text(encoding="utf-8").splitlines()[1:]
         assert [row.split(",")[9] for row in rows] == ["False", "True"]
     # Holding techniques keeps the tag's earlier reason ("normalised to ...").
@@ -406,11 +427,11 @@ def check_technique_cues() -> None:
         assert (report.status, report.tools, report.candidate_techniques) == ("review", [tool], [])
         assert report.reasons[0].endswith(f"held: the sentence says {cue!r}"), report.reasons
         quiet = run(text, [{"entities": [span(text, tool, "tool")]}], technique_cue=False)
-        assert quiet.status == "tagged"
+        assert quiet.status == "filed"
         assert quiet.candidate_techniques
     # A cue in another sentence doesn't hold the technique back.
     text = "No patch was applied. The operators ran Mimikatz."
-    assert run(text, [{"entities": []}]).status == "tagged"
+    assert run(text, [{"entities": []}]).status == "filed"
     print("technique cues: R-09 backup and R-10 negation hold candidate techniques ok")
 
 
@@ -421,8 +442,296 @@ def check_indicator_policy() -> None:
         "malformed ip 999[.]1[.]1[.]1: not a valid IPv4 address",
     ]
     quiet = run(text, [{"entities": []}], live_ioc=False, malformed_indicator=False)
-    assert (quiet.status, quiet.reasons) == ("tagged", [])
+    assert (quiet.status, quiet.reasons) == ("hunt", [])  # the well-formed URL is huntable
     print("indicator policy: live URL and malformed IP reasons follow the policy ok")
+
+
+def check_lookups() -> None:
+    assert [(f.host, f.status) for f in SCANNER.find_cve("cve-2099-41077")] == [
+        ("vpn-gw-01", "patched"),
+        ("vpn-gw-02", "open"),
+    ]
+    assert SCANNER.find_cve("CVE-2099-00001") == []
+    hosts = ["vpn-gw-01", "vpn-gw-02"]
+    for name in ["Corvane VPN Gateway", "the corvane  gateway", "CVG"]:
+        assert [a.host for a in INVENTORY.find_product(name)] == hosts, name
+    # Exact names only: a shorter or a different name finds nothing.
+    for name in ["Corvane VPN", "Corvane", "Corvane VPN Concentrator", "Corvane VPN Gateway 7"]:
+        assert INVENTORY.find_product(name) == [], name
+    assert INVENTORY.find_host("db-99") == []
+    with tempfile.TemporaryDirectory() as folder:
+        seed = Path(folder) / "findings.csv"
+        seed.write_text("host,cve,status\nh,CVE-2099-1111,fixed?\n", encoding="utf-8")
+        assert "status must be one of" in error_of(lambda: Scanner(seed))
+    print("lookups: scanner by CVE any case; inventory by exact name or alias only ok")
+
+
+def products(text: str) -> list[tuple[str, str, str]]:
+    """(as written, inventory product, problem) for every product mention in the text."""
+    indicators = recipe.find_indicators(text, RULES)
+    found = recipe.find_products(text, INVENTORY, indicators, RULES)
+    return [(p.text, p.product, p.problem.split(",")[0].split(";")[0]) for p in found]
+
+
+def check_product_names() -> None:
+    gateway = "Corvane VPN Gateway"
+    assert products("in the Corvane VPN gateway.") == [("Corvane VPN gateway", gateway, "")]
+    assert products("on the CVG and the Corvane gateway") == [
+        ("CVG", gateway, ""),
+        ("Corvane gateway", gateway, ""),
+    ]
+    # The near miss: a vendor we use, a product we don't.
+    near = "close to the inventory's Corvane VPN Gateway but not the same name"
+    assert products("in the Corvane VPN Concentrator, a separate line.") == [
+        ("Corvane VPN Concentrator", "", near)
+    ]
+    # A longer name that starts with ours is not ours.
+    [(written, product, problem)] = products("the Corvane VPN Gateway Manager console")
+    assert (written, product) == ("Corvane VPN Gateway Manager", ""), written
+    assert problem.startswith("a longer name than the inventory's Corvane VPN Gateway"), problem
+    # Another version is not ours either; the one we run is, glued "v" or not.
+    [(_, product, problem)] = products("Corvane VPN Gateway v8 is affected.")
+    assert (product, problem) == (gateway, "the report names version 8"), problem
+    for text in ["Corvane VPN Gateway 7.2 is affected.", "Corvane VPN Gateway v7 is affected."]:
+        assert products(text) == [("Corvane VPN Gateway", gateway, "")], text
+    assert products("Corvane VPN Gateway 7.20 is affected.")[0][2].startswith("the report names")
+    # A version at the end of a sentence, after "version" or in brackets is still read.
+    for text in [
+        "Exploited in the Corvane VPN Gateway v8.",
+        "Exploited in the Corvane VPN Gateway 6.1.",
+        "Exploited in the Corvane VPN Gateway version 6.1 only.",
+        "Exploited in the Corvane VPN Gateway (6.1).",
+        "Exploited in the Corvane VPN Gateway 6.x builds.",
+    ]:
+        [(_, product, problem)] = products(text)
+        assert (product, problem.split(";")[0][:24]) == (gateway, "the report names version"), text
+    for text in ["Seen on the Corvane VPN Gateway 7.2.", "Seen on the Corvane VPN Gateway 7.x."]:
+        assert products(text) == [("Corvane VPN Gateway", gateway, "")], text
+    # Version wording the recipe can't compare is a problem, not a ticket for every host.
+    for text in [
+        "The flaw is in Corvane VPN Gateway versions 8.0 and later.",
+        "Corvane VPN Gateway, 7.4 only, is hit.",
+        "Corvane VPN Gateway prior to 7.0 is hit.",
+        "Fixed in Corvane VPN Gateway releases before 7.0.",
+    ]:
+        [(_, product, problem)] = products(text)
+        assert product == gateway, text
+        assert problem.startswith("the report qualifies the version ("), (text, problem)
+    # An indicator after the name is not version wording.
+    assert products("the Corvane VPN Gateway from 203.0.113[.]9.") == [
+        ("Corvane VPN Gateway", gateway, "")
+    ]
+    # A CVE right after the name is the CVE, not a longer product name.
+    assert products("the Corvane VPN Gateway CVE-2099-41077 flaw") == [
+        ("Corvane VPN Gateway", gateway, "")
+    ]
+    # Inside an indicator, or part of a longer word, a vendor name is not a product mention.
+    assert products("served from corvane-update[.]example[.]com and Corvanex") == []
+    print("product names: aliases, near miss, longer name, other or unread version, in an IOC ok")
+
+
+def check_relevance() -> None:
+    tool: list[dict[str, Any]] = [{"entities": []}]
+    # An open CVE: a ticket for the owning team, the patched host is a note.
+    text = "Ashen Heron exploited cve-2099-41077 in the Corvane VPN gateway."
+    report = run(text, tool)
+    assert report.status == "affects_us", report.reasons
+    assert [(t.team, t.host, t.cve) for t in report.relevance.tickets] == [
+        ("network", "vpn-gw-02", "CVE-2099-41077")
+    ]
+    assert report.relevance.notes == ["CVE-2099-41077: patched on vpn-gw-01, per the scanner"]
+    # The same product with a patched CVE: no ticket; the indicator goes on the hunt list.
+    text = "Access came through CVE-2099-50213 in the Corvane VPN gateway from 203.0.113[.]9."
+    assert run(text, tool).status == "hunt"
+    assert run(text.replace(" from 203.0.113[.]9", ""), tool).status == "filed"
+    # A product with a CVE the scanner never checked on its hosts: review, not a quiet hunt.
+    report = run("CVE-2099-61840 hits the Corvane VPN Gateway.", tool)
+    assert report.status == "review", report.status
+    assert (
+        "the scanner has no result for CVE-2099-61840 on vpn-gw-01, vpn-gw-02"
+        in (report.reasons[0])
+    )
+    # A CVE patched on every host doesn't vouch for a second CVE the scanner never checked.
+    report = run("CVE-2099-50213 and CVE-2099-61840 hit the Corvane VPN Gateway.", tool)
+    assert report.status == "review", report.status
+    assert "no result for CVE-2099-61840 on vpn-gw-01, vpn-gw-02;" in report.reasons[0], (
+        report.reasons
+    )
+    # A version range the recipe can't read, with no CVE: review, not a ticket per host.
+    for text in [
+        "The flaw is in Corvane VPN Gateway versions 8.0 and later.",
+        "Corvane VPN Gateway, 7.4 only, is hit.",
+        "Corvane VPN Gateway versions 8.0 through 8.2 are hit.",
+    ]:
+        report = run(text, tool)
+        assert (report.status, report.relevance.tickets) == ("review", []), text
+        assert "qualifies the version" in report.reasons[0], report.reasons
+    # Another version at the end of a sentence, with no CVE: review, not a ticket per host.
+    report = run("The group probes the Corvane VPN Gateway 6.1.", tool)
+    assert (report.status, report.relevance.tickets) == ("review", []), report.status
+    # The same CVE written twice gives one ticket.
+    report = run("CVE-2099-41077 hit the CVG. Patch CVE-2099-41077 on the CVG.", tool)
+    assert len(report.relevance.tickets) == 1, report.relevance.tickets
+    # A product with no CVE: a ticket to check, one per host and team.
+    report = run("The group probes the Larkfield Mail Relay and the Corvane gateway.", tool)
+    assert report.status == "affects_us"
+    assert [(t.team, t.host) for t in report.relevance.tickets] == [
+        ("messaging", "mail-relay-01"),
+        ("network", "vpn-gw-01"),
+        ("network", "vpn-gw-02"),
+    ]
+    # Negation: "not affected" next to a product is not a ticket.
+    for text in [
+        "The Larkfield Mail Relay is not affected.",
+        "Larkfield MTA isn't vulnerable to this chain.",
+    ]:
+        report = run(text, tool)
+        assert (report.status, report.relevance.tickets) == ("review", []), text
+        assert "the sentence says" in report.reasons[0], report.reasons
+    # The near miss with an indicator: review, never hunt or affects_us.
+    reports = {r.id: r.text for r in recipe.load_reports()}
+    report = run(reports["R-11"], tool)
+    assert (report.status, report.relevance.tickets) == ("review", [])
+    # An open CVE on a host the inventory doesn't know, or an alias two products share.
+    with tempfile.TemporaryDirectory() as folder:
+        seed = Path(folder) / "findings.csv"
+        seed.write_text("host,cve,status\nlab-07,CVE-2099-77777,open\n", encoding="utf-8")
+        report = run("Patch CVE-2099-77777 now.", tool, scanner=Scanner(seed))
+        assert (report.status, report.relevance.tickets) == ("review", [])
+        assert "no owning team" in report.reasons[0], report.reasons
+        seed = Path(folder) / "inventory.csv"
+        rows = (recipe.ROOT / "data" / "asset_inventory.csv").read_text(encoding="utf-8")
+        seed.write_text(rows + "lab-01,Larkfield Gateway,Larkfield,1.0,CVG,lab\n", "utf-8")
+        report = run("They target the CVG.", tool, inventory=AssetInventory(seed))
+        assert (report.status, report.relevance.tickets) == ("review", [])
+        assert "lists this name under" in report.reasons[0], report.reasons
+    # A model span on a product is the product, not an unmapped attacker tool.
+    text = reports["R-05"]
+    replies = [{"entities": [span(text, "Corvane VPN", "tool")]}]
+    report = run(text, replies)
+    assert "Corvane VPN" not in [t.mention for t in report.tags], report.tags
+    assert (report.status, report.reasons) == ("hunt", []), report.reasons
+    print("relevance: open CVE, patched CVE, no scanner result, no CVE, negation, near miss ok")
+
+
+def check_outputs() -> None:
+    text = "Ashen Heron used CVE-2099-41077 and https://evil.example/a in one push."
+    report = run(text, [{"entities": []}])
+    assert report.status == "affects_us"
+    assert "live URL in the report: hxxps://evil[.]example/a" in report.reasons
+    with tempfile.TemporaryDirectory() as folder:
+        recipe.write_outputs(Path(folder), [report], RULES)
+        ticket = (Path(folder) / "tickets" / "network.md").read_text(encoding="utf-8")
+        assert "hxxps://evil[.]example/a" in ticket, ticket
+        assert "https://" not in ticket, ticket
+        assert "evil.example" not in ticket, ticket
+        assert "- CVE-2099-41077 on `vpn-gw-02` (Corvane VPN Gateway): open" in ticket, ticket
+        hunt = (Path(folder) / "hunt.csv").read_text(encoding="utf-8").splitlines()
+        assert hunt[1:] == ["T-1,affects_us,url,https://evil.example/a,2099-01-01"], hunt
+        iocs = (Path(folder) / "iocs.csv").read_text(encoding="utf-8")
+        assert "https://" not in iocs
+    # A live link in the title is defanged in tags.json and the ticket heading too.
+    rules = RULES
+    techniques = recipe.load_techniques()
+    table = recipe.AliasTable.build(rules, techniques)
+    titled = recipe.Report("T-2", "2099-01-01", "Lure at https://evil.example/t", text)
+    client = cast(SIEClient, StandIn([{"entities": []}]))
+    [report] = recipe.tag_reports(client, [titled], table, techniques, rules, SCANNER, INVENTORY)
+    assert report.title == "Lure at hxxps://evil[.]example/t", report.title
+    with tempfile.TemporaryDirectory() as folder:
+        recipe.write_outputs(Path(folder), [report], RULES)
+        ticket = (Path(folder) / "tickets" / "network.md").read_text(encoding="utf-8")
+        assert "## T-2: `Lure at hxxps://evil[.]example/t`" in ticket, ticket
+        assert "evil.example" not in (Path(folder) / "tags.json").read_text(encoding="utf-8")
+    # A Markdown link in the title or the quoted sentence is quoted as code, not a live link.
+    link = "[advisory](//evil.example/fix)"
+    text = f"Ashen Heron used CVE-2099-41077, see {link} for `x`."
+    titled = recipe.Report("T-3", "2099-01-01", f"Patch notes {link}", text)
+    client = cast(SIEClient, StandIn([{"entities": []}]))
+    [report] = recipe.tag_reports(client, [titled], table, techniques, rules, SCANNER, INVENTORY)
+    with tempfile.TemporaryDirectory() as folder:
+        recipe.write_outputs(Path(folder), [report], RULES)
+        ticket = (Path(folder) / "tickets" / "network.md").read_text(encoding="utf-8")
+        assert f"## T-3: `Patch notes {link}` (published" in ticket, ticket
+        assert f"> ``{text}``" in ticket, ticket
+    assert recipe.code_span("`a`") == "`` `a` ``"
+    # Review and filed reports put nothing on the hunt list; a malformed or CVE indicator never.
+    review = run("Velvet Ostrich used 198.51.100[.]7.", [{"entities": []}])
+    review.status = "review"
+    odd = run("See CVE-2099-12345 and 999[.]1[.]1[.]1.", [{"entities": []}])
+    assert recipe.hunt_indicators(odd, RULES) == []
+    with tempfile.TemporaryDirectory() as folder:
+        recipe.write_outputs(Path(folder), [review, odd], RULES)
+        assert (Path(folder) / "hunt.csv").read_text(encoding="utf-8").count("\n") == 1
+        assert not any((Path(folder) / "tickets").iterdir())
+    print("outputs: tickets defanged, hunt.csv the only live file, review not on the hunt list ok")
+
+
+def check_missing_entities() -> None:
+    techniques = recipe.load_techniques()
+    rules = {**RULES, "thresholds": {**RULES["thresholds"], "batch_size": 1}}
+    table = recipe.AliasTable.build(rules, techniques)
+    reports = [recipe.Report(i, "2099-01-01", "t", "Ashen Heron ran Mimikatz.") for i in "AB"]
+    client = cast(SIEClient, StandIn([{"data": []}, {"entities": []}]))
+    with contextlib.redirect_stdout(io.StringIO()):
+        tagged = recipe.tag_reports(client, reports, table, techniques, rules, SCANNER, INVENTORY)
+    assert [r.status for r in tagged] == ["review", "filed"]
+    assert tagged[0].reasons == [
+        "window 1 was not tagged: the SIE call failed: the reply has no `entities`"
+    ], tagged[0].reasons
+    print("missing entities: a reply without the key is a failed call, [] is nothing found ok")
+
+
+class Short:
+    """Stands in for SIEClient: the first call returns one result fewer than it was sent, the
+    rest return no entities."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def extract(self, model: str, items: list[Any], **_: Any) -> list[dict[str, Any]]:
+        self.calls += 1
+        return [{"entities": []} for _ in items[: len(items) - (self.calls == 1)]]
+
+
+def check_short_reply() -> None:
+    techniques = recipe.load_techniques()
+    rules = {**RULES, "thresholds": {**RULES["thresholds"], "batch_size": 2}}
+    table = recipe.AliasTable.build(rules, techniques)
+    reports = [recipe.Report(i, "2099-01-01", "t", "Ashen Heron ran Mimikatz.") for i in "ABCD"]
+    client = cast(SIEClient, Short())
+    with contextlib.redirect_stdout(io.StringIO()):
+        tagged = recipe.tag_reports(client, reports, table, techniques, rules, SCANNER, INVENTORY)
+    assert [r.status for r in tagged] == ["review", "review", "filed", "filed"]
+    assert "replied with 1 results for 2" in tagged[0].reasons[0], tagged[0].reasons
+    print("short reply: one result fewer than sent is a failed call, not a crash ok")
+
+
+def check_planted_status() -> None:
+    reports = recipe.load_reports()
+    client = cast(SIEClient, StandIn([{"entities": []} for _ in reports]))
+    techniques = recipe.load_techniques()
+    table = recipe.AliasTable.build(RULES, techniques)
+    tagged = recipe.tag_reports(client, reports, table, techniques, RULES, SCANNER, INVENTORY)
+    status = {r.id: r.status for r in tagged}
+    # With no model spans at all; the live run adds the model's names on top. R-04 is left out:
+    # its review reason (Velvet Ostrich, not in the alias table) needs a model span.
+    assert {
+        k: status[k] for k in ("R-01", "R-02", "R-03", "R-05", "R-06", "R-07", "R-08", "R-11")
+    } == {
+        "R-01": "affects_us",
+        "R-02": "hunt",
+        "R-03": "review",
+        "R-05": "hunt",
+        "R-06": "review",
+        "R-07": "hunt",
+        "R-08": "filed",
+        "R-11": "review",
+    }, status
+    print(
+        "planted status, no model spans: R-01 affects_us, R-02/R-05/R-07 hunt, "
+        "R-03/R-06/R-11 review ok"
+    )
 
 
 if __name__ == "__main__":
@@ -440,3 +749,10 @@ if __name__ == "__main__":
     check_technique_cues()
     check_held_reason()
     check_planted()
+    check_lookups()
+    check_product_names()
+    check_relevance()
+    check_outputs()
+    check_missing_entities()
+    check_short_reply()
+    check_planted_status()

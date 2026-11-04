@@ -895,7 +895,7 @@ wheels = [
 ]
 
 [[package]]
-name = "sie-threat-report-tagging"
+name = "sie-triage-threat-reports"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

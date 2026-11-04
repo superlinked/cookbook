@@ -1,5 +1,5 @@
-# The CTI team's tagging rules: the alias table, the tool-to-ATT&CK mapping, the model ID and
-# every threshold the recipe uses. The thresholds are starting points, not tuned values, so check
+# The CTI team's triage rules: the alias table, the tool-to-ATT&CK mapping, what counts as a
+# product mention and a huntable indicator, the model ID and every threshold the recipe uses. The thresholds are starting points, not tuned values, so check
 # them against your own reports.
 # Every actor and malware name below is fictional. The tools are real, widely documented
 # admin and offensive-security tools.
@@ -39,8 +39,8 @@ generic_words: [ransomware, loader, backdoor, implant, malware, dropper, stage, 
                 group, actor, operators, tool, utility, variant, threat]
 
 # Model spans that are never names. A span made only of generic words ("threat group") is
-# dropped too. Both rules were added after the live run, when NuNER Zero tagged "threat group"
-# as an actor and "MD5" as a tool (fitted to the demo data; extend them for your reports).
+# dropped too. They drop spans NuNER Zero was seen to tag, such as "threat group" as an actor
+# and "MD5" as a tool (fitted to the demo data; extend them for your reports).
 ignore_mentions: [MD5, SHA-1, SHA1, SHA-256, SHA256, CVE]
 
 # Tools mapped to candidate ATT&CK Enterprise technique IDs: techniques the tool is commonly
@@ -80,6 +80,31 @@ policy:
                              # few digits, or a defanged domain whose last label isn't
                              # letters only
 # An invalid model span or a window the model failed to tag always goes to review.
+
+# Does the report affect us? The CVEs are looked up in the scanner (scanner.py) and the products
+# in the asset inventory (asset_inventory.py); the hosts, versions, aliases and owning teams
+# live in their CSV seeds under data/, not here. A product name near miss, a product cue below
+# or a host with no owner always goes to review: those can't be switched off.
+relevance:
+  # Indicator types the SOC can search the logs for. CVE IDs name a vulnerability, not
+  # something you'd find in a log, so they're not on the hunt list.
+  hunt_types: [url, domain, ip, md5, sha256, sha1]
+  # Capitalized words after a product name or vendor that make it a longer, different name
+  # ("Corvane VPN Concentrator"); this is how many are read at most.
+  max_extra_name_words: 3
+  # Words that, in the same sentence as a product we run, send the report to review instead
+  # of drafting a ticket ("The Corvane VPN Gateway is not affected"). Whole words, any case.
+  # A plain keyword check, like technique_cues. Quote every cue.
+  product_cues: ["not", "no", "never", "unaffected", "isn't", "aren't"]
+  # Version wording the recipe can't compare. A number right after a product name is read as
+  # its version ("Corvane VPN Gateway 7.2"). Any of these words, or any digit, in the next
+  # version_window_words words of the same sentence ("versions 8.0 and later", ", 7.4 only",
+  # "prior to 7.0") sends the product mention to review instead of a ticket for every host
+  # running it. Words inside an indicator don't count. Whole words, any case.
+  version_words: ["version", "versions", "release", "releases", "build", "builds", "prior to",
+                  "before", "through", "and later", "and earlier", "or later", "or earlier",
+                  "up to", "only"]
+  version_window_words: 4
 
 thresholds:
   min_entity_score: 0.50       # NuNER Zero span score; lower spans are not returned

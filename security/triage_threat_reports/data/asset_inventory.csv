@@ -1,0 +1,6 @@
+host,product,vendor,version,aliases,owner_team
+vpn-gw-01,Corvane VPN Gateway,Corvane,7.2.1,Corvane gateway;CVG,network
+vpn-gw-02,Corvane VPN Gateway,Corvane,7.2.1,Corvane gateway;CVG,network
+mail-relay-01,Larkfield Mail Relay,Larkfield,5.4.0,Larkfield MTA,messaging
+erp-app-01,Quarrystone ERP,Quarrystone,12.1,Quarrystone,finance-apps
+hr-web-01,Tessaly HR Portal,Tessaly,3.8.2,Tessaly portal,people-systems

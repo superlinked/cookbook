@@ -1,6 +1,17 @@
-# Threat-relation rules: the model ID, entity and relation labels, the alias table, which entity
-# types each relation may join, and every threshold the recipe uses.
+# Detection-gap rules: your sectors, the model ID, entity and relation labels, the alias table,
+# which entity types each relation may join, and every threshold the recipe uses.
 # The thresholds are starting points we did not tune. Check them on your own reports.
+
+# The sectors your company is in or cares about, as canonical sector names from the alias table
+# below. The recipe stops before any model call if one isn't a sector there.
+our_sectors: [port operators, freight]
+
+# Who counts as a group and what counts as a tool for the backlog. A group uses a tool when a
+# claim says "group uses tool" or "tool attributed to group". A victim's product (type product
+# in the alias table, such as Halvard Gateway) is something attacked, never a tool.
+backlog:
+  group_types: [threat actor]
+  tool_types: [malware, software]
 
 models:
   relations: knowledgator/gliner-relex-large-v1.0   # entities and relations in one extract call
@@ -24,7 +35,7 @@ relations:
     tail: [vulnerability]
   targets:
     head: [threat actor, malware, campaign]
-    tail: [sector, software]
+    tail: [sector, software, product]
   attributed to:
     head: [malware, campaign]
     tail: [threat actor]
@@ -87,13 +98,17 @@ aliases:
   - name: port operators
     type: sector
     aliases: [port operator, harbour operators, ports]
+  - name: freight
+    type: sector
+    aliases: [freight broker, freight brokers, freight forwarders, freight sector]
   - name: Halvard Gateway
-    type: software
+    type: product   # a product victims run, not an attacker's tool; only the table gives this type
     aliases: [Halvard Gateway appliances, unpatched Halvard Gateway appliances]
 
 thresholds:
   entity_threshold: 0.40      # entity span score sent to the model (relex needs at least 0.1)
   relation_threshold: 0.70    # relation score sent to the model; the model card says 0.7-0.9
   min_sources: 2              # distinct publishers an edge needs to be "multi_publisher"
+  near_name_ratio: 0.8        # a catalog name this similar (difflib) but not equal is a note, never a match
   batch_size: 16              # windows per SIE call
   max_words_per_window: 200   # longer paragraphs are split on sentences, long sentences on words
