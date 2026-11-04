@@ -1,0 +1,17 @@
+HARROW CREEK MEDICAL GROUP
+Office visit note. Visit date: 08/14/2026. Clinician: Teodor Vash, MD.
+Printed for a records request.
+Patient: Marisol Quenby   DOB: 04/22/1968
+Chief complaint: Diabetes and blood pressure follow-up.
+HPI: 58-year-old woman seen for follow-up of type 2 diabetes and hypertension. Fasting home glucose
+readings 110 to 140. No hypoglycemia. Taking her medications as prescribed.
+Allergies: No known drug allergies.
+Medications:
+- Metformin 500 mg PO twice daily
+- Lisinopril 10 mg PO once daily
+Vitals: BP 128/78, HR 72, Temp 98.4 F, RR 14, SpO2 98% on room air, Weight 82 kg.
+Exam: Well appearing. Lungs clear. Heart regular rate and rhythm. Feet without lesions.
+Assessment and plan:
+1. Type 2 diabetes mellitus without complications. A1c 6.8%. Continue metformin.
+2. Essential hypertension, controlled. Continue lisinopril.
+Follow-up: Return in 3 months with repeat A1c.

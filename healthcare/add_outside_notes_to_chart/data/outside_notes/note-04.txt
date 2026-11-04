@@ -1,0 +1,15 @@
+BELLWETHER INTERNAL MEDICINE
+Office visit note. Visit date: 09/21/2026. Clinician: Inez Calloway, NP.
+Printed for a records request.
+Patient: Caius Wendell-Moore   DOB: 02/14/1998
+Chief complaint: Sore throat for three days.
+HPI: 28-year-old man with sore throat, fever and painful swallowing. No cough. Rapid strep test
+positive in clinic today.
+Allergies: Penicillin (hives).
+Medications: None before this visit.
+Vitals: BP 118/74, HR 96, Temp 101.2 F, RR 16, SpO2 98%.
+Exam: Tonsils enlarged with exudate. Tender anterior cervical nodes.
+Assessment and plan:
+1. Streptococcal pharyngitis. Start amoxicillin 500 mg PO three times daily for 10 days.
+Fluids and rest.
+Follow-up: Return if not improving in 48 hours.

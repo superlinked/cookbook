@@ -1,0 +1,60 @@
+# The clinical policy team's search rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own searches.
+# The recipe finds the clinic's own guidance passage for a search; it does not give medical
+# advice, and no generative model writes anything the clinician reads.
+
+models:
+  rerank: Qwen/Qwen3-Reranker-4B       # scores passages, then the sentences of the top results
+
+population:
+  # Which document populations may be shown as results for a search about each patient
+  # population. A current document for any other population is scored, and shown below a line
+  # only when nothing for the right population clears min_score.
+  eligible:
+    adult: [adult, all]
+    pediatric: [pediatric, all]
+
+status:
+  shown: current                       # the only status ever shown as a result
+  retired: retired                     # scored only to decide the replaced or withdrawn notice
+  # Any other status (draft, under review, ...) is never shown and never raises a notice.
+
+rerank:
+  # Passed to the reranker with every search.
+  instruction: >-
+    Given a clinician's question about the clinic's guidance, judge whether this guidance
+    passage contains the instruction that answers the question.
+  # A current passage for the right population scoring at least this is a result. 0.50 is the
+  # reranker's yes/no midpoint, not a value fitted to this data. A retired passage needs it too
+  # before it can raise a notice, and so does an other-population passage before it is shown.
+  min_score: 0.50
+  max_results: 3                       # results shown per search
+  # A retired passage at or above min_score raises the replaced or withdrawn notice when it
+  # scores above the best current one or within this many log-odds of it (2.0 is about 7 to 1
+  # odds). Near the top of the scale 0.9999 and 0.9997 differ by about 1.1, so a reworded
+  # sentence can't flip the notice off.
+  notice_margin: 2.0
+
+sentences:
+  # The second call scores each sentence of the results (and of an other-population passage
+  # shown below the line) against the question, to pick out the one to show first. Each
+  # sentence goes with its section and title, since "The lab phones the ordering clinician"
+  # doesn't say what about on its own. The full passage is always shown with it.
+  instruction: >-
+    Given a clinician's question about the clinic's guidance, judge whether this sentence from
+    a guidance passage states the instruction that answers the question.
+
+keyword_search:
+  # The stand-in intranet search (keyword_search.py): BM25 over title and passage text. Used
+  # when a rerank call fails, with the status and population filters still applied.
+  k1: 1.2
+  b: 0.75
+
+no_good_match:
+  # What the page says when nothing current for the right population clears min_score.
+  message: >-
+    No passage in the clinic's current guidance scored as an answer; the search may have
+    missed one. Check the national guideline, or ask the on-call clinician.
+
+gap_log:
+  owner: clinical policy coordinator   # the one person who reads gap_log.csv, weekly

@@ -1,0 +1,13 @@
+BELLWETHER INTERNAL MEDICINE
+Office visit note. Visit date: 10/08/2026. Clinician: Inez Calloway, NP.
+Printed for a records request.
+Patient: Odile Fairbanks   DOB: 03/27/1990
+Chief complaint: Burning with urination.
+HPI: 36-year-old woman with two days of burning on urination and urinary frequency. No flank
+pain. Not pregnant. Urine dipstick positive for leukocytes and nitrites.
+Medications:
+- Nitrofurantoin 100 mg PO twice daily for 5 days
+Vitals: BP 116/72, HR 88, Temp 100.9 F, RR 16, SpO2 99%.
+Exam: Mild suprapubic tenderness. No costovertebral angle tenderness.
+Assessment and plan:
+1. Acute cystitis without hematuria. Start nitrofurantoin. Urine culture sent.

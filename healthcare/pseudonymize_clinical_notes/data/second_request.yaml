@@ -1,0 +1,16 @@
+# A second approved request for the same cohort, from another team. Its extract gets its own
+# study IDs and date offsets, so it can't be joined with the first on them.
+request_id: RS-2026-044
+title: Confusion and nutrition at home after a hospital stay
+requester: Nursing research group
+approval:
+  reference: IRB-2026-0219
+  approved_by: IRB
+  route: expert determination
+cohort: [P-1001, P-1002]
+note_types: [discharge_summary, referral_letter, home_nursing_note, outside_lab_result]
+date_window: {start: 2026-09-01, end: 2026-10-31}
+release:
+  dates: shift
+  zip: three_digits
+  ages_over_89: group_90_plus

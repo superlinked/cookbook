@@ -1,0 +1,130 @@
+# The practice's rules for abstracting an outside note into a draft for the chart.
+# Thresholds are starting points, not tuned values. Check them against your own notes and coders.
+
+models:
+  extract: fastino/gliner2-large-v1   # problems, medications, allergies, follow-up, vitals, dose
+  rerank: Qwen/Qwen3-Reranker-4B      # ICD-10-CM code candidates for each problem
+
+thresholds:
+  # gliner2-large-v1 reads about 512 tokens per item. Words are counted conservatively.
+  window_words: 180
+  window_overlap_words: 30
+  # A code is suggested only when the reranker is sure of it and of nothing else. Scores are
+  # P(yes) from the reranker; the margin is in log-odds, ln(p/(1-p)), because the top few
+  # sibling codes often all score above 0.95, where a plain difference says nothing.
+  min_code_score: 0.50
+  min_code_margin_logodds: 1.5
+  code_candidates_shown: 3
+
+# What gliner2-large-v1 is asked for. Two schemas per window: one for the lists, one for the
+# vitals (asked together, the vitals were read from the wrong span, e.g. "regular rate").
+record_fields:
+  problems: {type: list, description: "diagnoses and problems in the assessment, such as type 2 diabetes"}
+  medications: {type: list, description: "drug names, such as metformin or levothyroxine"}
+  allergies: {type: list, description: "substances the patient is allergic to, such as penicillin"}
+  follow_up: {type: string, description: "when the patient should return or follow up"}
+vital_fields:
+  blood_pressure: "blood pressure reading, such as 120/80"
+  heart_rate: "heart rate number after HR or pulse, such as 72"
+  temperature: "body temperature, such as 98.6 F"
+  respiratory_rate: "respiratory rate number after RR, such as 14"
+  oxygen_saturation: "oxygen saturation percent after SpO2, such as 98%"
+  weight: "body weight with unit, such as 80 kg"
+# Asked once per active medication, on the sentence that gives its dose. {drug} is its name.
+medication_fields:
+  dose: "dose of {drug} with its unit, such as 500 mg"
+  route: "route {drug} is given by, such as PO or inhaled"
+  frequency: "how often {drug} is taken, such as twice daily or as needed"
+
+# The labels a vital is written after in a note. A vital the model reads counts only when the
+# note has that number right after one of its labels ("HR 88", not the 72 in "BP 116/72").
+vital_labels:
+  blood_pressure: [BP, blood pressure]
+  heart_rate: [HR, pulse, heart rate]
+  temperature: [Temp, temperature]
+  respiratory_rate: [RR, respiratory rate, resp rate]
+  oxygen_saturation: [SpO2, O2 sat, oxygen saturation]
+  weight: [Weight, Wt]
+
+# Medications. A name the model returns must appear in the note, or it is dropped (never invent
+# a med). The last mention with one of these cues decides whether a drug is active: "Stop
+# lisinopril" in the plan beats "Lisinopril 10 mg" in the medication list. In a sentence with
+# both, the cue nearest the drug wins ("Stop simvastatin and start atorvastatin"). A held drug
+# counts as stopped, and so does a negated start ("Do not restart metformin"): neither is active.
+stop_terms: [stop, stopped, stopping, discontinue, discontinued, "d/c", "d/c'd", no longer taking, not taking, hold, held, do not start, "don't start", do not restart, "don't restart", do not resume, "don't resume", not started, not restarted, not resumed]
+start_terms: [start, started, starting, restart, restarted, resume, resumed, continue, continued, increase, increased, decrease, decreased, switch to, switched to, change to, changed to, do not stop, "don't stop", do not hold, "don't hold"]
+# Spans that name no drug ("Medications: None").
+not_a_medication: [none, no medications, no current medications, nkda, nka]
+required_medication_fields: [dose]   # an active med without these goes to clinical review
+dose_units: [mg, mcg, g, units, unit, mL, puffs, puff]
+# Drugs dosed in one unit only. A dose in another unit is a likely transcription error.
+expected_units:
+  levothyroxine: [mcg]
+  insulin: [units, unit]
+
+# Allergy status must be documented somewhere: an allergy or one of these phrases in the note,
+# or an allergy status already on the chart.
+no_known_allergy_terms: [no known drug allergies, no known allergies, nkda, nka]
+# The labels an allergy line starts with. The text after the label is split on the separators,
+# reactions in brackets set aside. An item that names no allergy that was read and no "no known
+# allergies" term goes to clinical review, whatever else was read: the model may have missed an
+# allergy ("Allergies: Penicillin (hives), Codeine (anaphylaxis)" with only Penicillin read).
+allergy_labels: [Allergies, Allergy, Drug allergies, Allergies/intolerances]
+allergy_separators: [",", ";"]
+# An active medication (from the note, or on the chart and not stopped in the note) in the class
+# of an allergy (from the note, or on the chart) goes to clinical review. An allergy names a
+# class when it says the class ("Sulfa drugs" -> sulfa) or names one of its members
+# ("Amoxicillin" -> penicillin). Swap these for your formulary's cross-sensitivity table.
+allergy_classes:
+  penicillin: [penicillin, amoxicillin, ampicillin, dicloxacillin, nafcillin, piperacillin]
+  sulfa: [sulfamethoxazole, sulfasalazine, sulfadiazine]
+  nsaid: [ibuprofen, naproxen, ketorolac, diclofenac, meloxicam]
+  aspirin: [aspirin, ibuprofen, naproxen]
+  codeine: [codeine, hydrocodone, oxycodone]
+
+# Problems. A problem is the patient's only when the note says so. These cues, in the same
+# clause just before the problem (or just after, for ruled_out_after), leave it out of the
+# draft or send it to the clinician.
+family_terms: [mother, father, sister, brother, son, daughter, grandmother, grandfather, aunt, uncle, family history, fhx]
+negation_terms: ["no", "not", denies, denied, negative for, without, free of]
+# Phrases that start with a negation but still assert the problem ("Not at goal for type 2
+# diabetes"). They are skipped before the negation cues are looked for.
+not_negating: [no change in, no change, not at goal, not at target, not controlled, not well controlled, not improved, no improvement in, not resolved]
+ruled_out_after: [ruled out, was ruled out, excluded, unlikely]
+uncertain_terms: [possible, probable, suspected, suspect, likely, rule out, "r/o", query, questionable]
+# How many words before the problem a negation or uncertainty cue may sit.
+cue_window_words: 4
+# Each numbered line of the assessment should yield at least one problem. A line that doesn't,
+# or whose only problem was read as negated, goes to clinical review, so a problem the model
+# missed or misread is not silently absent.
+assessment_item: '^\s*\d+[.)]\s+'
+
+# Vitals. Outside `plausible`: a likely typo, clinical review. Outside `normal`: recorded with a
+# high/low flag for the clinician, no review. Temperature in F, weight in kg (C and lb converted).
+vitals:
+  systolic: {plausible: [50, 260], normal: [90, 139]}
+  diastolic: {plausible: [30, 160], normal: [60, 89]}
+  heart_rate: {plausible: [25, 250], normal: [50, 100]}
+  temperature: {plausible: [90, 110], normal: [97.0, 100.3]}
+  respiratory_rate: {plausible: [4, 60], normal: [10, 20]}
+  oxygen_saturation: {plausible: [50, 100], normal: [95, 100]}
+  weight: {plausible: [2, 350]}
+
+# The outside clinic's plan is context for the first visit; the clinician sets the follow-up.
+# Set to true to send a note with no follow-up plan to clinical review.
+require_follow_up: false
+
+# The note's header must name the chart's patient. A different name or date of birth goes to
+# clinical review: the note may be filed in the wrong chart. Each is checked whenever the header
+# prints it; a date of birth that can't be read as a date also goes to clinical review.
+header_labels:
+  name: [Patient, Patient name, Name]
+  dob: [DOB, D.O.B., Date of birth, Birth date]
+
+# The practice's code-set subset: ICD-10-CM codes (CMS FY2027, public domain). Each problem is
+# ranked on its phrase followed by the sentence of its last mention, which in a SOAP note is
+# usually the assessment.
+code_subset: data/icd10cm-subset.tsv
+code_instruction: >-
+  Given a problem from a clinical visit note, retrieve the ICD-10-CM code description that
+  codes it

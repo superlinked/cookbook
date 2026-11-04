@@ -1,0 +1,13 @@
+FAX - Northfield Clinical Laboratories
+To: St. Brannoc Regional Medical Center, Pulmonary Clinic
+From: Client services, fax (781) 555-0133
+
+Patient: Hollis Merriweather
+MRN: 00993021
+DOB: 1971-11-02
+Collected: 2026-10-01
+Reported: 2026-10-02
+
+Sputum culture: normal respiratory flora. No acid-fast bacilli seen.
+
+Ordering clinician: Dr. Selwyn Achebe

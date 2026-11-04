@@ -1,0 +1,145 @@
+# The intake team's rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own faxes.
+
+models:
+  ocr: lightonai/LightOnOCR-3-4B          # each fax page image to Markdown
+  extract: fastino/gliner2-large-v1       # schema fields from each text window
+
+thresholds:
+  render_dpi: 200            # fax "fine" mode; render each PDF page at this resolution before OCR
+  max_image_edge_px: 2048    # LightOnOCR's recommended longest edge
+  min_page_chars: 80         # an OCR page shorter than this is "unreadable" and goes to review
+  # GLiNER2 reads about 512 tokens per item. Words are counted conservatively (OCR text of
+  # names, dates and IDs splits into several tokens per word), and windows overlap so a
+  # "Label: value" pair cut at a window edge is still seen whole in the next window. A window
+  # SIE still finds too long is a failed call: the packet goes to review.
+  window_words: 180
+  window_overlap_words: 30
+  max_age_years: 120         # a date of birth further back than this goes to review
+  close_name_ratio: 0.85     # EHR search: two names this similar (0 to 1) may be one patient
+  title_lines: 4             # a page's document type is read from its first lines
+
+# Fields the extractor is asked for. `description` goes into the GLiNER2 output_schema.
+# labels: a value only counts when it sits right after one of these labels on its line ("Member
+#   ID: SHC-880214-3"). When labels of two fields could both fit ("Phone" and "Patient
+#   phone"), the longest one decides whose value it is.
+# on_conflict: what to do when windows return different values for the field
+#   review  - send the packet to review and list every value
+#   first   - keep the value from the earliest page (the referral order comes before the note)
+# whole_value: the span must hold everything after its label, up to the end of the line or
+#   cell, a credential ("MD") or the next label. A part of it ("Arkwright" from "Patient name:
+#   Delphine Arkwright") sends the packet to review instead of being recorded as the name.
+# GLiNER2 returns short spans: a reason written as a long sentence may come back empty.
+fields:
+  patient_name:
+    description: full name of the patient being referred
+    labels: [patient name, patient, name of patient]
+    on_conflict: review
+    whole_value: true
+  patient_dob:
+    description: patient date of birth
+    labels: [date of birth, dob, birth date, born]
+    on_conflict: review
+  patient_phone:
+    description: patient phone number
+    labels: [patient phone, home phone, cell phone, mobile]
+    on_conflict: review
+  insurance_plan:
+    description: name of the patient's insurance plan
+    labels: [insurance plan, insurance, health plan, payer]
+    on_conflict: review
+  member_id:
+    description: insurance member ID
+    labels: [member id, member number, subscriber id, policy number]
+    on_conflict: review
+  referring_provider:
+    description: name of the referring provider
+    labels: [name, referring provider, provider, referred by]
+    on_conflict: review
+  referring_npi:
+    description: 10-digit NPI number of the referring provider
+    labels: [npi]
+    on_conflict: review
+  office_phone:
+    description: phone number of the referring office
+    labels: [phone, office phone, tel]
+    on_conflict: review
+  office_fax:
+    description: fax number of the referring office
+    labels: [fax, office fax]
+    on_conflict: review
+  practice:
+    description: name of the referring practice or clinic
+    labels: [practice, from, clinic]
+    on_conflict: review
+  referral_reason:
+    description: reason for referral
+    labels: [reason for referral, reason, referral reason]
+    on_conflict: first
+  requested_priority:
+    description: priority or time frame the referring provider asked for
+  order_signed_by:
+    description: name of the provider who signed the referral order
+    labels: [signed by, signature, /s/]
+    on_conflict: review
+    whole_value: true
+
+# Labels the forms print that belong to no field above. A whole_value name may end where one
+# of these (or a field's label) starts: "Signed by: Maren Okafor, MD  Date: 10/21/2026".
+other_labels: [date, sex, visit date, specialty]
+
+# What one value of a field looks like. A value that doesn't (two member IDs or two names in
+# one span, "Ann Lee and Joann Lee") goes to review instead of being recorded as one.
+formats:
+  member_id: '[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*'
+  patient_name: '(?i)(?!.*\b(?:and|or)\b)[^\W\d_]+(?:[ .,''-]+[^\W\d_]+)*'
+  referring_provider: '(?i)(?!.*\b(?:and|or)\b)[^\W\d_]+(?:[ .,''-]+[^\W\d_]+)*'
+  order_signed_by: '(?i)(?!.*\b(?:and|or)\b)[^\W\d_]+(?:[ .,''-]+[^\W\d_]+)*'
+
+# The intake lead's checklist: a packet is complete only when every field below has a checked
+# value, from the fax or from your own records (the EHR chart or the provider directory). The
+# text is what the coordinator asks the referring office for.
+required:
+  patient_name: Patient full name
+  patient_dob: Patient date of birth
+  patient_phone: Patient phone number
+  insurance_plan: Insurance plan
+  member_id: Insurance member ID
+  referring_provider: Referring provider name
+  referring_npi: Referring provider NPI
+  referral_reason: Reason for referral
+  order_signed_by: Signed referral order (provider signature)
+
+# A page's document type, from the words in its title. Only the referral order's signature
+# signs the order; a cover sheet doesn't name the patient, every other page must.
+documents:
+  cover: [fax cover, cover sheet]
+  order: [referral order, referral form, outpatient referral, consult request]
+  note: [clinic note, progress note, office visit, visit note]
+
+# The practice's own numbers. A phone or fax read as one of these is the cover sheet's "To:"
+# line, never the referring office.
+our_numbers: ["(555) 010-2200"]
+
+# The cover sheet's page count ("Pages (including cover): 3") must match the pages received.
+page_count_labels: [pages including cover, pages, number of pages]
+
+# The requested priority, as the referring clinician wrote it. A routing hint for the clinical
+# reviewer, not triage. Ranked in this order in the clinical review queue: "not stated" sorts
+# above "routine" because nobody said it can wait.
+priority:
+  order: [urgent, time_bound, not_stated, routine]
+  urgent_terms: [urgent, stat, emergent, expedite, expedited, asap]
+  # "within 72 hours", "within 2 weeks", "in the next 48 hrs", "within 72h"
+  time_frame: '\b(?:within|in the next)\s+\d+\s*(?:hours?|hrs?|h|days?|weeks?|wks?)\b'
+  routine_terms: [routine, non-urgent, not urgent]
+  # A term right after one of these is not urgent: "not urgent", "non-urgent", "no stat".
+  negations: ["not", "non", "no"]   # quoted: YAML reads a bare no as false
+
+# Titles and credentials dropped before comparing provider names.
+name_credentials: [dr, md, do, np, fnp, pa, pa-c, aprn, rn, mbbs, phd]
+
+# Date formats accepted for a date of birth, tried in order. A two-digit year (%y) is read in
+# the century that puts the date in the past: "03/14/49" is 1949, not 2049.
+date_formats:
+  ["%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%m/%d/%y", "%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d %b %Y"]

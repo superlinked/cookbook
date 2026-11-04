@@ -1,0 +1,11 @@
+patient_id,name,dob,registered_on,allergy_status
+LFP-20417,Marisol Quenby,1968-04-22,2026-10-05,no_known_allergies
+LFP-20422,Rowan Petrakis,1979-11-03,2026-10-07,no_known_allergies
+LFP-20425,Delphine Okonkwo-Hale,1957-07-30,2026-10-08,no_known_allergies
+LFP-20431,Caius Wendell-Moore,1998-02-14,2026-10-12,not_recorded
+LFP-20436,Anselm Brightwater,1962-09-09,2026-10-13,no_known_allergies
+LFP-20440,Priya Halvorsen,2004-05-18,2026-10-14,allergies_listed
+LFP-20444,Lucan Merriweather,1975-12-01,2026-10-15,no_known_allergies
+LFP-20449,Odile Fairbanks,1990-03-27,2026-10-19,not_recorded
+LFP-20453,Tobias Renfrew,1971-06-12,2026-10-20,no_known_allergies
+LFP-20458,Wilhelmina Asante,1983-01-19,2026-10-21,no_known_allergies

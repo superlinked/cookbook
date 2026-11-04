@@ -1,0 +1,11 @@
+document_id,patient_id,received_on,source_clinic,visit_date,category,file
+note-01,LFP-20417,2026-10-26,Harrow Creek Medical Group,2026-08-14,outside records,note-01.txt
+note-02,LFP-20422,2026-10-26,Harrow Creek Medical Group,2026-09-02,outside records,note-02.txt
+note-03,LFP-20425,2026-10-27,Harrow Creek Medical Group,2026-09-09,outside records,note-03.txt
+note-04,LFP-20431,2026-10-27,Bellwether Internal Medicine,2026-09-21,outside records,note-04.txt
+note-05,LFP-20436,2026-10-28,Harrow Creek Medical Group,2026-10-06,outside records,note-05.txt
+note-06,LFP-20440,2026-10-28,Bellwether Internal Medicine,2026-08-27,outside records,note-06.txt
+note-07,LFP-20444,2026-10-29,Bellwether Internal Medicine,2026-10-01,outside records,note-07.txt
+note-08,LFP-20449,2026-10-29,Bellwether Internal Medicine,2026-10-08,outside records,note-08.txt
+note-09,LFP-20453,2026-10-30,Harrow Creek Medical Group,2026-10-12,outside records,note-09.txt
+note-10,LFP-20458,2026-10-30,Bellwether Internal Medicine,2026-10-14,outside records,note-10.txt

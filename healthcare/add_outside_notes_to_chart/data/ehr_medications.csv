@@ -1,0 +1,10 @@
+patient_id,drug,dose,route,frequency,source
+LFP-20417,Metformin,500 mg,PO,twice daily,intake form
+LFP-20417,Lisinopril,10 mg,PO,once daily,intake form
+LFP-20422,Levothyroxine,50 mcg,PO,daily,intake form
+LFP-20422,Omeprazole,20 mg,PO,daily,intake form
+LFP-20425,Amlodipine,10 mg,PO,once daily,intake form
+LFP-20425,Atorvastatin,40 mg,PO,at bedtime,intake form
+LFP-20436,Simvastatin,40 mg,PO,nightly,intake form
+LFP-20440,Cetirizine,10 mg,PO,daily,intake form
+LFP-20453,Losartan,50 mg,PO,daily,intake form

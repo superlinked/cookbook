@@ -1,0 +1,49 @@
+{
+  "searches": [
+    {
+      "id": "Q-01",
+      "population": "adult",
+      "question": "An adult's office blood pressure reads 142/88 and they have no symptoms. What does our guidance say to do next?"
+    },
+    {
+      "id": "Q-02",
+      "population": "adult",
+      "question": "How soon after a positive FIT should the diagnostic colonoscopy take place?"
+    },
+    {
+      "id": "Q-03",
+      "population": "pediatric",
+      "question": "How often should we review a child's written asthma action plan?"
+    },
+    {
+      "id": "Q-04",
+      "population": "adult",
+      "question": "Does our guidance recommend hypnotherapy to help patients stop smoking?"
+    },
+    {
+      "id": "Q-05",
+      "population": "adult",
+      "question": "What is our protocol for yellow fever vaccination before international travel?"
+    },
+    {
+      "id": "Q-06",
+      "population": "adult",
+      "question": "How often should a patient doing home INR self-testing check their INR?"
+    },
+    {
+      "id": "Q-07",
+      "population": "pediatric",
+      "question": "When should a child with type 1 diabetes have their first retinal screening?"
+    },
+    {
+      "id": "Q-08",
+      "population": "adult",
+      "question": "A potassium result of 6.4 mmol/L just came back. How quickly must the ordering clinician act?"
+    },
+    {
+      "id": "Q-09",
+      "population": "adult",
+      "question": "How often should HbA1c be measured when the result is at target and treatment is stable?"
+    }
+  ]
+}

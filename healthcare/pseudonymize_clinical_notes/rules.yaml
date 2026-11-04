@@ -1,0 +1,308 @@
+# The honest broker's rules for pseudonymizing clinical notes, and every threshold the recipe
+# uses. Thresholds are starting points, not tuned values; check them against your own notes.
+# What a release may keep (shifted dates, three-digit ZIPs, ages grouped at 90 and over) comes
+# from each approved request in data/, not from here. Whether a release counts as de-identified,
+# and by which route, is the privacy office's call, not this file's.
+
+models:
+  # SIE Cloud's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # server (spans scoring 0.6 or more, the two models' spans unioned, person names propagated).
+  pii: superlinked/pii-redact
+
+# What the PII model looks for: its 36 default personal-data types plus `organization`, because
+# a relative's employer identifies a family as well as a name does. Every span it returns is
+# replaced unless the allowlist keeps it or a regex pattern decides that stretch of text.
+labels:
+  - person
+  - organization
+  - street address
+  - city
+  - county
+  - postal code
+  - gps coordinates
+  - date of birth
+  - phone number
+  - fax number
+  - email address
+  - url
+  - ip address
+  - mac address
+  - social security number
+  - national id number
+  - tax id number
+  - medical record number
+  - health plan beneficiary number
+  - account number
+  - credit card number
+  - cvv
+  - pin
+  - password
+  - api key
+  - http cookie
+  - username
+  - customer id
+  - employee id
+  - certificate or license number
+  - license plate
+  - vehicle identification number
+  - device identifier
+  - biometric identifier
+  - unique identifier
+  - passport number
+  - driver's license number
+
+thresholds:
+  # Notes longer than this are sent as windows of this many words, each sharing
+  # `window_overlap_words` with the last. 300 words of clinical prose is about 400 model tokens,
+  # under the model's limit of about 512. Each call asks SIE to fail rather than cut a window
+  # short; a window that still doesn't fit escalates its note as not read.
+  window_words: 300
+  window_overlap_words: 50
+  # A name the model found is also replaced wherever else it appears, if it has at least this
+  # many letters.
+  propagate_min_letters: 3
+  # A phone, MRN or other number found in any note is also replaced where it is written another
+  # way ("617-555-0142" and "617.555.0142"), if it has at least this many digits.
+  second_spelling_min_digits: 7
+  # What is left of a model span once a regex pattern took its part is still replaced if it is
+  # two or more words, or one word with a digit and at least this many characters. A lone label
+  # ("MRN", "DOB") is left readable.
+  leftover_value_min_chars: 4
+
+# Date shifting. Each patient gets one offset per request, drawn at random between min_days and
+# max_days, earlier or later, so "admitted 09/03, discharged 09/08" still reads as five days.
+# The offsets are drawn fresh for every request and kept only in the private key, so two
+# extracts of the same patients don't share them.
+date_shift:
+  min_days: 10
+  max_days: 60
+
+# Study IDs: drawn at random for each patient and request, never derived from the MRN or any
+# other identifier. Letters and digits that are hard to confuse.
+study_id:
+  prefix: S-
+  length: 6
+  alphabet: 23456789ABCDEFGHJKMNPQRSTVWXYZ
+
+# Full dates the recipe can parse and shift: regex and strptime format, tried in this order.
+date_formats:
+  - regex: '\b\d{1,2}/\d{1,2}/\d{4}\b'
+    format: '%m/%d/%Y'
+  - regex: '\b\d{4}-\d{2}-\d{2}\b'
+    format: '%Y-%m-%d'
+  - regex: '\b(?:January|February|March|April|May|June|July|August|September|October|November|December)
+      \d{1,2}, \d{4}\b'
+    format: '%B %d, %Y'
+  - regex: '\b\d{1,2} (?:January|February|March|April|May|June|July|August|September|October|November|December)
+      \d{4}\b'
+    format: '%d %B %Y'
+
+# Dates the recipe finds but can't shift: no year ("9/29", "Oct 3", "March 4th"), a two-digit
+# year ("10/3/26"), dashes ("10-03-2026") or an abbreviated month ("3 Oct 2026"). Each is removed
+# ([DATE_n]) and the note escalates, so a person decides what the date should be. A full date in
+# `date_formats` is never matched here, and neither is a `clinical_numbers` match.
+unshiftable_dates:
+  - '(?<![\d/.])(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])(?:/\d{2})?(?![\d/])'
+  - '(?<![\d-])\d{1,2}-\d{1,2}-\d{2,4}(?![\d-])'
+  - '\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}(?:st|nd|rd|th)?\b'
+  - '\b\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec)\b\.?(?:\s+\d{4}\b)?'
+
+# Numbers with a slash that are clinical values, not dates. They stay as written, and neither
+# the date rules nor the sweep treat them as dates. Anything else shaped like "9/29" is a date.
+clinical_numbers:
+  # "BP 98/64", "BP: 120/80", "blood pressure 98/64", "98/64 mmHg"
+  blood_pressure: '(?i)\b(?:BP|blood pressure)\s*:?\s*\d{2,3}/\d{2,3}\b|\b\d{2,3}/\d{2,3}\s*mm\s*Hg\b'
+  # "1/2 tablet", "3/4 tab", "1/2 of a pill": a fraction followed by a dose unit
+  dose_fraction: '(?i)\b\d/\d\s+(?:of\s+an?\s+)?(?:tablets?|tabs?|pills?|capsules?|caps?|doses?|teaspoons?|tsp|patch(?:es)?)\b'
+
+# Identifiers found with regex next to the model. When a pattern has a group named `value` (or
+# `value2`, ...), only that group is replaced ("MRN: " stays, the number goes). `{date}` stands
+# for any of the date_formats above. A pattern decides its whole match: a model span inside it
+# gives way, and the part of a model span outside it is still replaced.
+patterns:
+  medical_record_number:
+    label: medical record number
+    regex: '(?i)\bMRN\b\W*(?P<value>\d[\d-]{4,}\d)\b'
+  date_of_birth:
+    label: date of birth
+    regex: '(?i)\b(?:DOB|date of birth|born)\b\W*(?P<value>{date})'
+  phone_number:
+    label: phone number
+    regex: '(?:\(\d{3}\)\s*|\b\d{3}[-. ])\d{3}[-. ]\d{4}\b|\+1\d{10}\b'
+  # "Member ID: ..." plan numbers. Only the number goes.
+  health_plan_id:
+    label: health plan beneficiary number
+    regex: '(?i)\b(?:member|subscriber|plan)\s+(?:id|no\.?|number|#)\s*:?\s*(?P<value>(?=[A-Z0-9-]*\d)[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)'
+  zip_code:
+    label: postal code
+    regex: '\b(?:[A-Z]{2}|ZIP:?)\s+(?P<value>\d{5})(?:-\d{4})?\b'
+  # "Age: 92", "aged 92", "92-year-old", "92 years old", "92yo", "92 y/o"
+  age_over_89:
+    label: age over 89
+    regex: '(?i)(?:\bage[d:]?\s*(?P<value>9\d|1[0-4]\d)\b|\b(?P<value2>9\d|1[0-4]\d)[- ]years?[- ]old\b|\b(?P<value3>9\d|1[0-4]\d)\s*(?:yo|y/o|y\.o\.)(?!\w))'
+
+# A ZIP may keep its first three digits (when the request allows it), unless the three-digit area
+# has 20,000 people or fewer; then it becomes 000. These are the restricted prefixes published
+# with the HHS de-identification guidance (2000 Census). Check the current list before relying
+# on it.
+zip_restricted_prefixes: ['036', '059', '063', '102', '203', '556', '692', '790', '821', '823',
+                          '830', '831', '878', '879', '884', '890', '893']
+
+# The category each other identifier kind in the EHR is replaced under. A kind not listed here
+# gets `default`.
+ehr_identifier_labels:
+  health_plan_member_id: health plan beneficiary number
+  default: unique identifier
+
+# Header fields that name the note's patient. The value is the rest of the line; the name is the
+# part before the first comma, or before the second one ("VANCE, TEODORA, MRN ..."). A name that
+# isn't one of the EHR patient's names, in any word order, means the note may be filed under the
+# wrong patient.
+patient_name_fields: '(?im)^[ \t]*(?:Patient|Patient name|Name|Re)[ \t]*:[ \t]*(?P<value>[^\n]*\S)'
+
+# Safe Harbor's 18 identifiers (45 CFR 164.514(b)(2)), used here as a checklist of what to look
+# for, and what covers each: model `labels`, `patterns` above, `sweep` patterns below, or the
+# `ehr` known identifiers and `python` steps in recipe.py. An extract with shifted dates is not a
+# Safe Harbor release: Safe Harbor keeps no element of a date but the year.
+identifier_checklist:
+  names:
+    labels: [person, organization]
+    ehr: [name, alias, first name, surname, "SURNAME, FIRST"]
+    sweep: [honorific_name]
+  geographic subdivisions smaller than a state:
+    labels: [street address, city, county, postal code, gps coordinates]
+    ehr: [street, city, zip]
+    patterns: [zip_code]
+    python: [ZIP to three digits or 000, per the request]
+    sweep: [zip_code]
+  dates and ages over 89:
+    labels: [date of birth]
+    ehr: [date of birth]
+    patterns: [date_of_birth, age_over_89]
+    python: [date shifting or removal, per the request]
+    sweep: [full_date, date_day_month, date_without_year, age_over_89]
+  telephone numbers:
+    labels: [phone number]
+    ehr: [phone]
+    patterns: [phone_number]
+    sweep: [phone_number]
+  fax numbers:
+    labels: [fax number]
+    patterns: [phone_number]
+    sweep: [phone_number]
+  email addresses:
+    labels: [email address]
+    sweep: [email]
+  social security numbers:
+    labels: [social security number]
+    sweep: [ssn]
+  medical record numbers:
+    labels: [medical record number]
+    ehr: [mrn]
+    patterns: [medical_record_number]
+    sweep: [medical_record_number, long_number]
+  health plan beneficiary numbers:
+    labels: [health plan beneficiary number]
+    ehr: [health_plan_member_id]
+    patterns: [health_plan_id]
+    sweep: [member_id]
+  account numbers:
+    labels: [account number, credit card number]
+  certificate or license numbers:
+    labels: [certificate or license number, driver's license number]
+  vehicle identifiers:
+    labels: [vehicle identification number, license plate]
+  device identifiers and serial numbers:
+    labels: [device identifier]
+  web URLs:
+    labels: [url]
+    sweep: [url]
+  IP addresses:
+    labels: [ip address]
+    sweep: [ip_address]
+  biometric identifiers:
+    labels: [biometric identifier]
+  full-face photographs:
+    python: [out of scope; the recipe reads text only]
+  any other unique identifying number:
+    labels: [unique identifier, customer id, employee id, passport number, national id number]
+    sweep: [long_number]
+
+# Words that may follow an allowlisted name inside one model span and still keep it readable
+# ("Selwyn Achebe, MD").
+allowlist_suffixes: [md, do, rn, np, pa, phd, dnp, mbbs, frcp, jr, sr]
+
+# A name with one of these words is an organization, not a person: no "SURNAME, FIRST" or
+# surname-only matching for it.
+company_words: [llc, inc, ltd, llp, corp, corporation, co, company, holdings, group, partners,
+                trust, bank, plc, center, clinic, hospital, laboratories, laboratory]
+
+# Kept as written: never replaced, and never counted by the sweep. Matched as whole terms,
+# case-insensitive, honorifics ignored ("Dr. Selwyn Achebe" = "Selwyn Achebe"). Clinicians and
+# the facility aren't patient identifiers; eponyms are disease names. A cohort patient's name
+# wins over this list: if a patient shares a word with it, that word is replaced and the note
+# goes to review.
+allowlist:
+  facility: [St. Brannoc Regional Medical Center, St. Brannoc, Pulmonary Clinic]
+  clinicians: [Selwyn Achebe, Achebe, Mirela Okwuosa, Okwuosa]
+  eponyms: [Hashimoto, Parkinson, Crohn, Alzheimer]
+
+# Placeholder prefix per label: [PATIENT_1], [PERSON_2], [MRN_1]. Cohort patients always get
+# `patient`. A label not listed here gets `default`.
+placeholders:
+  patient: PATIENT
+  person: PERSON
+  organization: ORG
+  street address: ADDRESS
+  city: ADDRESS
+  county: ADDRESS
+  postal code: ZIP
+  date of birth: DOB
+  date: DATE
+  age over 89: AGE
+  phone number: PHONE
+  fax number: PHONE
+  email address: EMAIL
+  social security number: SSN
+  medical record number: MRN
+  health plan beneficiary number: PLAN_ID
+  account number: ACCOUNT
+  default: PII
+
+# Labels whose values are names. A shorter mention ("Mr. Quill") is the same person as the one
+# full name it is part of; a mention that fits two or more ("Ms. Vance") sends the note to review.
+name_labels: [patient, person, organization]
+# Labels compared by their digits only, so "00482913" and "0048-2913" are one MRN.
+digit_labels: [phone number, fax number, social security number, medical record number,
+               health plan beneficiary number, account number, credit card number,
+               national id number, passport number, driver's license number]
+# Labels whose values are also replaced, as written, wherever else they appear (numbers and
+# emails always are, in any spelling). Other labels aren't spread, so a model's misread in one
+# note stays in that note.
+propagate_labels: [street address, city, county, gps coordinates]
+# Phone labels: their numbers are compared without a +1 or +44 country code.
+phone_labels: [phone number, fax number]
+# Words dropped from the front of a name before comparing it.
+honorifics: [mr, mrs, ms, miss, dr, prof]
+
+# The sweep: run on the pseudonymized text with only the placeholders this recipe wrote blanked
+# out. Brackets that were already in the note are read like any other text. Any hit means
+# something may still be readable, so the note escalates. Hits inside allowlisted terms or
+# `clinical_numbers` are ignored.
+residual_patterns:
+  ssn: '\b\d{3}-\d{2}-\d{4}\b'
+  email: '\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b'
+  url: '(?i)\bhttps?://\S+|\bwww\.\S+'
+  ip_address: '\b\d{1,3}(?:\.\d{1,3}){3}\b'
+  phone_number: '(?:\(\d{3}\)\s*|\b\d{3}[-. ])\d{3}[-. ]\d{4}\b|\+1\d{10}\b'
+  medical_record_number: '(?i)\bMRN\b\W*\d'
+  # Any run of seven or more digits: an MRN or account number with no label in front of it.
+  long_number: '\b\d{7,}\b'
+  member_id: '(?i)\b(?:member|subscriber|policy|plan)\s+(?:id|no\.?|number|#)\s*:?\s*[A-Z0-9-]*\d'
+  zip_code: '\b[A-Z]{2}\s+\d{5}\b'
+  full_date: '\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b'
+  # "3 Oct 2026" and "3 Oct": a day before an abbreviated or full month.
+  date_day_month: '(?i)\b\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\b'
+  date_without_year: '\b\d{1,2}/\d{1,2}\b|(?i:\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?\b)'
+  age_over_89: '(?i)\b(?:9\d|1[0-4]\d)[- ]years?[- ]old\b|\bage[d:]?\s*(?:9\d|1[0-4]\d)\b|\b(?:9\d|1[0-4]\d)\s*(?:yo|y/o|y\.o\.)(?!\w)'
+  honorific_name: '\b(?:Mr|Mrs|Ms|Miss)\.?\s+[A-Z][a-z]+'
