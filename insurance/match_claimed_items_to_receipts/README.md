@@ -305,6 +305,8 @@ the extraction model. Break any one of those rules and a check fails.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-match-claimed-items-to-receipts)).
 
@@ -318,7 +320,7 @@ uv run --group data make_data.py   # optional: rewrite data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. A run makes 33 SIE calls on this data: 17 to the OCR
 model (one per photo) and 16 to the extraction model (one per window; the unreadable photo gets
-none). The first calls can wait a few minutes while SIE Cloud starts the OCR and extraction
+none). The first calls can wait a few minutes while SIE Serverless starts the OCR and extraction
 models; our run on 2026-11-04 (UTC) took 45 s with the models
 already warm.
 
@@ -428,7 +430,7 @@ A few things worth noticing:
   the photo.
 - **The safety nets didn't fire on this run, and that's fine.** Every handwritten line with a
   price on it was read as an item, no receipt read two different totals or dates, and GLiNER2
-  never hit SIE Cloud's empty-result error. Every handwritten inventory's items, plus its sales
+  never hit SIE Serverless's empty-result error. Every handwritten inventory's items, plus its sales
   tax, made its written total. If GLiNER2 skipped a line like "Mixing bowls (2)", the inventory
   line check would name that line and the total check would show the gap, so the claim couldn't
   come out clean on the items that were read.
@@ -464,7 +466,7 @@ and `after_loss` items are theirs to judge, and valuation under the policy comes
   actual cash value, and it does not decide what the policy covers. It doesn't check that the
   claim number written on the inventory is this claim's. It reads the photos, matches the items
   and lists the gaps, so the handler starts from the exceptions.
-- **Known SIE Cloud issue.** When GLiNER2 finds no field in a window, SIE Cloud currently answers
+- **Known SIE Serverless issue.** When GLiNER2 finds no field in a window, SIE Serverless currently answers
   the `output_schema` call with HTTP 500 "Inference completed without a valid conserved billing
   settlement". The recipe sends one window per call and records that answer as "no fields found"
   in the claim's notes. A field that is never found sends the claim to review, never past it.
@@ -478,7 +480,7 @@ and `after_loss` items are theirs to judge, and valuation under the policy comes
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on this data on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe on this data on SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

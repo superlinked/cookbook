@@ -25,7 +25,7 @@ Output:    completion_forms.csv (one draft per order) and drafts.json (every fie
            CMMS record is saved; nothing is written to the CMMS.
 Why SIE:   Two small encoder models; no generative model fills or decides anything. The
            picklists and schema are data you edit in rules.yaml, and there is nothing to host.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -66,7 +66,7 @@ RUNS_DIR = ROOT / "runs"
 WAIT_S = 900
 # How much of an SIE error message goes into a per-field reason or the summary line.
 ERROR_CHARS = 200
-# When GLiNER2 finds nothing at all, SIE Cloud can answer an output_schema call with HTTP 500
+# When GLiNER2 finds nothing at all, SIE Serverless can answer an output_schema call with HTTP 500
 # and this message. We record it as "nothing found"; a missing field can only leave a field
 # blank or flag a required one, never fill it.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"

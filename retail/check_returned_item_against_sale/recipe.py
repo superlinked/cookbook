@@ -20,10 +20,10 @@ Output:    guidance.json, guidance.csv and guidance.md in runs/<timestamp>/: per
            guidance (accept, inspect or refer) with every reason, the product check, the
            condition answers and the packaging text. It is guidance for the associate, not a
            decision: a person decides every return, and a manager decides every `refer`.
-Why SIE:   Both models run on SIE Cloud. The model answers questions; plain Python you can read
+Why SIE:   Both models run on SIE Serverless. The model answers questions; plain Python you can read
            line by line turns the answers and the policy into guidance, and no generative model
            makes the decision. Nothing to host.
-Runs on:   SIE Cloud.
+Runs on:   SIE Serverless.
 
     uv run recipe.py
 """

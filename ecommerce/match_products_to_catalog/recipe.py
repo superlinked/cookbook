@@ -39,7 +39,7 @@ Output:    proposals.csv (one row per incoming record: status, the PIM action it
            found; the data steward approves or changes every action in the PIM.
 Why SIE:   Three models behind one endpoint; the vision-language model sees only the pairs the
            identifiers, embeddings and attribute rules leave unsure.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py   # calls SIE, writes runs/<timestamp>/
 """

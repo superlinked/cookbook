@@ -28,7 +28,7 @@ Why SIE:   Two small encoder models; no generative model makes the decision. The
            the routing catalog itself: add a team with a description and the next run can
            route to it, with no training. Each model is called once per batch of windows;
            nothing to host.
-Runs on:   SIE Cloud.
+Runs on:   SIE Serverless.
 
     uv run recipe.py
 """

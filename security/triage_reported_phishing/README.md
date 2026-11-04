@@ -234,7 +234,7 @@ in Python. For the verdict it takes each label's highest score over the windows 
 them to sum to 1. That's a heuristic of ours, not the model's output: it keeps the one window
 that holds the lure from being averaged away, but a 0.99 `phishing` window next to a 0.99
 `benign` one merges to about 0.5 each. The small margin then sends the email to an analyst,
-which is the right place for it. It's one SIE Cloud call per model per batch (plus the
+which is the right place for it. It's one SIE Serverless call per model per batch (plus the
 one-window-at-a-time calls when the empty-result 500 described below shows up), and you host
 nothing. If you're working with
 long threat reports rather than emails, see the
@@ -379,7 +379,7 @@ any other error that may pass (a timeout, a model still loading, a 5xx, a rate l
 reads `The model may still be starting or SIE is busy; run again in a few minutes.` instead.
 Routing all seven emails to an analyst with the same error would only hide the real problem.
 
-One SIE quirk the recipe works around: when gliner2 finds no spans in a window, SIE Cloud has
+One SIE quirk the recipe works around: when gliner2 finds no spans in a window, SIE Serverless has
 answered with an HTTP 500 instead of an empty list. That's our reading of the runs we watched,
 not documented SIE behavior. The recipe then calls again one window at a time (one extra call
 per window in that batch), reads a window that still fails as "no entity spans", and adds an
@@ -387,6 +387,8 @@ analyst reason, since a missed payment request would otherwise go unseen. The ru
 many windows that happened to.
 
 ## Run it
+
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-reported-phishing).** You pay per call and there are no GPUs to run.
 
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-reported-phishing)).
@@ -399,7 +401,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. If you'd rather write somewhere else, pass
-`--output DIR`. The first call can wait a few minutes while SIE Cloud starts the two models. To
+`--output DIR`. The first call can wait a few minutes while SIE Serverless starts the two models. To
 regenerate the emails, run `uv run make_data.py`.
 
 To check the parsing and rules without calling SIE, run `uv run --frozen python selfcheck.py`
@@ -584,13 +586,13 @@ quarantine or block anything.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud.
+nothing else, and ran the recipe on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `entities` | `fastino/gliner2-base-v1` | Same verdicts, routes, 37 IOCs and 13 observables for all 7 emails (rerun on 2 Nov 2026 UTC with only that line changed). Only the span columns changed: it found more urgency on 01 ("today", "within 24 hours", "now"), missed "12 hours" on 05, tagged "Thursday evening" as urgency on the benign 04, and named "Larkfield IT Service Desk" rather than the addressee "Priya" as the sender of 06. |
 
-SIE Cloud has no other model for `verdict` (GLiNER2.5-Decide) yet. SIE's catalog has
+SIE Serverless has no other model for `verdict` (GLiNER2.5-Decide) yet. SIE's catalog has
 `fastino/GLiNER2.5-Decide-1B` and `fastino/GLiNER2.5-multi-Decide` to self-host, but we haven't
 run them here. [MODELS.md](../../MODELS.md) lists every model these recipes use.
 

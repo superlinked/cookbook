@@ -148,7 +148,7 @@ Then we combine the answers. The most severe one wins: block beats review, revie
 The guard is `Qwen/Qwen3Guard-Gen-4B`. It's a small moderation model that reads a prompt and
 answers in two lines, `Safety: Safe|Controversial|Unsafe` and `Categories: ...`. Its chat
 template wraps the prompt in its own moderation policy, so we send the prompt as the only user
-message and parse the answer. At 4B parameters it runs on a single L4, and on SIE Cloud it's one
+message and parse the answer. At 4B parameters it runs on a single L4, and on SIE Serverless it's one
 chat call per prompt with nothing for you to host.
 
 SIE's [guardrails page](https://superlinked.com/guardrails?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts) is where this model comes from: on
@@ -244,6 +244,8 @@ key, and ones with escaped or bold Markdown), so you can change `rules.yaml` and
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-screen-assistant-prompts)).
 
@@ -254,7 +256,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Cloud
+writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Serverless
 starts the models, which is a good moment to get a coffee. A warm run takes about 10 seconds.
 
 ## What came out
@@ -428,7 +430,7 @@ that's the cost of mapping Controversial to review.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 2026-10-31 (UTC) we checked the one
-alternative SIE Cloud offers for `guard`, and didn't run it, because it isn't a drop-in.
+alternative SIE Serverless offers for `guard`, and didn't run it, because it isn't a drop-in.
 `ibm-granite/granite-guardian-3.0-2b` answers Yes or No, while `recipe.py` reads a
 "Safety: Safe|Unsafe|Controversial" line, so every prompt the guard sees would land in review as
 "no readable verdict". To use it, change `parse_guard` and the `verdicts` map. We haven't tried

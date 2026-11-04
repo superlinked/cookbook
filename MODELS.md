@@ -2,7 +2,7 @@
 
 Every model the recipes call, with the recipes that use it. All of them are open-weight models served
 by [SIE](https://github.com/superlinked/sie). The id is what goes in a recipe's `rules.yaml`, the
-same on SIE Cloud and on your own SIE. "Image" is the SIE v0.10.1 image that serves the model
+same on SIE Serverless and on your own SIE. "Image" is the SIE v0.10.1 image that serves the model
 when you host it yourself (see [SELF_HOSTING.md](SELF_HOSTING.md)). Check each license on the
 model card before you rely on it.
 
@@ -29,7 +29,7 @@ model card before you rely on it.
 ## Swaps we ran
 
 Between 31 Oct and 4 Nov 2026 (the date is in each recipe's README) we swapped one model at a time in each recipe's `rules.yaml` and ran the recipe on
-SIE Cloud with nothing else changed. A row that says a swap did not run was checked but not run.
+SIE Serverless with nothing else changed. A row that says a swap did not run was checked but not run.
 Each recipe README's "Try another model" section has the details. The short version:
 
 | Default | Swap | How it went |
@@ -39,7 +39,7 @@ Each recipe README's "Try another model" section has the details. The short vers
 | `Qwen/Qwen3-Embedding-4B` | `tencent/R3-embedding-0.6b`, `Snowflake/snowflake-arctic-embed-l-v2.0` | Fine for retrieval in keep_facts_current_from_notes. Breaks the fixed cosine thresholds in match_alerts_to_runbooks (17 to 19 groups instead of 5) and moves categorize_products_into_taxonomy's shortlist. |
 | `fastino/gliner2-large-v1` | `fastino/gliner2-base-v1` | Close on routing and phishing, better on check_delivery_against_po, clearly worse on fill_work_order_from_notes (0 of 10 forms passed). Misses fields in forms and clinical notes (add_outside_notes_to_chart missed an allergy conflict) |
 | `Qwen/Qwen3.8-27B-FP8` | `Qwen/Qwen3.5-4B` | Same decisions in check_citations_against_sources, draft_postmortem_from_incident_data and answer_from_equipment_manual, and same guidance on all 7 returns in check_returned_item_against_sale. Same totals in check_contracts_for_required_clauses (2 of 40 rows differ, both from the "..." rule). Weaker where quotes are checked: answer_questions_on_new_filing 6 of 8 rows, create_coverage_brief_for_claim 4 of 10 claims, keep_facts_current_from_notes 8 of 10 facts. |
-| `Qwen/Qwen3.8-27B-FP8` | `google/gemma-4-31B-it` | Did not run in the document recipes: SIE Cloud answered "Generation route is unavailable for this deployment" every time. |
+| `Qwen/Qwen3.8-27B-FP8` | `google/gemma-4-31B-it` | Did not run in the document recipes: SIE Serverless answered "Generation route is unavailable for this deployment" every time. |
 | `lightonai/LightOnOCR-3-4B` | `lightonai/LightOnOCR-2-1B` | Same results in process_faxed_referrals and check_contracts_for_required_clauses; check_invoice_against_claim came out 10 of 10 (it left the blank tax line blank), and match_claimed_items_to_receipts 7 of 8 (it read the blurred photo in CLM-26-1006 as readable). Found no MRZ or ID-card fields in check_kyc_documents_against_policy, so all 12 cases went to review, and keep_facts_current_from_notes lost two fields on a photo (8 of 10). |
 | `lightonai/LightOnOCR-3-4B` | `zai-org/GLM-OCR` | Reads the text, but its table layout does not fit the recipes' parser, so check_invoice_against_claim and check_delivery_against_po lose every field. Same results in process_faxed_referrals, keep_facts_current_from_notes and check_contracts_for_required_clauses. Leaves out page footers (index_and_check_received_documents lost its Bates stamps). Runs away on MRZ lines and invented a receipt from a blurred photo. |
 | `superlinked/pii-redact` | `urchade/gliner_multi_pii-v1` | Same statuses in most documents, different labels. In redact_logs_before_sharing (rerun 4 Nov 2026) it missed a reset token, so the final sweep blocked the checkout log, and it tagged a source line (`worker.py:41`) as a URL. |
@@ -50,12 +50,12 @@ Each recipe README's "Try another model" section has the details. The short vers
 | `facebook/sam3` | `IDEA-Research/grounding-dino-base`, `google/owlv2-base-patch16-ensemble` | Missed every missing bolt in the sample photos of check_parts_in_assembly_photos. The thresholds are set on SAM 3's scores. |
 | `zai-org/GLM-OCR` | `lightonai/LightOnOCR-3-4B` | Same guidance on all 7 returns in check_returned_item_against_sale. In check_shelf_from_photo (before the vision step) it read two tag UPCs GLM-OCR missed, but its table output sent other tags to review. |
 | `Qwen/Qwen3Guard-Gen-4B` | `ibm-granite/granite-guardian-3.0-2b` | Did not run: it is not a drop-in, because it answers Yes/No, not "Safety: ...". |
-| `fastino/GLiNER2.5-Decide`, `knowledgator/gliner-relex-large-v1.0`, `TomoroAI/tomoro-colqwen3-embed-4b` | none | SIE Cloud has no same-API alternative yet; the other tomoro profiles returned HTTP 503. |
+| `fastino/GLiNER2.5-Decide`, `knowledgator/gliner-relex-large-v1.0`, `TomoroAI/tomoro-colqwen3-embed-4b` | none | SIE Serverless has no same-API alternative yet; the other tomoro profiles returned HTTP 503. |
 
 ## Other models
 
 SIE serves over 200 models: embedders, rerankers, extractors, OCR, detectors, guards and LLMs.
 [`packages/sie_server/models`](https://github.com/superlinked/sie/tree/main/packages/sie_server/models)
 has one config per model, and [superlinked.com/models](https://superlinked.com/models?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=models) lists them by
-task. SIE Cloud serves a subset; the full list is at `GET https://api.superlinked.com/v1/models`
+task. SIE Serverless serves a subset; the full list is at `GET https://api.superlinked.com/v1/models`
 with your API key.

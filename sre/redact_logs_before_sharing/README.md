@@ -182,8 +182,8 @@ There's one model here, `superlinked/pii-redact`, called once per window of at m
 On this bundle every file fits in one window, so a run makes 3 calls. Log lines are token-dense
 (a UUID is a dozen or more model tokens), so the windows sit well under the model's limit, and
 each call asks SIE to fail rather than cut a window short: a window that still doesn't fit blocks
-its file as not read. In our test SIE Cloud read a 600-word, UUID-dense text to its end, so the
-window size is a margin, not a measured limit. It's SIE Cloud's PII model: two span
+its file as not read. In our test SIE Serverless read a 600-word, UUID-dense text to its end, so the
+window size is a margin, not a measured limit. It's SIE Serverless's PII model: two span
 extractors, `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero`, composed on the server, with
 spans scoring 0.6 or more kept, the two models' spans unioned and person names propagated. You give it a list of labels (here its 36 default personal-data types plus
 `organization`, all in `rules.yaml`) and it returns spans with a label, offsets and a score
@@ -261,6 +261,8 @@ reply missing its key). It never calls SIE.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-redact-logs-before-sharing).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-redact-logs-before-sharing)).
 
@@ -271,7 +273,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts the
 PII model. A warm run takes about 2 seconds.
 
 ## What came out
@@ -427,7 +429,7 @@ recipe never uploads anything.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe on SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

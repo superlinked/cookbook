@@ -262,6 +262,8 @@ data files.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-match-alerts-to-runbooks)).
 
@@ -275,7 +277,7 @@ uv run make_data.py    # optional: rewrite data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`; `--output DIR` changes that. A run makes 12 SIE calls on this data: 1
 to the embedder, 6 to the reranker (one per group without a link) and 5 to the note model. The
-first calls can wait a few minutes while SIE Cloud starts the three models; our runs on
+first calls can wait a few minutes while SIE Serverless starts the three models; our runs on
 2026-11-04 (UTC), with the models already warm, took 17 s and 19 s.
 
 ## What came out
@@ -440,7 +442,7 @@ the runbook matches.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 31 Oct 2026, on the earlier version of this data
+nothing else, and ran the recipe on SIE Serverless on 31 Oct 2026, on the earlier version of this data
 (the same 28 production alerts as flat records, without the linked and staging alerts or the
 environment split). We haven't rerun the swaps on the 32-alert storm, and the status names were
 then `runbook` and `no_runbook` (now `runbook_suggested` and `no_confident_match`).
@@ -452,7 +454,7 @@ then `runbook` and `no_runbook` (now `runbook_suggested` and `no_confident_match
 | `rerank` | `Qwen/Qwen3-Reranker-0.6B` | Same 5 groups, same runbook for each and the Kafka group still a gap. Top scores 0.995 to 0.999, the gap 0.0004, so 0.50 still splits them widely. |
 | `rerank` | `tencent/R3-rerank-0.6b` | Same 5 groups and same runbooks, but the scores are squeezed: matches 0.74 to 0.77, the Kafka gap 0.27. 0.50 still separates them, with far less room. |
 | `note` | `Qwen/Qwen3.5-4B` | All 4 notes written. 3 passed the checks; the ad group's note cited no runbook, so it went to `needs_review`. |
-| `note` | `google/gemma-4-31B-it` | Did not run: SIE Cloud answered "Generation route is unavailable for this deployment" on both tries. |
+| `note` | `google/gemma-4-31B-it` | Did not run: SIE Serverless answered "Generation route is unavailable for this deployment" on both tries. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

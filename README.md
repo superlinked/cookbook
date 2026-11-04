@@ -7,13 +7,15 @@
 Example apps built on open models served by [SIE](https://github.com/superlinked/sie), the
 Superlinked Inference Engine. Each recipe is one job a team does every week, such as redacting
 chats or triaging phishing, built from SIE model calls plus rules in plain Python and YAML that
-you can read and change. The same code runs on [SIE Cloud](https://superlinked.com/?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or on an SIE
+you can read and change. The same code runs on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) or on an SIE
 you host yourself.
 
 Every recipe is its own folder with its own `pyproject.toml` and `uv.lock`, so you install only
 what that recipe needs. Copy a folder into your own project and it still runs.
 
 ## Run a recipe
+
+**Try a recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme).** You pay per call and there are no GPUs to run.
 
 You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme)).
@@ -43,7 +45,7 @@ All the data in these recipes is synthetic or comes from public datasets named i
 
 ## Recipes
 
-Run time is a warm live run on SIE Cloud, on the date in each recipe's README (2 to 4 Nov 2026
+Run time is a warm live run on SIE Serverless, on the date in each recipe's README (2 to 4 Nov 2026
 for most). A run that has to start a cold model can take several minutes longer. Calls counts the
 recipe's SIE requests (one request can carry many items).
 
@@ -150,5 +152,5 @@ runs the per-recipe checks listed in
 ## Future work
 
 - **Scheduled live runs.** CI checks every recipe without calling SIE; the `Live` workflow runs
-  recipes against SIE Cloud only when a maintainer starts it. A weekly scheduled run of a few
+  recipes against SIE Serverless only when a maintainer starts it. A weekly scheduled run of a few
   recipes would catch model drift early. It spends SIE credits, so it is not on yet.

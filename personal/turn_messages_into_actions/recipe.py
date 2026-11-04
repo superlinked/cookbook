@@ -32,7 +32,7 @@ Output:    proposals.json, todo.md, events.ics and messages.json in runs/<timest
 Why SIE:   Four small specialist models, each called only where it's needed; no generative
            model makes the decision. Dates, amounts, duplicates and the calendar and payee
            checks are plain Python you can read below.
-Runs on:   SIE Cloud.
+Runs on:   SIE Serverless.
 
     uv run recipe.py
 """
@@ -86,7 +86,7 @@ ERROR_CHARS = 200
 QUESTION_ID = "action_type"
 TRANSCRIBE_OPTIONS = {"timestamp_granularities": ["segment"]}
 MAX_IMAGE_EDGE_PX = 2048  # LightOnOCR's recommended longest edge
-# When GLiNER2 finds nothing, SIE Cloud answers the output_schema call with HTTP 500 and this
+# When GLiNER2 finds nothing, SIE Serverless answers the output_schema call with HTTP 500 and this
 # message. We record it as "no fields found"; a missing field can only make a question, and a
 # message with no fields at all is a question too.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"
@@ -221,7 +221,7 @@ class Calls:
         A refusal (see `is_fatal`) stops the run with SIEStopped. Any other SIE error, and a
         reply without `key`, is recorded and raised as CallFailed, so the caller turns its
         message into a question and the run goes on. With `empty_result_ok` (the GLiNER2
-        calls), SIE Cloud's empty-result HTTP 500 is a reply with nothing in it, not a failure.
+        calls), SIE Serverless's empty-result HTTP 500 is a reply with nothing in it, not a failure.
         An error that isn't an SIE error is a bug in this code and is raised as is.
         """
         self.count[model] = self.count.get(model, 0) + 1
@@ -633,7 +633,9 @@ def extract_fields(
             found.questions.append(f"I could not read the details of this message ({failed}).")
             continue
         if reply.get("empty_result_error"):
-            found.notes.append(f"Window {index}: no fields found (SIE Cloud answered HTTP 500)")
+            found.notes.append(
+                f"Window {index}: no fields found (SIE Serverless answered HTTP 500)"
+            )
         data = reply["data"] if isinstance(reply["data"], dict) else {}
         for name, value in data.items():
             if name not in rules["fields"] or not isinstance(value, str):

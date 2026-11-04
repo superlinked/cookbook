@@ -183,7 +183,7 @@ bore comes back as a `hole` at 0.93 to 0.96, which the size limit throws out. Th
 call exist because the raw boxes need that cleaning.
 
 It is released under the SAM License, which is not an OSI license; read it at
-<https://huggingface.co/facebook/sam3> before you rely on it. Two other detectors on SIE Cloud
+<https://huggingface.co/facebook/sam3> before you rely on it. Two other detectors on SIE Serverless
 take the same call and return the same shape; neither came close on these photos (see Try
 another model).
 
@@ -236,6 +236,8 @@ photos.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos)).
 
@@ -247,7 +249,7 @@ uv run make_data.py    # optional: redraw data/
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts SAM 3.
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts SAM 3.
 Once it's warm, the 10 photos take a few seconds.
 
 The run writes:
@@ -398,7 +400,7 @@ since the recipe says nothing about torque.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 2026-11-03 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud on all 10 photos.
+at a time, changed nothing else, and ran the recipe on SIE Serverless on all 10 photos.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

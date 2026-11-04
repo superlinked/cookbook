@@ -14,7 +14,7 @@ body:
     attributes:
       label: Where did it run?
       options:
-        - SIE Cloud
+        - SIE Serverless
         - My own SIE (docker run)
         - My own SIE (Helm cluster)
     validations:

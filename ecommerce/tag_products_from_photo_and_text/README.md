@@ -234,6 +234,8 @@ offline, with hand-written strings and stand-in model replies.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-tag-products-from-photo-and-text)).
 
@@ -245,7 +247,7 @@ uv run make_data.py    # optional: rebuild data/ from ABO
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Cloud
+writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Serverless
 starts the model. A warm run makes 18 SIE calls, one per listing, and takes about 34 seconds.
 `make_data.py` streams all 16 ABO listings files (about 88 MB, nothing saved) and 18 photos, and
 writes the same files byte for byte.
@@ -395,7 +397,7 @@ the catalog for every listing; the recipe writes nothing back.
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped it,
-changed nothing else, and ran the recipe on SIE Cloud.
+changed nothing else, and ran the recipe on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

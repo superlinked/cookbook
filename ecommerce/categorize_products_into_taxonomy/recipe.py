@@ -31,7 +31,7 @@ Output:    catalog.csv (one row per product in an import layout, with its status
 Why SIE:   Thousands of categories and no classifier to train: swap the taxonomy file and the
            same calls classify into it. No generative model makes the decision; plain Python
            reading rules.yaml does.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -77,7 +77,7 @@ WAIT_S = 900
 ERROR_CHARS = 200
 # A cell starting with one of these is a formula to a spreadsheet; csv_safe quotes it.
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
-# When GLiNER2 finds nothing, SIE Cloud answers the output_schema call with HTTP 500 and this
+# When GLiNER2 finds nothing, SIE Serverless answers the output_schema call with HTTP 500 and this
 # message. It is not a failed call (no retry helps), but the window counts as not read: the row
 # goes to review with that reason, so another window can never quietly fill in for it.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"

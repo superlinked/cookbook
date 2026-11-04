@@ -593,7 +593,7 @@ def check_sie_failure() -> None:
     assert "replied without 'data'" in results[0].flagged[0].detail, results[0].flagged
     results, _, _ = run(replies={"extract/lot-01/certificate": {"data": {}}})
     assert "readable" not in [c.check for c in results[0].flagged], results[0].flagged
-    # SIE Cloud's empty-result 500 reads as "no fields", not a failed call.
+    # SIE Serverless's empty-result 500 reads as "no fields", not a failed call.
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     results, _, _ = run(errors={"extract/lot-01/inspection_report": [empty]})
     assert "readable" not in [c.check for c in results[0].flagged]

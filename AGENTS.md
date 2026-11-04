@@ -36,7 +36,7 @@ Run everything from inside the recipe folder:
 A live run needs `SIE_API_KEY` in a `.env` in the
 recipe folder or the repo root, or `SIE_BASE_URL` pointing at a self-hosted SIE
 (the key is then optional).
-The first call can wait minutes while SIE Cloud starts a cold model.
+The first call can wait minutes while SIE Serverless starts a cold model.
 
 ## Development boundaries
 
@@ -66,7 +66,7 @@ The first call can wait minutes while SIE Cloud starts a cold model.
   `data/`, a line saying whether they're synthetic or from a public dataset and under which
   license, and what should happen to each), how the flow solves it, why each
   model, the flow as a Mermaid chart, how it's built (rules vs code, a step
-  table naming the functions), how to run it, what came out (`### The three
+  table naming the functions), how to run it (opening with the SIE Serverless line), what came out (`### The three
   examples`, or `### The two examples`, in the same shape as `### Examples`, ending each one with a `Pass.`
   or `Miss.` verdict, then `### Results` with "N of M emails came out as
   expected" on the live run, using the recipe's own noun for emails, then

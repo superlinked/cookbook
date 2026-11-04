@@ -252,6 +252,8 @@ name inside `data/`. [`make_data.py`](./make_data.py) draws the invoices and wri
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim)).
 
@@ -265,7 +267,7 @@ uv run make_data.py    # optional: rewrite data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. A run makes 30 SIE calls on this data: 10 to the OCR model (one per page) and 20 to the extraction
 model (two per window, one window per invoice). The first calls can wait a few minutes while SIE
-Cloud starts the OCR and extraction models. On 2026-11-04 (UTC) a run that waited for them took
+Serverless starts the OCR and extraction models. On 2026-11-04 (UTC) a run that waited for them took
 138 s; with both models warm it took 57 s.
 
 ## What came out
@@ -412,7 +414,7 @@ ask the shop for a corrected invoice or take a closer look at the vendor or the 
   on the claim, so the same invoice sent twice would pass twice; the claims system's payment
   history would catch it. It also doesn't check the tax amount against the printed rate, since
   many states tax parts and not labor; a per-state rule in `rules.yaml` could.
-- **Known SIE Cloud issue.** When GLiNER2 finds nothing in a window, SIE Cloud currently answers
+- **Known SIE Serverless issue.** When GLiNER2 finds nothing in a window, SIE Serverless currently answers
   the call with HTTP 500 "Inference completed without a valid conserved billing settlement". The
   recipe sends one window per call, so the error only hits that window, and records the answer
   as "none found" in the invoice's notes. A field that is never found sends its check to review,
@@ -421,7 +423,7 @@ ask the shop for a corrected invoice or take a closer look at the vendor or the 
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe on SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

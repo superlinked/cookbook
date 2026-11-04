@@ -232,6 +232,8 @@ with hand-written alerts and stand-in model replies.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners)).
 
@@ -243,7 +245,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`; `--output DIR` changes that. The first call can wait a few minutes
-while SIE Cloud starts the GLiNER2.5-Decide model. A warm run makes 5 SIE calls, one per alert
+while SIE Serverless starts the GLiNER2.5-Decide model. A warm run makes 5 SIE calls, one per alert
 the records can't place, and takes about 2 seconds.
 
 ## What came out
@@ -362,11 +364,11 @@ alert routes itself: the missing alias or a route on `app`, `edge` in the namesp
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we tried
-`fastino/gliner2-large-v1`, the other GLiNER2 model on SIE Cloud, with nothing else changed. SIE
+`fastino/gliner2-large-v1`, the other GLiNER2 model on SIE Serverless, with nothing else changed. SIE
 refused the first call with HTTP 400 (`INVALID_INPUT`: "GLiNER2 output_schema root type must be
 object"), so the run stopped with that message and wrote nothing, which is the refusal rule
 doing its job. It takes a different schema shape, so it isn't a drop-in swap, and
-GLiNER2.5-Decide is the only model on SIE Cloud that answers this choice question as written.
+GLiNER2.5-Decide is the only model on SIE Serverless that answers this choice question as written.
 See [MODELS.md](../../MODELS.md) for every model these recipes use and for models you can
 self-host.
 

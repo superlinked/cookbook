@@ -233,6 +233,8 @@ hand-written files.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-search-clinical-guidance)).
 
@@ -245,7 +247,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. The
 sample run writes `runs/<timestamp>/`; one search only prints its page. The first call can wait a
-few minutes while SIE Cloud starts the reranker. A warm sample run makes 16 SIE calls (9 passage
+few minutes while SIE Serverless starts the reranker. A warm sample run makes 16 SIE calls (9 passage
 calls and 7 sentence calls; the two searches with nothing to show skip the second) and took about
 6 seconds.
 
@@ -388,7 +390,7 @@ guidance to write or update. Nobody else sees the gap log.
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped it,
-changed nothing else, and ran the 9 sample searches on SIE Cloud.
+changed nothing else, and ran the 9 sample searches on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

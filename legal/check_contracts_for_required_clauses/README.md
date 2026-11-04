@@ -283,6 +283,8 @@ writes the contracts and the register.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-contracts-for-required-clauses)).
 
@@ -295,7 +297,7 @@ uv run --group data make_data.py    # optional: rewrite data/
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder: `report.csv` and a `gaps/` folder. The first call can
-wait a few minutes while SIE Cloud starts the reader, reranker and LLM models. With the models
+wait a few minutes while SIE Serverless starts the reader, reranker and LLM models. With the models
 warm, our run on 2026-11-04 (UTC) took 90 s for its 96 calls.
 
 ## What came out
@@ -458,7 +460,7 @@ and the vendor-risk analyst records the review in the register.
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time and
 changed nothing else. The `verdict` swap to `Qwen/Qwen3.5-4B` ran on these five packages. The
-OCR, reranker and Gemma swaps ran on SIE Cloud on 31 Oct 2026 on a smaller set: three scanned
+OCR, reranker and Gemma swaps ran on SIE Serverless on 31 Oct 2026 on a smaller set: three scanned
 contracts and 24 rows, with no register, no amendment and no unreadable page. They haven't been
 run on the five packages here.
 
@@ -468,7 +470,7 @@ run on the five packages here.
 | `ocr` | `lightonai/LightOnOCR-2-1B` | Same verdict and page for all 24 rows; 17 of 24 quotes are word for word the same, the rest differ in small wording (three scanned contracts). |
 | `rerank` | `Qwen/Qwen3-Reranker-0.6B` | Same verdict and page for all 24 rows (three scanned contracts). |
 | `rerank` | `tencent/R3-rerank-0.6b` | Same verdict and page for all 24 rows (three scanned contracts). Its scores are on a lower scale, which does not matter here: the recipe passes the top 3 paragraphs, not a score threshold. |
-| `verdict` | `google/gemma-4-31B-it` | Did not run: SIE Cloud answered "Generation route is unavailable for this deployment" on two tries. |
+| `verdict` | `google/gemma-4-31B-it` | Did not run: SIE Serverless answered "Generation route is unavailable for this deployment" on two tries. |
 | `verdict` | `Qwen/Qwen3.5-4B` | Run on the five packages on 2026-11-04 (UTC): 27 `found`, 11 `needs_review`, 2 `not_found`, the same totals as the default, and every case we wrote in as above. The same status on 38 of 40 rows. The two that differ are both the "..." rule: it quoted Brindlecote's incident clause in full (`found`, where the default shortened it), and it ended Brennick's termination quote with "..." (`needs_review`, where the default said `found`). Same document and page for 36 of 40: for `service_levels` it cited the review sentence on page 1 instead of Schedule 2 on page 3, on the four contracts that weren't held back. 10 of 40 quotes are word for word the same. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.

@@ -252,6 +252,8 @@ EDGAR; it reproduced the committed file byte for byte on 4 Nov 2026 (UTC).
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-answer-questions-on-new-filing).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-answer-questions-on-new-filing)).
 
@@ -262,7 +264,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Serverless starts the
 reranker and the answer model. `--output DIR` changes the output directory. A warm run makes 28
 SIE calls (16 rerank calls, one per question per filing, and 12 answer calls, since the two
 questions with no passage above the threshold skip the answer step in both years) and took
@@ -405,7 +407,7 @@ financial model and the note.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud.
+at a time, changed nothing else, and ran the recipe on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

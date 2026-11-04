@@ -26,7 +26,7 @@ Output:    results.json (every search with its status, shown results and candida
            The status says what the shopper sees; the search team decides what to fix.
 Why SIE:   Photos and words land in one vector space from one model, so the same catalog index
            answers every kind of search. No generative model makes any decision. Nothing to host.
-Runs on:   SIE Cloud.
+Runs on:   SIE Serverless.
 
     uv run recipe.py
 """

@@ -272,6 +272,8 @@ the SIE error rule, offline, with hand-written records and stand-in model replie
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-match-products-to-catalog)).
 
@@ -283,7 +285,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. The first calls can wait a few minutes while SIE
-Cloud starts the image, text and vision-language models. A warm run makes 15 SIE calls (one
+Serverless starts the image, text and vision-language models. A warm run makes 15 SIE calls (one
 photo `encode`, one title `encode` and 13 judge calls) and took 16 seconds on our last run. To
 rebuild the data from ABO, run `uv run make_data.py`.
 
@@ -464,7 +466,7 @@ Then the steward runs the import, and the existing catalog record is always the 
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud. These swaps ran before the
+at a time, changed nothing else, and ran the recipe on SIE Serverless. These swaps ran before the
 material rule, so records not named came out as in the first main run (L24, L28 and L30 linked);
 with the rule, those three go to review before any judge sees them, whatever the judge model.
 
@@ -475,7 +477,7 @@ with the rule, those three go to review before any judge sees them, whatever the
 | `text` | `Snowflake/snowflake-arctic-embed-l-v2.0` | The same two changes as R3: L01 `different`, L43 `likely_variant`. 12 judge calls |
 | `judge` | `Qwen/Qwen3.5-4B` | Same proposals except L01: it called L01 vs L04 a variant with high confidence instead of being unsure, so L01 linked to L02 as `likely_same_product`, which is probably right. It also called L08 the same as both hammers and L30 the same as L29, like the 27B model. 16 judge calls, 64 seconds |
 
-The `judge` swap to `google/gemma-4-31B-it` didn't run on 31 Oct 2026: SIE Cloud answered
+The `judge` swap to `google/gemma-4-31B-it` didn't run on 31 Oct 2026: SIE Serverless answered
 "Generation route is unavailable for this deployment" to every call. The embedding swaps are the
 ones to watch: the thresholds in `rules.yaml` are cosine values set on the default models, and a
 different model puts the same pairs at different numbers.

@@ -256,6 +256,8 @@ and with `--esci` rebuilds the PIM seed from ESCI.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-rerank-search-within-filters).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-rerank-search-within-filters)).
 
@@ -270,7 +272,7 @@ uv run --group data make_data.py   # optional: rebuild data/inventory.csv and da
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. The
 sample run writes `runs/<timestamp>/`; one search only prints. The first call can wait a few
-minutes while SIE Cloud starts the reranker. A warm sample run makes 8 SIE calls, one per query,
+minutes while SIE Serverless starts the reranker. A warm sample run makes 8 SIE calls, one per query,
 and took about 5 seconds.
 
 ## What came out
@@ -411,7 +413,7 @@ and each decides whether to fix the record.
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped it,
-changed nothing else, and ran the 8 sample queries on SIE Cloud.
+changed nothing else, and ran the 8 sample queries on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

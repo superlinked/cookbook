@@ -40,10 +40,10 @@ Output:    handover_summary.json, handover_summary.md and masking_report.csv in
            (never the value). A status says what the checks found; the new adjuster reads the
            summary as a reading aid and decides what happens, and a blocked summary goes to the
            claims supervisor and is never saved.
-Why SIE:   Two models on SIE Cloud: one finds account, card and ID numbers in free text, one
+Why SIE:   Two models on SIE Serverless: one finds account, card and ID numbers in free text, one
            writes. The masking rules, the checks against the claims system and the status are
            plain Python reading rules.yaml, so no generative model makes the decision.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

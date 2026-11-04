@@ -22,9 +22,9 @@ Output:    verdicts.csv (a content-based verdict, route auto | analyst and why),
 Why SIE:   The classifier returns a label and scores, never text, so an instruction in an
            email can't make it write anything or drop an IOC. Text can still move its scores,
            so it reads only the visible text; hidden text and instructions aimed at an AI are
-           caught in Python. Two small encoders, one SIE Cloud call per model
+           caught in Python. Two small encoders, one SIE Serverless call per model
            per batch.
-Runs on:   SIE Cloud.
+Runs on:   SIE Serverless.
 
     uv run recipe.py
 """
@@ -78,7 +78,7 @@ SPAN_COLUMNS = (SENDER, URL, DOMAIN, PAYMENT, URGENCY) = (
     "payment_request",
     "urgency",
 )
-# When a GLiNER2 call finds no spans at all, SIE Cloud has answered HTTP 500 with this message
+# When a GLiNER2 call finds no spans at all, SIE Serverless has answered HTTP 500 with this message
 # instead of an empty list. That's our reading of the runs we watched, not documented SIE
 # behavior. Sending the same batch again gives the same 500, so we call again one item at a
 # time, read an item that still fails as "no spans found", and send its email to an analyst.
@@ -848,7 +848,7 @@ def every_call_failed(first: str, connection_error: bool) -> str:
 def _extract_spans(
     client: SIEClient, model: str, batch: list[tuple[str, str]], labels: list[str], opts: Any
 ) -> list[Any]:
-    """One batch call; when SIE Cloud answers the empty-result 500, retry item by item."""
+    """One batch call; when SIE Serverless answers the empty-result 500, retry item by item."""
     try:
         return list(
             client.extract(

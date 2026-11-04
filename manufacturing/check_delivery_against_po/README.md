@@ -306,6 +306,8 @@ counted as "nothing found" only from the extraction model.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-delivery-against-po)).
 
@@ -319,7 +321,7 @@ uv run make_data.py    # optional: rewrite data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. A run makes 52 SIE calls on this data: 28 to the OCR
 model (one per page) and 24 to the extraction model (one per window). The first calls can wait
-a few minutes while SIE Cloud starts the OCR and extraction models; our first run on
+a few minutes while SIE Serverless starts the OCR and extraction models; our first run on
 2026-11-03 (UTC) took 341 s, and warm runs took 188 to 190 s.
 
 ## What came out
@@ -435,7 +437,7 @@ A few things worth noticing:
   assuming the ordered size. On 2026-11-03 it read "10.00 mm" on `lot-06`. On that earlier run,
   the grade span on one certificate ran over a line break into the next box's label
   ("S235JR\nStandard"), which is why Python cuts every span at its first line break. None of the runs
-  on 2026-11-03 hit SIE Cloud's empty-result error or dropped a span.
+  on 2026-11-03 hit SIE Serverless's empty-result error or dropped a span.
 
 ### What you do next
 
@@ -471,7 +473,7 @@ and the inspector still checks the stamp on the plate itself.
   receipt, accept a concession or judge the mill's test method. It reads the documents, checks
   them against the order and the limits, and puts the exceptions in front of quality and the
   buyer with the reason.
-- **Known SIE Cloud issue.** When GLiNER2 finds no field in a window, SIE Cloud currently answers
+- **Known SIE Serverless issue.** When GLiNER2 finds no field in a window, SIE Serverless currently answers
   the `output_schema` call with HTTP 500 "Inference completed without a valid conserved billing
   settlement". The recipe sends one window per call, so the error only hits that window, and
   records the answer as "no fields found" in the lot's notes. A field that is never found sends
@@ -488,7 +490,7 @@ and the inspector still checks the stamp on the plate itself.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 31 Oct 2026, on the earlier 9-lot version of
+nothing else, and ran the recipe on SIE Serverless on 31 Oct 2026, on the earlier 9-lot version of
 this data (before the delivery notes, the inspection plan and the impact check). We haven't
 rerun the swaps on the 12 lots.
 

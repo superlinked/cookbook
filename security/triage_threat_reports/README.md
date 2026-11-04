@@ -153,7 +153,7 @@ guessing; the inventory knows.
 
 **Why NuNER Zero and not gliner2-large-v1.** The job is plain span tagging with three labels.
 There's no structure to fill, so `output_schema` adds nothing. When NuNER Zero finds nothing, it
-returns `entities: []`. When a GLiNER2 model finds no spans, SIE Cloud answers with an HTTP 500
+returns `entities: []`. When a GLiNER2 model finds no spans, SIE Serverless answers with an HTTP 500
 instead of an empty list, with or without `output_schema`, and that fails the whole batch. That's
 our inference from how SIE behaves: `security/triage_reported_phishing` hits the same 500 on a
 plain `labels` call.
@@ -230,7 +230,7 @@ and goes to review.
 | Status | `report_status`, `hunt_indicators` | none | `affects_us` if any ticket, else `review` if any reason, else `hunt` if any well-formed `hunt_types` indicator, else `filed` |
 | Write | `write_outputs`, `ticket_drafts` | none | `tickets/<team>.md`, `hunt.csv` (refanged), `tags.json`, `entities.csv` and `iocs.csv` (defanged) |
 
-`tag_reports()` runs those steps for every report. All windows go to SIE Cloud in one batched call
+`tag_reports()` runs those steps for every report. All windows go to SIE Serverless in one batched call
 (each demo report fits in one window, and 11 windows are under the `batch_size` of 16), and you
 host nothing. With one call, a transient failure on the demo data is also a run where every call
 failed, so it stops the run rather than sending all eleven reports to review.
@@ -255,6 +255,8 @@ run. It runs offline with hand-written strings and stand-in model replies, so yo
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=security-triage-threat-reports)).
 
@@ -266,7 +268,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. If you'd rather write somewhere else, pass
-`--output DIR`. The first call can wait a few minutes while SIE Cloud starts the NuNER Zero
+`--output DIR`. The first call can wait a few minutes while SIE Serverless starts the NuNER Zero
 model. A warm run makes one SIE call and took about a second on our machine, uv start included.
 
 ## What came out
@@ -481,7 +483,7 @@ Everything below lives in `rules.yaml` or a seed unless it says otherwise.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 4 Nov 2026 (UTC) on the eleven reports above.
+nothing else, and ran the recipe on SIE Serverless on 4 Nov 2026 (UTC) on the eleven reports above.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

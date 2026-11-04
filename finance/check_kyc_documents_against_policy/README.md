@@ -265,6 +265,8 @@ model. [`make_data.py`](./make_data.py) draws the scans and writes the onboardin
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy)).
 
@@ -278,7 +280,7 @@ uv run make_data.py    # optional: rewrite data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. A run makes 48 SIE calls on this data: 24 to
 the OCR model (one per page) and 24 to the extraction model (one window per page). `kyc-11`'s ID
-is read once, though it's listed twice. The first calls can wait a few minutes while SIE Cloud
+is read once, though it's listed twice. The first calls can wait a few minutes while SIE Serverless
 starts the models; on 2026-11-04 (UTC) a run that found them still starting took 281 s, and a
 run with both warm took 89 s.
 
@@ -391,7 +393,7 @@ A few things worth noticing:
 - **The label check earned its keep on two bills.** On `kyc-09` and `kyc-12` GLiNER2 offered
   "Eastbrook" as the service address city. It came from the customer service line ("PO Box 812,
   Eastbrook"), not the address, so Python dropped it with a note in the case file and used the
-  labelled address line instead. Neither run hit SIE Cloud's empty-result error, and no field
+  labelled address line instead. Neither run hit SIE Serverless's empty-result error, and no field
   was read two ways.
 
 ### What you do next
@@ -428,7 +430,7 @@ list.
 - **Plug in your onboarding system.** `onboarding.py` reads two CSV seeds; swap its lookups for
   your case API. If an identity-verification vendor already returns the ID fields and MRZ result,
   take those as input and read only the address document.
-- **Known SIE Cloud issue.** When GLiNER2 finds no field in a window, SIE Cloud currently answers
+- **Known SIE Serverless issue.** When GLiNER2 finds no field in a window, SIE Serverless currently answers
   the `output_schema` call with HTTP 500 "Inference completed without a valid conserved billing
   settlement". The recipe sends one window per call and records that answer as "no fields
   found" in the document's notes. A field that is never found leaves its requirement `not_met`,
@@ -440,7 +442,7 @@ list.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on the twelve cases above on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe on the twelve cases above on SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

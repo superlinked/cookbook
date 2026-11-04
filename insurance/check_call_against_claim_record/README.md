@@ -269,6 +269,8 @@ refusal, every call failing, a reply missing its key and the empty-result 500.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-call-against-claim-record).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-call-against-claim-record)).
 
@@ -282,7 +284,7 @@ uv run --group data make_data.py   # optional: rewrite data/ (the audio needs ma
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder. A run makes 10 SIE calls on this data: 5 to Parakeet
 (one per call) and 5 to GLiNER2 (one window per call). Our runs on 2026-11-04 (UTC) took 5 s.
-The first calls can wait a few minutes while SIE Cloud starts the speech and extraction models.
+The first calls can wait a few minutes while SIE Serverless starts the speech and extraction models.
 
 ## What came out
 
@@ -412,7 +414,7 @@ to an adjuster today. Nothing changes in the claims system and nobody is called 
 - **Unpunctuated transcripts.** The sentence rule needs sentence ends. Whisper ran two turns
   together on the Delacroix call (see Try another model), and the urgency flag came out ambiguous
   because "nobody was hurt" landed in the same clause as "staying with family".
-- **Known SIE Cloud issue.** When GLiNER2 finds no field in a window, SIE Cloud currently answers
+- **Known SIE Serverless issue.** When GLiNER2 finds no field in a window, SIE Serverless currently answers
   the `output_schema` call with HTTP 500 "Inference completed without a valid conserved billing
   settlement". The recipe reads that as "no fields found" in that window, with a note, instead of
   retrying, since a retry gets the same 500. A blank field then becomes a callback question, never
@@ -428,7 +430,7 @@ to an adjuster today. Nothing changes in the claims system and nobody is called 
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe on SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

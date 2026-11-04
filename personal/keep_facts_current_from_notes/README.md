@@ -300,6 +300,8 @@ missing its key.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-keep-facts-current-from-notes).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=personal-keep-facts-current-from-notes)).
 
@@ -322,7 +324,7 @@ A build from scratch makes 38 SIE calls on this data: 2 to the speech model, 3 t
 15 to the embedding model (5 files, 10 questions), 10 to the reranker and 8 to the language
 model. The same build with the cache makes 29: the five readable files come from the cache, and
 the wind memo is transcribed again because it was unread. The first call can wait a few minutes
-while SIE Cloud starts the models. On 2026-11-04 (UTC), with the models already warm, the build
+while SIE Serverless starts the models. On 2026-11-04 (UTC), with the models already warm, the build
 from scratch took 26 s and the cached one 17 s.
 
 ## What came out
@@ -486,7 +488,7 @@ worth a second look.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and built the sheet from scratch on SIE Cloud on 4 Nov 2026 (UTC). The default
+nothing else, and built the sheet from scratch on SIE Serverless on 4 Nov 2026 (UTC). The default
 gives the ten statuses in [Results](#results).
 
 | `rules.yaml` key | Swap in | What happened on this data |
@@ -499,7 +501,7 @@ gives the ten statuses in [Results](#results).
 | `rerank` | `Qwen/Qwen3-Reranker-0.6B` | 9 of 10. The brake memo scored 0.075 for the brake price, under `min_rerank_score` (0.30), so the price came out `not_found` with no language model call. The registration near miss scored 0.074 and was settled the same way (6 answer calls instead of 8) |
 | `rerank` | `tencent/R3-rerank-0.6b` | All ten statuses as the default, on a narrower scale: the brake memo scored 0.409 and the registration near miss 0.540, higher than the real answer, while blood type (0.254) and the plumber (0.219) stayed under 0.30. With this model the threshold barely separates answerable facts from the rest; the answer step and the checks did that |
 | `answer` | `Qwen/Qwen3.5-4B` | 8 of 10. For the eye exam and the wifi password it labelled the old passage `states` and the new one `replaced`, so the value wasn't in the words of the source it said gives it, and both went to `needs_review`. The Denver line came back `found` with only "BF 2217", the hotel left out: the compound-question gap under Potential improvements |
-| `answer` | `google/gemma-4-31B-it` | Did not run: SIE Cloud answered HTTP 503 "Generation route is unavailable for this deployment" to every answer call, so those facts went to `needs_review` as "Not checked" |
+| `answer` | `google/gemma-4-31B-it` | Did not run: SIE Serverless answered HTTP 503 "Generation route is unavailable for this deployment" to every answer call, so those facts went to `needs_review` as "Not checked" |
 
 The answer model doesn't always word the value the same way. On some of these builds the lease's
 notice came back as "at least sixty (60) days' written notice" instead of "sixty (60) days", with

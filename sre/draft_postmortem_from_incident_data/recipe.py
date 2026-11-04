@@ -34,7 +34,7 @@ Output:    reports.json and reports.md: per incident `checks_passed` or `needs_r
 Why SIE:   One model, called once per incident, writes the narrative. The timeline, the window,
            the citation checks and the status are plain Python reading rules.yaml, so no
            generative model makes the decision.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

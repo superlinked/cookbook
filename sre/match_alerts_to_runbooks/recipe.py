@@ -30,7 +30,7 @@ Output:    triage.md (paste into the incident channel), triage.json and runbook-
            and decides which steps to run. Nothing is executed.
 Why SIE:   Three models, one embedding call per run, one reranker call per group and one note
            per matched group, instead of one per alert. Nothing to host.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

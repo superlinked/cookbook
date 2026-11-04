@@ -522,7 +522,7 @@ class StandIn:
         self.options.append(options.get("options", {}))
         fields = list(options["output_schema"]["properties"])
         data = stand_in_fields(item["text"], fields)
-        if not data:  # SIE Cloud's other "found nothing" shape
+        if not data:  # SIE Serverless's other "found nothing" shape
             return {"entities": [], "relations": [], "classifications": [], "objects": []}
         return {"data": data}
 
@@ -691,7 +691,7 @@ def check_sie_failure() -> None:
     assert reviews["nda-orlaith-marine"]["term"].status == NOT_FOUND
     reviews, _ = run(replies={"read/nda-orlaith": {"markdown": "x"}})
     assert "replied without 'data'" in reviews["nda-orlaith-marine"]["term"].reason
-    # SIE Cloud's empty-result 500 reads as "no fields", not a failed call; from docling it's
+    # SIE Serverless's empty-result 500 reads as "no fields", not a failed call; from docling it's
     # a failed call.
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     reviews, calls = run(errors={"extract/nda-orlaith": [empty]})

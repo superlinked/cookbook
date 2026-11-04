@@ -241,7 +241,7 @@ def check_fields() -> None:
     forms = draft(FakeSIE(half), [order(notes), order("Other order.", wo_id="WO-2")])
     assert forms[0].fields["component"].status == "flagged"
     assert "the reply has no data" in forms[0].fields["component"].reason
-    # SIE Cloud's empty-result HTTP 500 counts as nothing found.
+    # SIE Serverless's empty-result HTTP 500 counts as nothing found.
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     forms = draft(FakeSIE(GOOD, errors={GLINER: [empty]}), [order(notes)])
     assert forms[0].fields["component"].status == "blank", forms[0].fields["component"]

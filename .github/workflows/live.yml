@@ -1,6 +1,6 @@
 name: Live
 
-# Runs recipes against SIE Cloud. Manual only: it spends credits and needs the SIE_API_KEY secret.
+# Runs recipes against SIE Serverless. Manual only: it spends credits and needs the SIE_API_KEY secret.
 on:
   workflow_dispatch:
     inputs:

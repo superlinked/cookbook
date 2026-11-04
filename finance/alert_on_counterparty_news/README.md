@@ -240,6 +240,8 @@ officer and the CSV escaping, offline, with hand-written articles and stand-in m
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-alert-on-counterparty-news).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-alert-on-counterparty-news)).
 
@@ -251,7 +253,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`; `--output DIR` changes that. The first call can wait a few minutes
-while SIE Cloud starts each model. A warm run makes 7 SIE calls (one NuNER Zero call for all ten
+while SIE Serverless starts each model. A warm run makes 7 SIE calls (one NuNER Zero call for all ten
 articles' windows, six GLiNER2.5-Decide calls, one per linked borrower) and takes about 2 seconds.
 
 ## What came out
@@ -393,14 +395,14 @@ unclear name means.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped the entity
-model, one at a time, changed nothing else, and ran the recipe on SIE Cloud.
+model, one at a time, changed nothing else, and ran the recipe on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `entities` | `numind/NuNER_Zero-span` | Same status for all ten articles, same event scores. It tagged all four "Halden" mentions in N-03 as a company, so that link no longer rests on the list alone, and it found "Elmstead Creameries" in N-09. It still tagged both N-10 "Halden" mentions as a location |
 | `entities` | `urchade/gliner_multi-v2.1` | Same status for all ten articles. It also tagged "Halden" in N-03 as a company and "Halden" in N-10 as a location, but read the headline's "Sallowmere" in N-02 as a location, so only the body's legal name linked; the event model read one sentence fewer and gave none 0.71 instead of 0.80. It also tagged `NYSE` as a location, which did no harm |
 
-`fastino/GLiNER2.5-Decide` has no same-API alternative on SIE Cloud yet, so the `events` key
+`fastino/GLiNER2.5-Decide` has no same-API alternative on SIE Serverless yet, so the `events` key
 wasn't swapped. See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
 ## Run it on your own SIE

@@ -290,6 +290,8 @@ call; and the SIE failure rule. [`make_data.py`](./make_data.py) writes the volu
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-index-and-check-received-documents)).
 
@@ -304,7 +306,7 @@ uv run make_data.py    # optional: rewrite data/
 writes `runs/<timestamp>/`. With one volume folder in `data/` the recipe finds it; with more,
 name it with `--volume TFL-VOL001`. A run makes 39 SIE calls on this data: 6 to the OCR model, 7
 to docling, 14 to gliner2 and 12 to GLiNER2.5-Decide. The first call can wait a few minutes
-while SIE Cloud starts the OCR, document and GLiNER models; our run on 2026-11-04 (UTC), with
+while SIE Serverless starts the OCR, document and GLiNER models; our run on 2026-11-04 (UTC), with
 the models already warm, took 23 s.
 
 ## What came out
@@ -457,7 +459,7 @@ index into the review platform.
 - **Quoted threads.** A forwarded thread carries several messages' dates and participants. The
   recipe flags windows that disagree instead of picking one; splitting the thread into
   messages would let it index each.
-- **Known SIE Cloud issue.** When gliner2-large-v1 finds no field in a window, SIE Cloud
+- **Known SIE Serverless issue.** When gliner2-large-v1 finds no field in a window, SIE Serverless
   currently answers the `output_schema` call with HTTP 500 "Inference completed without a valid
   conserved billing settlement". The recipe treats it as a failed call, so the document gets a
   QC exception saying which window wasn't read; the run on 2026-11-04 didn't hit it.
@@ -465,7 +467,7 @@ index into the review platform.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC), on this 12-document volume.
+nothing else, and ran the recipe on SIE Serverless on 2026-11-04 (UTC), on this 12-document volume.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
@@ -474,7 +476,7 @@ nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC), on this 12-do
 | `document` | `docling:ocr` | Same index for all 12 documents. |
 | `fields` | `fastino/gliner2-base-v1` | Same Bates numbers, statuses and privilege scores for all 12 documents. It found no date for 5 of the 6 emails, gave the .docx the 2023 date of the agreement it amends, typed both pages of the unnumbered letter as a `delivery receipt`, and returned authors and recipients with email addresses or job titles attached. |
 
-SIE Cloud has no other model for `privilege` (`fastino/GLiNER2.5-Decide`) yet. SIE's catalog has
+SIE Serverless has no other model for `privilege` (`fastino/GLiNER2.5-Decide`) yet. SIE's catalog has
 `fastino/GLiNER2.5-Decide-1B` and `fastino/GLiNER2.5-multi-Decide` to self-host; we have not run
 them here. See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

@@ -31,7 +31,7 @@ Output:    reconciliation.csv (one row per inventory item with the receipt line 
            the handler decides what proof is enough and what each item is worth.
 Why SIE:   Two models, and no generative model makes a decision. Every amount, sum, date, match
            and request is plain Python reading rules.yaml and proof_guidelines.yaml.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -88,7 +88,7 @@ AFTER_LOSS, NO_RECEIPT, NOT_READ = "after_loss", "no_receipt", "not_read"
 NOT_CLAIMED = "not_claimed"  # a receipt line no inventory item matched; for information
 # Check status per claim: whether the paperwork lines up. Nothing is paid or denied here.
 CHECKS_PASSED, REVIEW = "checks_passed", "review"
-# When GLiNER2 finds nothing, SIE Cloud answers the output_schema call with HTTP 500 and this
+# When GLiNER2 finds nothing, SIE Serverless answers the output_schema call with HTTP 500 and this
 # message. We record it as "no fields found"; a missing field can only send a claim to review,
 # never pass it.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"
@@ -336,7 +336,7 @@ class Calls:
         A refusal (see `is_fatal`) stops the run with SIEStopped. Any other SIE error, and a
         reply without `key`, is recorded and raised as CallFailed, so the caller marks what it
         was reading as not read and the run goes on. With `empty_result_ok` (the GLiNER2
-        calls), SIE Cloud's empty-result HTTP 500 is a reply with nothing in it, not a failure.
+        calls), SIE Serverless's empty-result HTTP 500 is a reply with nothing in it, not a failure.
         An error that isn't an SIE error is a bug in this code and is raised as is.
         """
         self.count[model] = self.count.get(model, 0) + 1

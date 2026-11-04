@@ -190,7 +190,7 @@ writes nothing.
 There's one model here, `superlinked/pii-redact`, called once per window of at most 300 words. 300
 words of clinical prose is about 400 model tokens, under the model's limit of about 512, and every
 call asks SIE to fail rather than cut a window short. Each of the four notes fits in one window,
-so a run makes 4 calls. It's SIE Cloud's PII model: two span extractors,
+so a run makes 4 calls. It's SIE Serverless's PII model: two span extractors,
 `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero`, composed on the server, with spans scoring
 0.6 or more kept, the two models' spans unioned and person names propagated. You hand it a list of
 labels (its 36 default personal-data types plus `organization`, because a relative's employer
@@ -270,6 +270,8 @@ over-long window, a reply missing its key, refusal, every call failed). It never
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-pseudonymize-clinical-notes)).
 
@@ -281,7 +283,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts the
 PII model. A warm run takes about a second.
 
 ## What came out
@@ -434,7 +436,7 @@ requester gets `extract/` without `private/key.json`.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC).
+nothing else, and ran the recipe on SIE Serverless on 2026-11-04 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

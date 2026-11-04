@@ -71,7 +71,7 @@ fits_window_words: 3
 # ("M or L", "340 g, 500 g") to review. `scan` (optional) is a regex Python runs over the whole
 # row: if it finds two different values (title says 340g, description 400 g), the row goes to
 # review whatever the model returned.
-# Ask only for required attributes. With an extra optional `color` field, SIE Cloud answered
+# Ask only for required attributes. With an extra optional `color` field, SIE Serverless answered
 # five of twelve electronics rows with the HTTP 500 it uses for an empty result, although brand
 # and model were in the text; the required-only schema read all twelve. That 500 sends the row
 # to review with the reason.

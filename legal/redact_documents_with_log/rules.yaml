@@ -2,7 +2,7 @@
 # recipe uses. Thresholds are starting points, not tuned values: check them on your own documents.
 
 models:
-  # SIE Cloud's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # SIE Serverless's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
   # server (spans scoring 0.6 or more, the two models' spans unioned, person names propagated).
   pii: superlinked/pii-redact
 

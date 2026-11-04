@@ -177,7 +177,7 @@ writes nothing.
 ## Picking the model
 
 The one model is `superlinked/pii-redact`, through SIE's `extract` call with a list of labels.
-It's SIE Cloud's PII model: `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero` composed on
+It's SIE Serverless's PII model: `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero` composed on
 the server, spans scoring 0.6 or more kept, the two models' spans unioned. You give it the
 labels you care about and it returns spans with their offsets, so the recipe knows exactly which
 characters to redact and which line to log. Nothing generative reads the documents or makes a
@@ -268,6 +268,8 @@ hand-written strings and stand-in model replies.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-redact-documents-with-log).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-redact-documents-with-log)).
 
@@ -278,7 +280,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Cloud
+writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Serverless
 starts the PII model. A warm run makes 6 SIE calls, one per document, and takes about 2 seconds.
 
 ## What came out
@@ -414,7 +416,7 @@ review platform, and the set goes to the other side with the log.
 ## Try another model
 
 The model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped it,
-changed nothing else, and ran the recipe on SIE Cloud.
+changed nothing else, and ran the recipe on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

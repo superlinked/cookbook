@@ -276,6 +276,8 @@ SIE.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-shelf-from-photo).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-shelf-from-photo)).
 
@@ -286,7 +288,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Serverless starts the
 detector, the OCR model and the vision model. Our run on 2026-11-02 (UTC), with all three
 already warm, made 43 SIE calls (4 detect, 20 tag OCR, 19 vision) and took 43 seconds.
 

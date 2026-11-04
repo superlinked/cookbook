@@ -254,6 +254,8 @@ four PDFs and the two loan-system seeds.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-map-financial-statements-to-template)).
 
@@ -267,7 +269,7 @@ uv run --group data make_data.py   # optional: rebuild data/
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`. A run makes 98 SIE calls on this data: 3 to docling, 1 to
 docling:ocr and 94 to the reranker (one per label the loan system didn't know). Our last warm
-run on 2026-11-04 (UTC) took 30 s. The first calls can wait a few minutes while SIE Cloud starts
+run on 2026-11-04 (UTC) took 30 s. The first calls can wait a few minutes while SIE Serverless starts
 docling and the reranker.
 
 ## What came out
@@ -418,7 +420,7 @@ the same kind swapped on the same side, which no tie-out can see.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC) on this data.
+nothing else, and ran the recipe on SIE Serverless on 2026-11-04 (UTC) on this data.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

@@ -33,7 +33,7 @@ Output:    In runs/<timestamp>/: tickets/<team>.md (a ticket draft per owning te
 Why SIE:   One small zero-shot NER model, no training: the labels are plain words in
            rules.yaml. No generative model makes any decision; the alias merges, lookups and
            statuses are code you can read. Nothing to host.
-Runs on:   SIE Cloud.
+Runs on:   SIE Serverless.
 
     uv run recipe.py
 """

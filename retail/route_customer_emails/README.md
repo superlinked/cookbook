@@ -110,7 +110,7 @@ results.
    the safety queue because the email is mostly about a late refund. An email that matches
    both keeps both: it goes to the first queue in `rules.yaml` order, and the other goes in
    `also_send_to`.
-2. **Write the escalations to disk before any model call.** The models run on SIE Cloud, and
+2. **Write the escalations to disk before any model call.** The models run on SIE Serverless, and
    the first call can wait minutes while a cold model starts. If SIE refuses the call or every
    call fails, the run stops. The escalations shouldn't depend on that, so `escalations.csv` is
    written first, and it stays there whatever happens next.
@@ -193,6 +193,8 @@ runs `main` against a stand-in SIE that refuses the first call, and checks that
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-route-customer-emails).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-route-customer-emails)).
 
@@ -203,7 +205,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Serverless starts the
 classification and extraction models; our run on 2026-11-02 (UTC) took about a minute and a
 half from start to finish, and a warm run right after it took under two seconds. `--output DIR`
 changes the output directory.
@@ -355,13 +357,13 @@ the agent what to ask the customer.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-02 (UTC), on all twelve emails.
+nothing else, and ran the recipe on SIE Serverless on 2026-11-02 (UTC), on all twelve emails.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `fields` | `fastino/gliner2-base-v1` | Same route, order numbers and stores for all 12 emails. One note changed: on E-08 it read the unknown store as "Northgate" instead of "Northgate store". |
 
-SIE Cloud has no other model for `team` (GLiNER2.5-Decide) yet. SIE's catalog has
+SIE Serverless has no other model for `team` (GLiNER2.5-Decide) yet. SIE's catalog has
 `fastino/GLiNER2.5-Decide-1B` and `fastino/GLiNER2.5-multi-Decide` to self-host; we have not run
 them here. See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

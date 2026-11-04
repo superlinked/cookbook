@@ -180,7 +180,7 @@ If SIE refuses a call outright (a bad key, an unknown model, no credits), the ru
 SIE's message and writes nothing. If a call fails for a reason that may pass (a timeout, a busy
 server, an over-long input, or a reply without its `data`), the positions it should have read
 are `unclear` with the reason and the run carries on; if every call fails the run stops. GLiNER2
-on SIE Cloud says "found nothing" in two ways (an HTTP 500 with a fixed message, or a reply
+on SIE Serverless says "found nothing" in two ways (an HTTP 500 with a fixed message, or a reply
 holding only empty result lists), and both read as nothing found. The 500 is the common case:
 106 of the 135 GLiNER2 calls on our run got it, so treating it as a failure would make every
 position `unclear`. Nothing found is not proof, though. A field the extractor missed looks the
@@ -277,6 +277,8 @@ stand-in SIE client: every check above, the near misses, the SIE error rule, and
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-review-contract-against-playbook)).
 
@@ -288,7 +290,7 @@ uv run make_data.py    # optional: rebuild data/ byte for byte
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts the
 document and GLiNER2 models; a warm run makes 141 SIE calls (6 to docling, 135 to GLiNER2) and
 took 34 s on ours.
 
@@ -423,7 +425,7 @@ anything passes. The marked-up draft then goes back to the counterparty.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 4 Nov 2026 (UTC).
+nothing else, and ran the recipe on SIE Serverless on 4 Nov 2026 (UTC).
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

@@ -31,7 +31,7 @@ Output:    runs/<timestamp>/: alerts/<credit officer>.md (one message per credit
 Why SIE:   Two small encoder models and no generative model making the decision. The event list
            is plain words in rules.yaml and the borrower list is data, so neither needs
            training. Every link comes from a lookup you can read here.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """

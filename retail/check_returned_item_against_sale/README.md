@@ -233,6 +233,8 @@ away if you broke something.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=retail-check-returned-item-against-sale)).
 
@@ -243,7 +245,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Cloud
+writes `runs/<timestamp>/` in this folder. The first call can wait a few minutes while SIE Serverless
 starts the models. A warm run makes 15 SIE calls (8 OCR calls, one per photo, and 7 condition
 calls, one per return) and takes about 31 seconds.
 
@@ -397,7 +399,7 @@ not the code.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 2 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud.
+at a time, changed nothing else, and ran the recipe on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

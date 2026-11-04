@@ -45,7 +45,7 @@ FONT_URL = (
     "ofl/caveat/Caveat%5Bwght%5D.ttf"
 )
 FONT_SHA256 = "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988"
-FONT_CACHE = Path.home() / ".cache" / "sie-cloud-research" / "Caveat-wght.ttf"
+FONT_CACHE = Path.home() / ".cache" / "sie-cookbook" / "Caveat-wght.ttf"
 
 INK = (28, 28, 32)
 PEN = (24, 48, 140)

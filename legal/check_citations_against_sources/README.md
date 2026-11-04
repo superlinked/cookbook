@@ -278,6 +278,8 @@ replies missing their key, a NaN score and a duplicated score; formula cells and
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-citations-against-sources).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=legal-check-citations-against-sources)).
 
@@ -292,7 +294,7 @@ uv run make_data.py    # optional: rewrite data/draft_brief.docx
 writes `runs/<timestamp>/`; `--output DIR` changes that and `--draft FILE` checks another draft
 (`.docx` or `.md`). A run makes 22 SIE calls on this draft: 11 to the reranker and 11 to the
 model, one each per citation found in the research folder. The first calls can wait a few
-minutes while SIE Cloud starts the two models; our run on 2026-11-04 (UTC), with the models
+minutes while SIE Serverless starts the two models; our run on 2026-11-04 (UTC), with the models
 already warm, took 19 s.
 
 ## What came out
@@ -439,7 +441,7 @@ needs the associate to read its passage before the partner signs the filing.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 2026-11-04 (UTC) on this draft.
+nothing else, and ran the recipe on SIE Serverless on 2026-11-04 (UTC) on this draft.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

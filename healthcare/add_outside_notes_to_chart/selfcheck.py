@@ -729,7 +729,7 @@ def check_sie_failure() -> None:
     assert "scored 0 of 73 codes" in reasons(drafts["note-10"])[0]
     drafts = run(fields={"med/note-01/metformin": {}})
     assert "Metformin: dose not documented" in reasons(drafts["note-01"])
-    # SIE Cloud's empty-result 500: a list window that found nothing goes to review; a drug's
+    # SIE Serverless's empty-result 500: a list window that found nothing goes to review; a drug's
     # details that found nothing leave the dose missing, which goes to review.
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     drafts = run(errors={"lists/note-01/": [empty]})

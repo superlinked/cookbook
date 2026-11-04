@@ -1,6 +1,6 @@
 # Run the recipes on your own SIE
 
-Every recipe calls SIE through `SIEClient`, so the same code runs against SIE Cloud or an SIE you
+Every recipe calls SIE through `SIEClient`, so the same code runs against SIE Serverless or an SIE you
 host. Set `SIE_BASE_URL` in `.env` to your server and run the recipe as usual. The API key is
 optional then; set `SIE_API_KEY` only if your gateway checks a token.
 
@@ -10,7 +10,7 @@ SIE_BASE_URL=http://localhost:8080
 ```
 
 [SIE](https://github.com/superlinked/sie) is open source (Apache 2.0). The model names in each
-`rules.yaml` are SIE model ids, the same on SIE Cloud and on your own server. The image tags below
+`rules.yaml` are SIE model ids, the same on SIE Serverless and on your own server. The image tags below
 are from SIE v0.10.1. SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md) is the
 source for which image serves which model and on which GPU it was smoke-tested.

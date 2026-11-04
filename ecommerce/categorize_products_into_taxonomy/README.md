@@ -177,7 +177,7 @@ so the recipe measures the lead in log-odds, the reranker's own yes-vs-no logit,
 The attributes come from `fastino/gliner2-large-v1` through `extract` with an `output_schema`.
 It returns spans of the input, not generated text, which is the property we want: every value
 can be checked against the supplier's words. It reads at most 512 tokens per item, so the row is
-cut into overlapping windows of 180 words. It has one SIE Cloud habit worth knowing about (see
+cut into overlapping windows of 180 words. It has one SIE Serverless habit worth knowing about (see
 What came out): on some rows it answers with an HTTP 500 that SIE also sends when nothing is
 found.
 
@@ -253,6 +253,8 @@ PIM seed and trims the taxonomy; it rebuilds `data/` byte for byte.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-categorize-products-into-taxonomy).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-categorize-products-into-taxonomy)).
 
@@ -265,7 +267,7 @@ uv run --group data make_data.py   # optional: rebuild data/ (downloads the taxo
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first calls can wait a few minutes while SIE Serverless starts the
 embedding, reranking and extraction models. Every run embeds the whole taxonomy file first. A
 warm run makes 118 SIE calls (20 to the embedder, 50 to the reranker, 48 to the extractor) and
 took about 45 seconds.
@@ -330,7 +332,7 @@ before any model call, and the hiking socks already in the PIM (TT-A08) keep wha
 **Where it fails:** the sparkling water (TT-F07) and the ear cushions (TT-E13) both reached review,
 but not for what we wrote them to test: the extraction call failed on both. So this run doesn't tell
 you whether "12 x 330 ml" gets read or whether the "for" rule fires. The thing to worry about is the
-failed calls: SIE Cloud's empty-result 500 hit four rows that do have the attribute (TT-E13 and
+failed calls: SIE Serverless's empty-result 500 hit four rows that do have the attribute (TT-E13 and
 three more, below), and each one is a row the specialist has to read by hand.
 
 Two cases came out differently from the plan, and we left them that way. TT-F07 was meant to show
@@ -354,7 +356,7 @@ A few things worth noticing:
   honey, was close to *Honey Jars*, which is a container under Home & Garden, so the recipe
   didn't read its attributes at all: it doesn't know which branch's list to use. The T-shirt is
   the tired-person mistake from the Background, caught at 0.99 vs 0.98.
-- **SIE Cloud's empty-result 500 hit four rows that do have the attribute.** TT-H01 ("Material:
+- **SIE Serverless's empty-result 500 hit four rows that do have the attribute.** TT-H01 ("Material:
   high-carbon stainless steel blade"), TT-F06 ("one 100 g bar"), TT-F10 ("a 2 kg bag") and the
   cushions all got "Inference completed without a valid conserved billing settlement". We
   sent TT-F10 (twice), TT-F06 and TT-H01 again on their own and got the same 500 every time.
@@ -425,7 +427,7 @@ import the batch into the PIM. Nothing is imported automatically.
   under another SKU (same title, new code) comes in as new; a title search would flag it.
 - **Dual units.** A label like "340 g (12 oz)" reads as two different net quantities and goes
   to review. Converting units before comparing would let it pass.
-- **Known SIE Cloud behaviour.** `fastino/gliner2-large-v1` with `output_schema` answers some
+- **Known SIE Serverless behaviour.** `fastino/gliner2-large-v1` with `output_schema` answers some
   requests with HTTP 500 "Inference completed without a valid conserved billing settlement",
   including rows where the attribute is in the text (four in our run). When we once added an
   optional `color` field to the electronics schema, the error hit five of twelve electronics
@@ -437,7 +439,7 @@ import the batch into the PIM. Nothing is imported automatically.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud. The default run had 33
+at a time, changed nothing else, and ran the recipe on SIE Serverless. The default run had 33
 `checks_passed`, 17 `review` and 1 `in_pim`.
 
 | `rules.yaml` key | Swap in | What happened on this data |

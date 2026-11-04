@@ -32,7 +32,7 @@ Output:    drafts/<packet>.json per packet (status, every field with where it ca
 Why SIE:   Two models, and no generative model makes the decision. The checks, the EHR and
            directory matching, the priority wording and the checklist are plain Python reading
            rules.yaml.
-Runs on:   SIE Cloud, or your own SIE with SIE_BASE_URL.
+Runs on:   SIE Serverless, or your own SIE with SIE_BASE_URL.
 
     uv run recipe.py
 """
@@ -84,7 +84,7 @@ FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 # Packet status: what the checks found. The coordinator and the clinical reviewer decide next.
 CHECKS_PASSED, MISSING_INFO, REVIEW = "checks_passed", "missing_info", "review"
-# When GLiNER2 finds nothing, SIE Cloud answers the output_schema call with HTTP 500 and this
+# When GLiNER2 finds nothing, SIE Serverless answers the output_schema call with HTTP 500 and this
 # message. We record it as "no fields found": a field nobody read can only make a packet
 # missing_info or review, never pass it, and every page after the cover must name the patient.
 EMPTY_RESULT_ERROR = "Inference completed without a valid conserved billing settlement"
@@ -226,7 +226,7 @@ class Calls:
         A refusal (see `is_fatal`) stops the run with SIEStopped. Any other SIE error, and a
         reply without `key`, is recorded and raised as CallFailed, so the caller sends its
         packet to review and the run goes on. With `empty_result_ok` (the GLiNER2 calls), SIE
-        Cloud's empty-result HTTP 500 is a reply with nothing in it, not a failure. An error
+        Serverless's empty-result HTTP 500 is a reply with nothing in it, not a failure. An error
         that isn't an SIE error is a bug in this code and is raised as is.
         """
         self.count[model] = self.count.get(model, 0) + 1

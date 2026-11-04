@@ -21,7 +21,7 @@ SIE pipeline (one model):
 Output:    One search prints the page. With no query, the sample run writes runs/<timestamp>/:
            a before-and-after page per query (pages/), results.json, summary.md and
            data_gaps.csv, one line per product whose missing data kept it off a page.
-Why SIE:   The reranker runs on SIE Cloud; the filters and the keyword engine stay in plain
+Why SIE:   The reranker runs on SIE Serverless; the filters and the keyword engine stay in plain
            Python you can read below, and no generative model decides what the shopper sees.
 
     uv run recipe.py                                              # the sample queries

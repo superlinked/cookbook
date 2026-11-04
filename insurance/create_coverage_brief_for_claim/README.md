@@ -259,6 +259,8 @@ replies, and never calls SIE.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-create-coverage-brief-for-claim).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-create-coverage-brief-for-claim)).
 
@@ -270,7 +272,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` with `briefings.json`, `briefings.csv` and `briefings.md` (one card
-per claim, the question list first). The first calls can wait a few minutes while SIE Cloud
+per claim, the question list first). The first calls can wait a few minutes while SIE Serverless
 starts the reranker and the LLM. A warm run makes 19 SIE calls (10 `score` calls, one per claim,
 and 9 `chat_completions` calls, since CLM-08, a caterer's deposit, never reaches the LLM) and took
 about 90 seconds.
@@ -425,7 +427,7 @@ assessment, and a disputed reading goes to whoever handles coverage questions.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped one model
-at a time, changed nothing else, and ran the recipe on SIE Cloud.
+at a time, changed nothing else, and ran the recipe on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

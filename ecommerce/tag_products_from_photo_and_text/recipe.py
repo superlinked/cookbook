@@ -24,7 +24,7 @@ Output:    tags.csv (one row per listing and field), review.csv (the listings to
 Why SIE:   The model reads the photo and the text together, and the lists are data, so a new
            type or color is a line in rules.yaml. No generative model makes the decision: plain
            Python checks the model's evidence and routes. Nothing to host.
-Runs on:   SIE Cloud.
+Runs on:   SIE Serverless.
 
     uv run recipe.py
 """

@@ -674,7 +674,7 @@ def check_sie_failure() -> None:
     assert r.status == "checks_passed", r.review
     r = one("brightwater-family-medicine", replies={f"ocr/{bright}/p1": {"entities": []}})
     assert r.review[0] == "Page 1: the OCR reply had no markdown text", r.review
-    # SIE Cloud's empty-result 500 reads as "no fields" from the extractor only.
+    # SIE Serverless's empty-result 500 reads as "no fields" from the extractor only.
     empty = ServerError(recipe.EMPTY_RESULT_ERROR, status_code=500)
     r = one("brightwater-family-medicine", errors={f"extract/{bright}/p1": [empty]})
     assert r.status == "checks_passed"

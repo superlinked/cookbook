@@ -186,7 +186,7 @@ value is a piece of the page, which is what makes the "is it in the text, and af
 check possible. It reads about 512 tokens at a time, hence the 180-word windows with a 30-word
 overlap. Its weak spot is long free text: it returns short spans, and a reason for referral written
 as a long sentence can come back empty (you'll see that below). And when it finds nothing in a
-window, SIE Cloud currently answers the `output_schema` call with HTTP 500 "Inference completed
+window, SIE Serverless currently answers the `output_schema` call with HTTP 500 "Inference completed
 without a valid conserved billing settlement" (and fails a whole batch if any item is empty, so
 windows are sent one by one). The recipe records that exact error as "no fields found", which can
 only make a field missing, never pass one; any other 500 is a failed call.
@@ -274,6 +274,8 @@ every file in `data/` byte for byte.
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=healthcare-process-faxed-referrals)).
 
@@ -286,7 +288,7 @@ uv run make_data.py    # optional: rebuild the packets and the two seeds in data
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/` in this folder: `drafts/<packet>.json`, `callback-list.csv` and
-`clinical-review-queue.csv`. The first calls can wait a few minutes while SIE Cloud starts the OCR
+`clinical-review-queue.csv`. The first calls can wait a few minutes while SIE Serverless starts the OCR
 and extraction models. A warm run makes 48 SIE calls (24 to LightOnOCR, one per page, and 24 to
 GLiNER2, one per window; every page here fits in one window) and took 68 seconds.
 
@@ -346,7 +348,7 @@ fails closed (the office is only asked for something already on the fax), so it'
 doesn't fail the case. It's the one to worry about: a long free-text field is where the extraction
 model is weakest, and a reason it doesn't return turns into a call nobody needed.
 
-These ran live on SIE Cloud on 4 Nov 2026 (UTC). All eight got the status we wrote them to get, and
+These ran live on SIE Serverless on 4 Nov 2026 (UTC). All eight got the status we wrote them to get, and
 seven came out exactly as planned. Juniper Road came out `missing_info` with the priority and member
 ID item we wrote it to get, plus one item we didn't expect: GLiNER2 returned no reason for referral
 for "New leg swelling, breathless lying flat, BNP 1,240 pg/mL.", so the callback list asks the
@@ -439,7 +441,7 @@ anything is filled or anyone is called.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. We swapped one model at a time, changed
-nothing else, and ran the recipe on SIE Cloud on 4 Nov 2026 (UTC), on the 8 packets above.
+nothing else, and ran the recipe on SIE Serverless on 4 Nov 2026 (UTC), on the 8 packets above.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |

@@ -254,6 +254,8 @@ outputs and that SIE error rule offline, with hand-written vectors and stand-in 
 
 ## Run it
 
+**Try this recipe on [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-search-products-by-photo-and-text).** You pay per call and there are no GPUs to run.
+
 You need [uv](https://docs.astral.sh/uv/) and an SIE API key
 ([create one](https://console.superlinked.com/console/api-keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=ecommerce-search-products-by-photo-and-text)).
 
@@ -264,7 +266,7 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 ```
 
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
-writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
+writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Serverless starts the
 embedding model. A warm run makes 13 SIE calls (one for the catalog index, one for each of the
 12 searches that reach the model) and takes about 5 seconds. To rebuild the data from ABO, run
 `uv run make_data.py`.
@@ -410,7 +412,7 @@ up), so don't try to share one threshold between them.
 ## Try another model
 
 Each model is one line under `models:` in `rules.yaml`. On 4 Nov 2026 (UTC) we swapped the model,
-changed nothing else, and ran the recipe on SIE Cloud.
+changed nothing else, and ran the recipe on SIE Serverless.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
