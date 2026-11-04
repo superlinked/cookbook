@@ -338,8 +338,7 @@ back Brackwater (`EB-ICT-0051`) rather than trust what it could read.
 Python can't tell a harmless gap from one that matters. The one to worry about is a `not_found`: it
 means not found in the passages read, so Brennick's two still need checking in the package before
 anyone asks the supplier for anything. The run didn't test a requirement split between the agreement
-and a schedule, or a referenced schedule that's in the package but scanned badly, and the recipe
-doesn't check Article 30(2)(i) or 30(3).
+and a schedule, and the recipe doesn't check Article 30(2)(i) or 30(3).
 
 The input is five contract packages in [`data/`](./data) and the register that points at them:
 
@@ -449,9 +448,8 @@ and the vendor-risk analyst records the review in the register.
   would fix it.
 - **Fewer shortened quotes.** The prompt already asks for consecutive words; a retry that sends
   the model its own "..." quote back and asks for the exact words would save the lawyer a read.
-- **Add more near misses.** A requirement split between the agreement and a schedule, and a
-  referenced schedule that is in the package but scanned badly, are the next cases worth
-  adding.
+- **Add more near misses.** A requirement split between the agreement and a schedule is the next
+  case worth adding.
 - **Try the 4B model as the default.** `Qwen/Qwen3.5-4B` gave the same totals on these 40 rows
   (see below). Five sample contracts aren't enough to switch on, but it's the first swap to try
   on your own packages.

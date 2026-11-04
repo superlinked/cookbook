@@ -19,7 +19,7 @@ Everything else is made up here. ESCI has no stock, sizes or facets, so:
 
 - data/inventory.csv, the variant stock feed, has one row per sellable variant. Each product's
   listing is one variant: the size its title names (SIZES below) in the PIM color, in stock.
-  VARIANTS below adds or replaces the variants the examples need, and leaves one product out
+  VARIANTS below adds or replaces the variants the sample searches need, and leaves one product out
   of the feed.
 - data/queries.json holds the filters each shopper picked. They follow the query's words
   ("black", "size 8"). Q-08 is written for this recipe; the other seven are ESCI's query text.

@@ -373,8 +373,8 @@ A few things worth noticing:
 - **We wrote the bracketed line for the sweep, and the sweep never got to play.** Anything
   inside square brackets that the model and regex missed would go out readable if the sweep
   skipped brackets, and somebody typing "[Emergency contact: ...]" into a note is exactly how that
-  happens. The sweep reads inside them like any other text. Here the regex took the phone first, so the case passed for the
-  boring reason. `selfcheck.py` covers the interesting one with an SSN in brackets that nothing
+  happens. The sweep reads inside them like any other text. Here the regex took the phone first, for the boring reason, which is
+  why this case counts as the miss. `selfcheck.py` covers the interesting one with an SSN in brackets that nothing
   replaces: the sweep reads it and the note escalates. The initial "W." is still readable, which is
   one letter and the honest broker's call.
 - **The lab fax shows why the export's patient ID isn't the end of it.** The fax's own header says

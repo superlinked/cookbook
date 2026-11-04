@@ -450,10 +450,10 @@ def check_sweep_and_report() -> None:
 
 
 def check_bundle() -> None:
-    # The committed bundle with stand-in replies that find nothing: the rules alone give the
-    # statuses the README lists, and no report or redaction row holds a value it replaced.
-    # With no model help, the reset link's token is something no rule names: the sweep finds
-    # it still readable and blocks the checkout log.
+    # The committed bundle with stand-in replies that find nothing. With no model help, the reset
+    # link's token is something no rule names: the sweep finds it still readable and blocks the
+    # checkout log. The README's statuses need the model to tag the token, as the next run does,
+    # and no report or redaction row holds a value it replaced.
     alone = bundle_run(NOTHING, NOTHING, NOTHING).documents[0]
     assert alone.status == recipe.BLOCKED
     assert "line 7: url_secret still readable" in alone.leaks, alone.leaks

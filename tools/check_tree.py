@@ -51,6 +51,10 @@ README_SECTIONS = (
 # What came out names the examples again, under "### The two examples" or "### The three examples".
 RESULTS_SECTION = "## What came out"
 EXAMPLES_RESULT = re.compile(r"### The (?:two|three) examples")
+# Results says where the recipe works and fails, and each example ends with a verdict.
+RESULT_LABELS = ("**Where it works:**", "**Where it fails:**")
+VERDICT = re.compile(r"^- \*\*Verdict:\*\* (?:Pass|Miss)\.", re.M)
+MIN_VERDICTS = 2
 PYTHON = "3.12"
 FORBIDDEN = (b"sie-" + b"internal", b"sie_cloud" + b"_research", b"verified-" + b"run/")
 
@@ -77,6 +81,9 @@ def readme_problems(text: str) -> list[str]:
         elif not fenced and line.startswith("#"):
             headings.append(line.rstrip())
     found = [f"README.md needs '{h}'" for h in README_SECTIONS if h not in headings]
+    found += [f"README.md needs '{label}'" for label in RESULT_LABELS if label not in text]
+    if len(VERDICT.findall(text)) < MIN_VERDICTS:
+        found.append(f"README.md needs {MIN_VERDICTS}+ '**Verdict:**' lines opening Pass or Miss")
     if RESULTS_SECTION in headings:
         start = headings.index(RESULTS_SECTION) + 1
         end = next(

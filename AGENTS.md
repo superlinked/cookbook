@@ -67,7 +67,7 @@ The first call can wait minutes while SIE Cloud starts a cold model.
   license, and what should happen to each), how the flow solves it, why each
   model, the flow as a Mermaid chart, how it's built (rules vs code, a step
   table naming the functions), how to run it, what came out (`### The three
-  examples` in the same shape as `### Examples`, ending each one with a `Pass.`
+  examples`, or `### The two examples`, in the same shape as `### Examples`, ending each one with a `Pass.`
   or `Miss.` verdict, then `### Results` with "N of M emails came out as
   expected" on the live run, using the recipe's own noun for emails, then
   `**Where it works:**` and `**Where it fails:**`, naming every miss, and

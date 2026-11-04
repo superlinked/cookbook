@@ -312,9 +312,10 @@ The photos are real shelf photos from [Open Prices](https://prices.openfoodfacts
 Open Food Facts price database. All four were taken at the Sprouts Farmers Market in Sunnyvale,
 US, on 2026-10-25 and uploaded by the Open Prices user `doby` (see Data and licenses). They're
 in `data/`, unmodified. [`data/catalog.csv`](./data/catalog.csv) (`upc`, `brand`, `product`,
-`regular_price`) holds the 20 products Open Prices recorded for these photos, with one change of
-ours. The photos are a fixed public dataset, so the shelf problems are ones that were already on
-the shelf that day.
+`regular_price`) holds the 20 products Open Prices recorded for these photos, with the small edits
+listed in Data and licenses. The photos are a fixed public dataset, so the wrong products were
+already on the shelf that day. The muesli price that disagrees (T03) is ours: we changed that one
+price in the catalog.
 
 ### The three examples
 

@@ -399,7 +399,7 @@ changed nothing else, and ran the recipe on SIE Cloud.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `tagger` | `Qwen/Qwen3.5-4B` | 7 listings to review instead of 4, P17 among them only because its call timed out while the model was starting (the run took 29 minutes cold, and the recipe carried on as the error rule says). Most of the extra reviews are failed quote checks: it quoted "black", "brown" and "leather" for P13 and P14, words those listings don't contain, and "red" for P04. It also quoted "Rectangular ottoman bench" for P11's type (two types, review) and called P02's velvet "fabric" while quoting "velvet fabric". P11 and P18 still came out faux leather, never leather, and P05 cast iron. It read P04 as an ottoman (`changed` from BENCH) and P08's rug as beige, so P08 passed. |
+| `tagger` | `Qwen/Qwen3.5-4B` | 7 listings to review, against 4 for the default on the run we compared it with (the run above gave 5), P17 among them only because its call timed out while the model was starting (the run took 29 minutes cold, and the recipe carried on as the error rule says). Most of the extra reviews are failed quote checks: it quoted "black", "brown" and "leather" for P13 and P14, words those listings don't contain, and "red" for P04. It also quoted "Rectangular ottoman bench" for P11's type (two types, review) and called P02's velvet "fabric" while quoting "velvet fabric". P11 and P18 still came out faux leather, never leather, and P05 cast iron. It read P04 as an ottoman (`changed` from BENCH) and P08's rug as beige, so P08 passed. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

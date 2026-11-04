@@ -262,7 +262,7 @@ def check_claims_system() -> None:
     print("claims system: exact lookups, no nearest match, supplements add up ok")
 
 
-# The spec's cases, read from a faithful OCR page: (status, checks not passed).
+# The expected results, read from a faithful OCR page: (status, checks not passed).
 EXPECTED_RESULTS = {
     "clm-01": ("checks_passed", []),
     "clm-02": ("checks_passed", []),
@@ -287,7 +287,7 @@ def check_examples() -> None:
     assert "supplement 1180.00" in detail(by_id["clm-10"], "authorized_amount")
     # A claim that doesn't match runs no other check: they'd compare it with the wrong claim.
     assert [c.check for c in by_id["clm-09"].checks] == ["claim_match"]
-    print("examples: all ten cases come out as the spec says on faithful OCR pages ok")
+    print("examples: all ten cases come out as expected on faithful OCR pages ok")
 
 
 def check_tax_line() -> None:

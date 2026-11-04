@@ -80,7 +80,7 @@ class Invoice:
 
 @dataclass(frozen=True)
 class Claim:
-    document: str  # the invoice's document id in the claims system; the case
+    document: str  # the invoice's document id in the claims system (clm-01 etc.)
     what_it_tests: str
     claim_number: str
     policy_number: str

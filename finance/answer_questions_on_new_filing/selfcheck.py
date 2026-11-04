@@ -103,7 +103,7 @@ def check_data() -> None:
     # Target's fiscal 2025 ends on January 31, 2026.
     assert TGT_ENDS["2026-01-31"] == 2025
     assert TGT_ENDS["2025-02-01"] == 2024
-    # The passages the examples use are where the spec says.
+    # The passages the examples use are where the README says.
     assert "manufacturing purchase obligations of $56.2 billion" in PASSAGES["P06"].text
     assert "other purchase obligations of $14.8 billion" in PASSAGES["P07"].text
     assert "22.3 percent compared with 22.2 percent in 2024" in PASSAGES["P28"].text
