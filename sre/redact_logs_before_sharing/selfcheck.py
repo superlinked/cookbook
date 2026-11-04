@@ -13,11 +13,13 @@ import functools
 import io
 import tempfile
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 import log_platform
 import support_desk
+import yaml
 from sie_sdk import SIEClient
 from sie_sdk.client.errors import (
     AccountInactiveError,
@@ -71,9 +73,11 @@ class StandIn:
     def __init__(self, *replies: Reply) -> None:
         self.replies = list(replies)
         self.models: list[str] = []
+        self.options: list[Any] = []
 
-    def extract(self, model: str, item: Any, **_: Any) -> Any:
+    def extract(self, model: str, item: Any, **kwargs: Any) -> Any:
         self.models.append(model)
+        self.options.append(kwargs.get("options"))
         reply = self.replies.pop(0)
         if isinstance(reply, BaseException):
             raise reply
@@ -109,7 +113,23 @@ def bundle_run(*replies: Reply) -> recipe.Result:
     with contextlib.redirect_stdout(io.StringIO()):
         result = recipe.run(cast(SIEClient, client), RULES, documents, KNOWN)
     assert not client.replies, f"{len(client.replies)} replies left unused"
+    # Every call asks SIE to fail on a window too long to read whole, never to cut it short.
+    assert client.options == [{"overflow_policy": "error"}] * len(client.options), client.options
     return result
+
+
+def utc(text: str) -> datetime:
+    return datetime.fromisoformat(text)
+
+
+def case_from(window: str) -> recipe.Case:
+    """The committed case with its `window:` block replaced by this YAML text."""
+    text = recipe.CASE_PATH.read_text(encoding="utf-8")
+    start = text.index("window:")
+    end = text.index("notes:")
+    path = Path(tempfile.mkdtemp()) / "case.yaml"
+    path.write_text(text[:start] + window + text[end:], encoding="utf-8")
+    return recipe.load_case(path)
 
 
 def check_lookups() -> None:
@@ -117,11 +137,37 @@ def check_lookups() -> None:
     events = log_platform.search("checkout-api", CASE.start, CASE.end)
     assert events
     assert all(e.service == "checkout-api" for e in events)
-    assert all(CASE.start <= e.timestamp < CASE.end for e in events)
+    assert all(CASE.start <= utc(e.timestamp) < CASE.end for e in events)
     assert [e.timestamp for e in events] == sorted(e.timestamp for e in events)
-    every = log_platform.search("checkout-api", "2026-10-27T00:00:00Z", "2026-10-28T00:00:00Z")
+    every = log_platform.search(
+        "checkout-api", utc("2026-10-27T00:00:00Z"), utc("2026-10-28T00:00:00Z")
+    )
     assert len(every) == len(events) + 1, "the 08:41 line outside the window should be dropped"
-    assert not log_platform.search("search-api", "2026-10-28T00:00:00Z", "2026-10-29T00:00:00Z")
+    assert not log_platform.search(
+        "search-api", utc("2026-10-28T00:00:00Z"), utc("2026-10-29T00:00:00Z")
+    )
+    # Fractional seconds compare as time, not text: 41.502 is after 41.5, so a window ending at
+    # 41.5 leaves the 09:16:41.502 line out (as text, ".502Z" sorts before ".5Z").
+    upto = log_platform.search(
+        "checkout-api", utc("2026-10-27T09:16:00Z"), utc("2026-10-27T09:16:41.5Z")
+    )
+    assert not upto, [e.timestamp for e in upto]
+    # The case window is parsed as time, in UTC: unquoted YAML (a datetime, not a string) and
+    # +02:00 give the same window and the same lines as the committed "Z" strings.
+    unquoted = "window:\n  start: 2026-10-27T09:10:00Z\n  end: 2026-10-27T09:55:00Z\n"
+    assert isinstance(yaml.safe_load(unquoted)["window"]["start"], datetime)
+    offset = 'window:\n  start: "2026-10-27T11:10:00+02:00"\n  end: "2026-10-27T11:55:00+02:00"\n'
+    for window in (unquoted, offset):
+        case = case_from(window)
+        assert (case.start, case.end) == (CASE.start, CASE.end), (case.start, case.end)
+        assert case.start.tzinfo == UTC
+        found = log_platform.search("checkout-api", case.start, case.end)
+        assert [e.timestamp for e in found] == [e.timestamp for e in events]
+    # A window with no timezone is refused, not read as some local time.
+    naive = 'window:\n  start: "2026-10-27T09:10:00"\n  end: "2026-10-27T09:55:00"\n'
+    caught = raised(lambda: case_from(naive))
+    assert type(caught) is ValueError, caught
+    assert "has no timezone" in str(caught), caught
     # The support desk returns the incident's ticket only, exact incident ID.
     tickets = support_desk.tickets_for_incident("INC-2207")
     assert [t.ticket_id for t in tickets] == ["SUP-48213"], tickets
@@ -136,14 +182,28 @@ def check_lookups() -> None:
     assert names == ["checkout-api.log", "payment-worker.log", "oncall-notes.txt"], names
     for bad in ("../recipe.py", "missing.txt"):
         try:
-            recipe.build_bundle(recipe.Case("INC-2207", "cardvault", (), "", "", bad))
+            recipe.build_bundle(recipe.Case("INC-2207", "cardvault", (), CASE.start, CASE.end, bad))
         except ValueError:
             continue
         raise AssertionError(f"notes {bad!r} should be refused")
-    empty = recipe.Case("INC-2207", "x", ("no-such-service",), "a", "b", "x")
+    empty = recipe.Case("INC-2207", "x", ("no-such-service",), CASE.start, CASE.end, "x")
     caught = raised(lambda: recipe.build_bundle(empty))
     assert type(caught) is ValueError, caught
     assert "no no-such-service log lines" in str(caught)
+    # No ticket linked to the incident: a warning, and every file goes to review, since only
+    # the model looked for the customer.
+    lone = recipe.Case("INC-0000", "cardvault", CASE.services, CASE.start, CASE.end, CASE.notes)
+    nobody = recipe.known_customers(lone)
+    assert nobody == [], nobody
+    documents = recipe.build_bundle(lone)
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        recipe.flag_no_ticket(lone, nobody, documents)
+        recipe.run(cast(SIEClient, StandIn(*[NOTHING] * 3)), RULES, documents, nobody)
+    assert "Warning: no support ticket linked to INC-0000" in printed.getvalue(), printed.getvalue()
+    for document in documents:
+        assert document.status != recipe.READY, document.name
+        assert any("no support ticket linked to INC-0000" in r for r in document.reviews)
     print("lookups: log platform by service and window, support desk by incident, bundle ok")
 
 
@@ -207,6 +267,60 @@ def check_field_rules() -> None:
     )
     assert uuid.status == recipe.BLOCKED
     assert "9f1c2a7e-4b3d-4e8a-9c21-5d7f0b6e3a14" in uuid.redacted
+    # Cards written with dots or two spaces between the groups are still cards.
+    for written, masked in (
+        ("4111.1111.1111.1111", "XXXX.XXXX.XXXX.1111"),
+        ("4111  1111  1111  1111", "XXXX  XXXX  XXXX  1111"),
+    ):
+        (spaced,) = clean(f"pan={written}\n")
+        assert spaced.redacted == f"pan={masked}\n", spaced.redacted
+        assert spaced.status == recipe.REVIEW
+        hits = recipe.residual_sweep(f"ref {written}\n", RULES)
+        assert any("card_number" in hit for hit in hits), (written, hits)
+    # A password holding "/" or "@" goes in full; user, host, port and database stay.
+    for url, cleaned in (
+        ("redis://default:p/ssw0rd@cache:6379", "redis://default:[PASSWORD_1]@cache:6379"),
+        ("postgres://app:p@ss@db:5432/x", "postgres://app:[PASSWORD_1]@db:5432/x"),
+    ):
+        (odd,) = clean(f"url={url}\n")
+        assert odd.redacted == f"url={cleaned}\n", odd.redacted
+        hits = recipe.residual_sweep(f"url={url}\n", RULES)
+        assert any("connection_password" in hit for hit in hits), (url, hits)
+    # Near miss: a port and a path before an "@" is not a password.
+    (port,) = clean("GET https://status.example:8443/v1/users/@me ok\n")
+    assert port.redacted == "GET https://status.example:8443/v1/users/@me ok\n", port.redacted
+    assert port.status == recipe.READY
+    # A URL-encoded email is an email, and the same address as its plain form.
+    (encoded,) = clean("reset?email=jane.doe%40example.com sent to jane.doe@example.com\n")
+    assert encoded.redacted == "reset?email=[EMAIL_1] sent to [EMAIL_1]\n", encoded.redacted
+    hits = recipe.residual_sweep("reset?email=jane.doe%40example.com\n", RULES)
+    assert any("email" in hit for hit in hits), hits
+    # An email that only touches an allowlisted word ("felix", "corvane") is still an email.
+    (staff,) = clean("escalated by felix@corvane.example\n")
+    assert staff.redacted == "escalated by [EMAIL_1]\n", staff.redacted
+    assert staff.status == recipe.READY
+    # An Authorization header always loses its value. With no scheme, or a scheme other than
+    # Bearer (Basic, in a header or in JSON), the value goes and the file is blocked: the rules
+    # can't say what it is.
+    loose = "an Authorization header that is not a bearer token"
+    for header, cleaned in (
+        ("Authorization: sk_live_51Hx9QpLmN0abcdef", "Authorization: [TOKEN_1]"),
+        ("Proxy-Authorization: sk_live_51Hx9QpLmN0abcdef", "Proxy-Authorization: [TOKEN_1]"),
+        ("Authorization: Basic dXNlcjpodW50ZXIy", "Authorization: [TOKEN_1]"),
+        ('{"Authorization": "Basic dXNlcjpodW50ZXIy"}', '{"Authorization": "[TOKEN_1]"}'),
+    ):
+        (auth,) = clean(header + "\n")
+        assert auth.redacted == cleaned + "\n", auth.redacted
+        assert auth.status == recipe.BLOCKED, (header, auth.reviews)
+        assert any(loose in error for error in auth.errors), (header, auth.errors)
+    # A token a terminal wrapped onto an indented next line is still one token.
+    wrapped = "Authorization: Bearer abcdefghijklmnop1234\n    qrstuvwxyz0123456789ABCD\nok\n"
+    (wrap,) = clean(wrapped)
+    assert wrap.redacted == "Authorization: Bearer [TOKEN_1]\nok\n", wrap.redacted
+    # A Corvane key in an unexpected format blocks the file instead of passing.
+    (short_key,) = clean("api_key=cvn_live_short1 ok\n")
+    assert short_key.status == recipe.BLOCKED
+    assert any("api token in an unexpected format" in e for e in short_key.errors), short_key.errors
     print("field rules: host vs client IPs, near misses, cards, passwords, sessions, UUIDs ok")
 
 
@@ -291,6 +405,26 @@ def check_sweep_and_report() -> None:
         ("mail me at someone@else.example", "email"),
         ("sid 4111 1111 1111 1111", "card_number"),
         ("https://x.example/cb?code=Zq81mPx0", "url_secret"),
+        # What a rule missed (here fed to the sweep directly) is still caught by name.
+        ("Authorization: Bearer abcdefghijklmnop1234", "bearer_token"),
+        ("Authorization: sk_live_51Hx9QpLmN0", "authorization"),
+        (
+            "DATABASE_URL=postgres://payments:Lg8vQ2mZt5Rx@ledger-db:5432/ledger",
+            "connection_password",
+        ),
+        ("Cookie: session_id=k2Vq8sLx41TzRb7mWc0nYe5H", "session_id"),
+        ("key cvn_live_abc12345", "api_token"),
+        ("header\n    qrstuvwxyz0123456789ABCD", "wrapped_token"),
+        ("aws AKIAIOSFODNN7EXAMPLE", "aws_access_key"),
+        ("-----BEGIN RSA PRIVATE KEY-----", "private_key"),
+        ("-----BEGIN PRIVATE KEY-----", "private_key"),
+        ("gh ghp_0123456789abcdefghijABCDEFGHIJ0123", "github_token"),
+        ("gh github_pat_11ABCDEFG0123456789_abcdefghijklmnop", "github_token"),
+        ("slack xoxb-1234567890-abcdefghij", "slack_token"),
+        ("slack xoxp-1234567890-abcdefghij", "slack_token"),
+        ("charge with sk_live_51Hx9QpLmN0", "payment_key"),
+        ("Set-Cookie: auth=Zq81mPx0Lk27Wd", "set_cookie"),
+        ("Cookie: JSESSIONID=8F2C1A9B7D3E4F60", "session_cookie"),
     ):
         hits = recipe.residual_sweep(leak + "\n", RULES)
         assert any(name in hit for hit in hits), (leak, hits)
@@ -301,8 +435,10 @@ def check_sweep_and_report() -> None:
         assert "labelled_secret" in left.leaks[0], left.leaks
     # The sweep reads one line at a time: a placeholder at a line's end is not a hit.
     assert not recipe.residual_sweep("api_key=[TOKEN_1]\n2026-10-27T09:16:41.736Z ok\n", RULES)
-    # Placeholders and kept, allowlisted terms are not hits.
+    # Placeholders and kept, allowlisted terms are not hits; nor is a scheme left before one.
     assert not recipe.residual_sweep("api_key=[TOKEN_1] health check from 203.0.113.10\n", RULES)
+    for header in ('"Authorization": "Bearer [TOKEN_1]"', "Authorization: [TOKEN_1]"):
+        assert not recipe.residual_sweep(header + "\n", RULES), header
     # Reasons give the line, never the value; a formula-looking cell is quoted.
     assert recipe.csv_safe({"a": "=HYPERLINK(1)", "b": 2}) == {"a": "'=HYPERLINK(1)", "b": 2}
     assert recipe.by_line(["line 9: b", "window 1 was not read", "line 2: a"]) == [
@@ -345,6 +481,7 @@ def check_bundle() -> None:
     ):
         assert kept in checkout.redacted + worker.redacted, kept
     assert '"amount": 4210, "currency": "USD", "card": "XXXX XXXX XXXX 1111"' in worker.redacted
+    assert "line 3: an API key in a log; taken out here, rotate it" in " ".join(worker.reviews)
     assert "client_ip=[IP_2] host=10.0.4.17" in checkout.redacted
     assert "Brightwater" not in notes.redacted
     assert "Delphine" not in notes.redacted
@@ -424,6 +561,10 @@ def check_sie_failure() -> None:
         assert why.startswith(prefix), why
         assert result.documents[1].status == recipe.REVIEW
     assert len(why) == len(prefix) + len("SIEConnectionError: ") + recipe.ERROR_CHARS, why
+    # A window too long to read whole fails instead of being cut short: blocked as not read.
+    first = bundle_run(InputTooLongError("too long"), NOTHING, NOTHING).documents[0]
+    assert first.status == recipe.BLOCKED
+    assert first.errors[0].startswith(prefix + "InputTooLongError"), first.errors
     # A reply missing `entities` is a failed call on the same path, not "nothing found".
     result = bundle_run({"error": {"code": "x"}}, NOTHING, NOTHING)
     reason = result.documents[0].errors[0]

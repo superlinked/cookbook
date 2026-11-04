@@ -50,9 +50,13 @@ labels:
 
 thresholds:
   # The PII model reads about 384 words per request, so longer files are sent as windows of
-  # this many words, each sharing `window_overlap_words` with the last.
-  window_words: 300
-  window_overlap_words: 50
+  # this many words, each sharing `window_overlap_words` with the last. Logs are token-dense (a
+  # UUID or a token is a dozen or more model tokens where an English word is one or two), so the
+  # windows are kept well under that limit. Each call asks SIE to fail rather than cut a window
+  # short; a window that still doesn't fit blocks its file as not read. In our test SIE Cloud
+  # read a 600-word, UUID-dense text to its end, so this is a margin, not a measured limit.
+  window_words: 150
+  window_overlap_words: 30
   # A name the model found is also redacted wherever else it appears, if it has at least this
   # many letters.
   propagate_min_letters: 3
@@ -98,14 +102,26 @@ identifiers:
   bearer token:
     # A token a terminal wrapped onto an indented next line is still one token.
     pattern: '(?i)\bbearer\s+(?P<value>[A-Za-z0-9._~+/-]{16,}(?:\n[ \t]+[A-Za-z0-9._~+/-]+)*=*)'
-    loose: '(?i)\bauthorization"?\s*[:=]\s*"?[A-Za-z]+\s+[^\s",]+'
+    # Any other Authorization value (Proxy-Authorization too): another scheme (Basic, Digest)
+    # or a bare key with no scheme at all.
+    loose: '(?i)\bauthorization"?\s*[:=]\s*"?(?:[A-Za-z]+\s+)?[^\s",]+'
     loose_reason: an Authorization header that is not a bearer token; the rules can't decide it
     action: placeholder
     review: a bearer token in a log; taken out here, revoke it and fix the logging at the source
+  authorization header:
+    # Whatever an Authorization (or Proxy-Authorization) header holds is a credential, so its
+    # value is always taken out, scheme and all ("Basic dXNl...", or a key with no scheme). A
+    # bearer token is already taken out above, which keeps the word "Bearer" readable; for any
+    # other value the bearer rule's `loose` pattern also blocks the file.
+    pattern: '(?i)\bauthorization"?\s*[:=]\s*"?(?P<value>(?:[A-Za-z]+[ \t]+)?[^\s",;]+)'
+    action: placeholder
+    review: a credential in an Authorization header; taken out here, revoke it and fix the logging at the source
   connection password:
     # The password in a connection string (scheme://user:password@host). User, host, port and
-    # database name stay: the vendor may need to know which database it was.
-    pattern: '(?i)\b[a-z][a-z0-9+.-]*://[^\s:@/]+:(?P<value>[^\s@/]+)@'
+    # database name stay: the vendor may need to know which database it was. The password may
+    # hold "/" or "@" ("p@ss@db"): it runs to the last "@" before the host. A port followed by a
+    # path ("host:8443/a@b") is not a password.
+    pattern: '(?i)\b[a-z][a-z0-9+.-]*://[^\s:@/]+:(?!\d+/)(?P<value>[^\s"'']+?)@(?=[^\s@/"''?#]*(?:[/\s"''?#]|$))'
     action: placeholder
     review: a database password in a log; taken out here, rotate it and fix the logging at the source
   session id:
@@ -113,7 +129,8 @@ identifiers:
     pattern: '(?i)\bsession_?id=(?P<value>[A-Za-z0-9._~-]{8,})'
     action: placeholder
   email address:
-    pattern: '[\w.+-]+@[\w-]+(?:\.[\w-]+)+'
+    # Also URL-encoded, as it sits in a query string ("jane.doe%40example.com").
+    pattern: '[\w.+-]+(?:@|%40)[\w-]+(?:\.[\w-]+)+'
     action: placeholder
   request id:
     # Request, trace, span and deploy IDs identify a call, not a person: keep them to debug.
@@ -151,7 +168,8 @@ identifiers:
     keep_values_from: host ip
     action: placeholder
   credit card number:
-    pattern: '(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)'
+    # 13 to 19 digits, with up to two spaces, dots or dashes between any two of them.
+    pattern: '(?<!\d)\d(?:[ .-]{0,2}\d){12,18}(?!\d)'
     check: luhn
     if_check_fails: ignore
     unless_near: card
@@ -205,6 +223,7 @@ placeholders:
   password: TOKEN
   api token: TOKEN
   bearer token: TOKEN
+  authorization header: TOKEN
   customer id: USER_ID
   username: USER_ID
   connection password: PASSWORD
@@ -235,9 +254,10 @@ honorifics: [mr, mrs, ms, miss, mx, dr]
 
 # Final sweep: run on the cleaned text with every [placeholder] blanked out. Any hit means
 # customer data or a secret is still readable, so the file is blocked. Hits inside allowlisted
-# terms or kept identifiers (request IDs, host IPs) are ignored. Card numbers are checked in code: a 13 to 19 digit run that passes the Luhn check is a card number.
+# terms or kept identifiers (request IDs, host IPs) are ignored. Card numbers are checked in code:
+# a 13 to 19 digit run (spaces, dots or dashes between) that passes the Luhn check is a card number.
 residual_patterns:
-  email: '[\w.+-]+@[\w-]+(?:\.[\w-]+)+'
+  email: '[\w.+-]+(?:@|%40)[\w-]+(?:\.[\w-]+)+'
   ip_address: '(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?!\.?\d)'
   uuid: '(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
   jwt: '\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}'
@@ -250,11 +270,24 @@ residual_patterns:
   # The rest of a token a terminal wrapped onto an indented line of its own.
   wrapped_token: '(?m)^[ \t]+[A-Za-z0-9._~+/-]{20,}=*[ \t]*$'
   # A password still in a connection string (scheme://user:password@host).
-  connection_password: '(?i)\b[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s@/]+@'
+  connection_password: '(?i)\b[a-z][a-z0-9+.-]*://[^\s:@/]+:(?!\d+/)[^\s"'']+?@(?=[^\s@/"''?#]*(?:[/\s"''?#]|$))'
+  # An Authorization header (Proxy-Authorization too) whose value is still readable (a scheme
+  # alone, "Bearer" before a placeholder, is not a hit).
+  authorization: '(?i)\bauthorization"?\s*[:=]\s*"?(?:[A-Za-z]+[ \t]+)?+[^\s",;]{6,}'
   # A secret field still readable ("client_secret=...", "stripe_key=...", "password: ...").
   labelled_secret: '(?i)\b\w*(?:key|secret|password|passwd|pwd|token)"?[ \t]*[=:][ \t]*"?[^\s",\[&]{8,}'
   # A session cookie, or a token, code or signature in a URL's query string.
   session_id: '(?i)\bsession_?id=[A-Za-z0-9._~-]{8,}'
   url_secret: '(?i)[?&](?:token|reset_token|code|sig|signature|key|password)=[A-Za-z0-9._~%-]{6,}'
+  # Well-known secret shapes: AWS access keys, PEM private keys, GitHub and Slack tokens, and
+  # sk_live_/rk_test_ style payment keys.
+  aws_access_key: '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
+  private_key: '-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----'
+  github_token: '\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})'
+  slack_token: '\bxox[abposr]-[A-Za-z0-9-]{10,}'
+  payment_key: '\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}'
+  # A cookie a server set, or a framework's session cookie under its own name.
+  set_cookie: '(?i)\bset-cookie"?\s*:\s*"?[^=\s;"]+=[^\s;",]{8,}'
+  session_cookie: '(?i)\b(?:jsessionid|phpsessid|asp\.net_sessionid|connect\.sid|sid)=[A-Za-z0-9._~%-]{8,}'
 card_number:
-  pattern: '(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)'
+  pattern: '(?<!\d)\d(?:[ .-]{0,2}\d){12,18}(?!\d)'

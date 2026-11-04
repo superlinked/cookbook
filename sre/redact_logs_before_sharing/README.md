@@ -37,11 +37,12 @@ the logs again. Meanwhile the incident is still open.
 
 Some of this is already structured. The log platform parses fields: `user_id=`, `email=`,
 `client_ip=`, `session_id=`, `request_id=`, `host=`, the `Authorization` header and the payload's
-`card` and `name` are labelled, and plain rules handle them without a model. The customer's own
-support ticket isn't attached to the vendor case, but its fields (requester, organization) tell
-the recipe whose name and email to look for before it reads a word. What no field covers is the
-free text: a customer named in the on-call notes, a first-name sign-off, an ID in a stack trace
-with nothing to say whose it is.
+`card` are labelled, and plain rules handle them without a model. The payload's `name` is
+labelled too, but no rule reads it. The customer's own support ticket isn't attached to the
+vendor case, but its fields (requester, organization) tell the recipe whose name and email to
+look for before it reads a word, and that is how the name in the payload is found. What no
+field covers is the free text: a customer named in the on-call notes, a first-name sign-off, an
+ID in a stack trace with nothing to say whose it is.
 
 In this recipe both systems are small lookup modules. [`log_platform.py`](./log_platform.py)
 stands in for your log platform's search API (one service between two timestamps) and
@@ -110,19 +111,20 @@ The recipe never uploads anything to the vendor. The engineer does that, after a
    requester's name and email are known before the model reads anything. The keep and remove
    lists, the company's own names and the vendor's own names come from `rules.yaml`.
 2. **Find personal data in the free text.** `superlinked/pii-redact` reads each file in windows of
-   about 300 words and tags names, companies, emails, phones, IPs, IDs and URLs.
+   about 150 words and tags names, companies, emails, phones, IPs, IDs and URLs.
 3. **Carry each name to every file.** A name found once is redacted everywhere in the bundle,
    also as "SURNAME, FIRST", the surname alone or the first name alone. A known customer wins over
    the allowlist when the names collide.
 4. **Apply the identifier rules by field.** Regex per type, in order: API keys, bearer tokens,
-   session cookies and the password in a connection string (redacted; a live key also sends the
-   file to `review` to rotate it), while the connection string's host, port and database name
-   stay; request, trace and deploy IDs (kept); user and customer IDs (redacted); IPs by field, so
-   `host=` and `upstream=` are kept while `client_ip=` and `X-Forwarded-For` are redacted even
-   when private; cards by Luhn, masked to the last four, and a card-shaped number that fails Luhn
-   next to the word "card" is redacted and sent to review. In a JSON payload the field names stay
-   and only the values the remove list names are replaced, so the vendor still sees the
-   request's shape. Where a model span overlaps a rule's span, the rule decides its part and the
+   whatever else an `Authorization` header holds, session cookies and the password in a
+   connection string (redacted; a live key also sends the file to `review` to rotate it), while
+   the connection string's host, port and database name stay; request, trace and deploy IDs
+   (kept); user and customer IDs (redacted); IPs by field, so `host=` and `upstream=` are kept
+   while `client_ip=` and `X-Forwarded-For` are redacted even when private; cards by the Luhn
+   check (the check digit every card number ends with, which most other 16-digit numbers fail),
+   masked to the last four, and a card-shaped number that fails Luhn next to the word "card" is
+   redacted and sent to review. In a JSON payload the field names stay and only the values the
+   remove list names are replaced, so the vendor still sees the request's shape. Where a model span overlaps a rule's span, the rule decides its part and the
    rest of the model's span is still redacted.
 5. **Keep your own names and the vendor's readable.** The allowlist holds the company, its
    on-call staff, its services and its own public IPs, plus the vendor's hostnames and endpoints,
@@ -141,11 +143,14 @@ are still written, and the run stops only if every call fails.
 
 ## Picking the model
 
-There's one model here, `superlinked/pii-redact`, called once per window of at most 300 words.
-On this bundle every file fits in one window, so a run makes 3 calls. It's SIE Cloud's PII
-model: two span extractors, `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero`, composed on
-the server, with spans scoring 0.6 or more kept, the two models' spans unioned and person names
-propagated. You give it a list of labels (here its 36 default personal-data types plus
+There's one model here, `superlinked/pii-redact`, called once per window of at most 150 words.
+On this bundle every file fits in one window, so a run makes 3 calls. Log lines are token-dense
+(a UUID is a dozen or more model tokens), so the windows sit well under the model's limit, and
+each call asks SIE to fail rather than cut a window short: a window that still doesn't fit blocks
+its file as not read. In our test SIE Cloud read a 600-word, UUID-dense text to its end, so the
+window size is a margin, not a measured limit. It's SIE Cloud's PII model: two span
+extractors, `urchade/gliner_multi_pii-v1` and `numind/NuNER_Zero`, composed on the server, with
+spans scoring 0.6 or more kept, the two models' spans unioned and person names propagated. You give it a list of labels (here its 36 default personal-data types plus
 `organization`, all in `rules.yaml`) and it returns spans with a label, offsets and a score
 through SIE's `extract` call.
 
@@ -199,22 +204,25 @@ sweep), which you can lift into another project as is.
 
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
-| Build the bundle | `load_case`, `build_bundle`, `log_platform.search`, `log_platform.export` | none | One log file per service from the log platform, inside the case's time range, then the notes. A service with no lines in the window, or a notes name that leads out of `data/`, raises an error before any SIE call |
-| Known customers | `known_customers`, `support_desk.tickets_for_incident` | none | The requester name, email and organization of every ticket linked to the incident, by exact incident ID. Only the fields; the ticket's text never enters the bundle |
-| Find personal data | `detect_pii`, `guarded` | `extract` | One call per window of at most 300 words. A transient failure or a reply without `entities` marks the file as not read; a refusal stops the run (`SIEStopped`, `is_fatal`, `stop_message`), and so does a run where every call failed (`CallLog.stop_if_all_failed`). A span whose offsets don't match its text blocks the file |
+| Build the bundle | `load_case`, `utc_time`, `build_bundle`, `log_platform.search`, `log_platform.export` | none | One log file per service from the log platform, inside the case's time range, then the notes. Both ends of the range must carry a timezone and are compared as UTC times, not text, so `+02:00`, an unquoted YAML timestamp and fractional seconds all select the right lines. A service with no lines in the window, or a notes name that leads out of `data/`, raises an error before any SIE call |
+| Known customers | `known_customers`, `flag_no_ticket`, `support_desk.tickets_for_incident` | none | The requester name, email and organization of every ticket linked to the incident, by exact incident ID. Only the fields; the ticket's text never enters the bundle. With no linked ticket the run prints a warning and every file goes to review, since only the model looked for the customer |
+| Find personal data | `detect_pii`, `guarded` | `extract` | One call per window of at most 150 words, with `overflow_policy: error` so a window too long to read whole fails (`InputTooLongError`, blocked as not read) instead of being cut short. A transient failure or a reply without `entities` marks the file as not read; a refusal stops the run (`SIEStopped`, `is_fatal`, `stop_message`), and so does a run where every call failed (`CallLog.stop_if_all_failed`). A span whose offsets don't match its text blocks the file |
 | Carry names | `known_mentions`, `propagate_names`, `name_form_spans`, `second_spellings` | none | Known customers and model-found names everywhere in the bundle, also as "SURNAME, FIRST", the surname alone and the first name alone (as written, in capitals or capitalized). Emails and customer IDs in any capitals or spelling |
-| Identifier rules | `identifier_spans`, `learned_keeps`, `ipv4_valid`, `luhn_valid`, `mask` | none | The rules in `rules.yaml` order. A rule acts on its `value` group, so the field name stays. Host IPs learned from `host=` and `upstream=` are kept in every file; the same IP logged as a client blocks the file. A loose look-alike no rule matched (a bare UUID, an IPv6 client address, an odd Authorization header) blocks the file |
+| Identifier rules | `identifier_spans`, `learned_keeps`, `ipv4_valid`, `luhn_valid`, `mask` | none | The rules in `rules.yaml` order. A rule acts on its `value` group, so the field name stays. Host IPs learned from `host=` and `upstream=` are kept in every file; the same IP logged as a client blocks the file. Any `Authorization` header value is taken out; a value that isn't a bearer token (Basic, or a key with no scheme) also blocks the file, like any other loose look-alike no rule matched (a bare UUID, an IPv6 client address). A rule skips a value only when it lies wholly inside an allowlisted term, so `felix@corvane.example` is still an email |
 | Allowlist | `apply_allowlist`, `released_terms`, `known_releases` | none | Company, staff, services, vendor and own IPs stay, as whole terms. A known customer's name wins over the list, and the file goes to review to check who is meant |
 | Rules cut model spans | `outside_ruled`, `worth_redacting`, `merge_spans` | none | The rule decides its own range; the rest of the model's span stays redacted under one placeholder, unless what's left is one word like `request_id=` or `Bearer` |
 | Placeholders | `Placeholders.assign`, `replacement` | none | One placeholder per value across the bundle; a short name that fits two known people goes to review |
-| Sweep and status | `redact`, `residual_sweep`, `Document.status` | none | Regex for emails, IPs, UUIDs, JWTs, bearer tokens, API keys, phones, labelled numbers, wrapped tokens, connection passwords, labelled secrets (`client_secret=`, `"password":`), session IDs and URL secrets, plus a Luhn check, on the cleaned text. Any hit blocks the file |
+| Sweep and status | `redact`, `residual_sweep`, `Document.status` | none | Regex for emails (URL-encoded too), IPs, UUIDs, JWTs, bearer tokens, API keys, phones, labelled numbers, wrapped tokens, connection passwords, readable `Authorization` values, labelled secrets (`client_secret=`, `"password":`), session IDs, URL secrets, AWS access keys, PEM private keys, GitHub and Slack tokens, `sk_live_` style keys, `Set-Cookie` and framework session cookies (`JSESSIONID=`), plus a Luhn check that allows spaces, dots or dashes between digits, on the cleaned text. Any hit blocks the file |
 | Write | `write_outputs`, `report_rows`, `redaction_rows`, `csv_safe` | none | Cleaned files under `ready_for_approval/`, `review/` or `blocked/`, `report.csv`, `redactions.csv`, and `private/` (mapping and originals). Every CSV cell goes through `csv_safe` |
 
 [`selfcheck.py`](./selfcheck.py) checks all of this offline with hand-written strings, the
-committed `data/` and hand-written stand-in model replies: the lookups, host versus client IPs,
-the near misses, cards, connection strings, sessions, the overlap rule, name forms, allowlist
-collisions, the sweep, the bundle's statuses, and the SIE error rule (transient, refusal, every
-call failed, a reply missing its key). It never calls SIE.
+committed `data/` and hand-written stand-in model replies: the lookups and the time window
+(unquoted YAML, `+02:00`, fractional seconds, no timezone), a run with no linked ticket, host
+versus client IPs, the near misses, cards with any separator, connection strings with `/` or `@`
+in the password, URL-encoded emails, `Authorization` headers of every kind, wrapped tokens,
+sessions, the overlap rule, name forms, allowlist collisions, every sweep pattern, the bundle's
+statuses, and the SIE error rule (transient, an over-long window, refusal, every call failed, a
+reply missing its key). It never calls SIE.
 
 ## Run it
 
@@ -339,6 +347,10 @@ A few things worth noticing:
   in another file is redacted as that user, but it still trips the loose UUID rule and blocks
   the file. Clearing the loose rule for values the bundle already decided would save the
   engineer a look.
+- **Shapes the rules still miss.** A double-encoded email (`%2540`), a card with three or more
+  characters between digit groups, and a connection-string password with a space in it pass
+  both the rules and the sweep, and the word "authorization:" in prose ("authorization: declined")
+  is taken out as a credential and blocks the file.
 - **First names are a blunt instrument.** The recipe redacts a known customer's first name on
   its own everywhere in the bundle. A customer called Will or May would take common words with
   them; a short stoplist of everyday words would help there.
@@ -378,8 +390,7 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 
 ## Files
 
-- `recipe.py`: the pipeline; the redaction core is the numbered sections, shared in shape with
-  [`legal/redact_documents_with_log`](../../legal/redact_documents_with_log), with
+- `recipe.py`: the pipeline; the redaction core is the numbered sections, with
   `identifier_spans`, `ipv4_valid`, `luhn_valid` and `mask` as the log identifier rules
 - `log_platform.py`: the log platform lookup (search by service and time range)
 - `support_desk.py`: the support desk lookup (tickets by linked incident, requester fields only)

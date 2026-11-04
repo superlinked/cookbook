@@ -1,7 +1,7 @@
 # Match a burst of alerts to the runbooks that fix them
 
-> **This example:** a NOC responder in an alert storm on inherited monitoring, where most alerts
-> carry no runbook link.
+> **This example:** a NOC (network operations center) responder in an alert storm on inherited
+> monitoring, where most alerts carry no runbook link.
 >
 > **How it works:** embeddings group the alerts, a reranker finds matching runbook sections, and a
 > language model writes a triage note whose runbook links Python checks.
@@ -20,8 +20,8 @@ link and follows the steps.
 Plenty of setups aren't that well kept. A platform or NOC team that inherited three monitoring
 stacks from three acquisitions, or that sits behind a dozen product teams who each write their
 own alert rules, gets alerts with inconsistent labels, no runbook link, or a link to a wiki page
-that moved two reorganizations ago. When a dependency breaks, 28 alerts land in a few minutes
-across a dozen services. The responder scrolls the list, guesses which alerts are the same
+that moved two reorganizations ago. When a dependency breaks, about 30 alerts land in a few
+minutes across a dozen services. The responder scrolls the list, guesses which alerts are the same
 problem seen from different services, searches the wiki for each guess, opens Grafana and the
 log platform to check, and writes what they found into the incident timeline. All while the
 pager keeps going.
@@ -115,9 +115,9 @@ make up a step, which is why the responder reads it against the runbook before d
 4. **Rank the runbooks for each group.** `Qwen/Qwen3-Reranker-4B` scores every runbook in the
    wiki against the group's alerts. Python applies the score limit and the close-second margin.
 5. **Pick the log lines that belong to the group.** From the log platform: configuration, flag
-   and deploy changes in the group's environment over the 30 minutes before its first alert,
-   then lines from the group's services from 5 minutes before its first alert to 5 minutes after
-   its last, at most 8 in all. The note shows which lines it saw.
+   and deploy changes in the group's environment from 30 minutes before its first alert to 5
+   minutes after its last, then lines from the group's services from 5 minutes before its first
+   alert to 5 minutes after its last, at most 8 in all. The note shows which lines it saw.
 6. **Write and check the note.** `Qwen/Qwen3.8-27B-FP8` writes at most five lines, citing alert
    IDs and the runbook ID, from the group's alerts, those log lines and the chosen runbook.
    Python checks every citation belongs to this group and this runbook, and the length.
@@ -181,8 +181,12 @@ flowchart TD
     K --> O
     S --> O
     R --> O
+    E -. transient SIE error .-> R
     G -. transient SIE error .-> R
-    G -. refusal or every call failed .-> STOP["stop, no outputs"]
+    J -. transient SIE error<br/>or unusable reply .-> R
+    E -. refusal or every call failed .-> STOP["stop, no outputs"]
+    G -. refusal .-> STOP
+    J -. refusal .-> STOP
 ```
 
 ## How it's built
@@ -200,7 +204,7 @@ in for a Loki or Elasticsearch range query.
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Normalize | `load_webhooks`, `normalize_alerts`, `first_of` | none | Firing alerts only, one per fingerprint (the last notification wins), label names from `alert_labels`. An alert without a fingerprint or a readable `startsAt`, or a payload Alertmanager truncated, becomes a warning at the top of the triage note |
-| Use existing links | `link_alerts`, `Wiki.find_page` | none | An exact wiki page becomes a `linked_runbook` group, one per environment, time window and runbook. A link the wiki doesn't have is noted and the alert goes on |
+| Use existing links | `link_alerts`, `Wiki.find_page` | none | An exact wiki page (a `#section` anchor or `?query` on the link is ignored) becomes a `linked_runbook` group, one per environment, time window and runbook. A link the wiki doesn't have is noted and the alert goes on |
 | Boundaries | `partitions`, `window_index` | none | Split by environment, then wherever the next alert starts more than `max_gap_minutes` later. An alert with no environment label only groups with others that have none |
 | Group | `embed_alerts`, `group_alerts`, `group_by_meaning` | `encode` | One call for every remaining alert; average-linkage clustering on cosine similarity inside each boundary, stopping below `min_cosine_similarity` |
 | Rank runbooks | `rank_runbooks`, `judge_ranking` | `score` | One call per group. The reply must score every runbook exactly once with a finite number. Below `min_rerank_score` is `no_confident_match`; a second runbook within `close_margin` is `runbooks_close` |
@@ -208,7 +212,7 @@ in for a Loki or Elasticsearch range query.
 | Note | `note_prompt`, `write_note` | `chat_completions` + strict JSON schema | One call per group with one clear runbook |
 | Check the note | `check_note` | none | Every alert ID in the text or the `cited_alert_ids` list is in the group; the only runbook cited is the given one, and it's cited in the text; at most `max_lines` lines of at most `max_line_chars`. The patterns take any number of digits, so `A-011` or `RB-010` counts as a citation of something that wasn't given |
 | SIE failures | `Calls.call`, `Calls.bad_reply`, `is_fatal`, `stop_message`, `stop_on_refusal` | none | A transient failure or an unusable reply sends the group to review; a refusal, or every call failing, stops the run without outputs |
-| Outputs | `render_markdown`, `write_outputs`, `csv_safe` | none | `triage.md`, `triage.json` and `runbook-gaps.csv`. Any CSV cell a spreadsheet would run as a formula gets a leading `'` |
+| Outputs | `render_markdown`, `fence_for`, `write_outputs`, `csv_safe` | none | `triage.md`, `triage.json` and `runbook-gaps.csv`. The log lines in `triage.md` sit in a code fence longer than any run of backticks in them, so a line can't close it. Any CSV cell a spreadsheet would run as a formula gets a leading `'` |
 
 [`selfcheck.py`](./selfcheck.py) checks all of this offline with hand-written payloads and
 stand-in model replies (one-hot vectors, fixed scores, fixed notes): resolved and repeated
@@ -271,8 +275,8 @@ The input is one storm, incident INC-4127 on 2026-10-14, in [`data/`](./data):
 | `productCatalogFailure` | 4 alerts on product-catalog, checkout and frontend (A-07 A-13 A-19 A-24) | `runbook_suggested` RB-04 | `runbook_suggested` RB-04, 0.9999 (RB-10 next at 0.8565) | Shares checkout and the frontend with other groups |
 | `kafkaQueueProblems` | 5 alerts on accounting, fraud-detection and kafka (A-05 A-10 A-15 A-20 A-25); no runbook covers Kafka | `no_confident_match` | `no_confident_match`, best RB-09 at 0.0011 | A real gap; the note isn't written, the group goes on the gap list |
 | Distractors | RB-05 to RB-10 cover services that are fine | never chosen | never chosen | Runbooks that read close but don't fit |
-| Link already there (new) | Two payment alerts (A-29 A-30) carry `runbook_url` for RB-01 | `linked_runbook` for those two | `linked_runbook` RB-01 | The structured link wins; no model is asked about them |
-| Same symptoms, other environment (new) | Charge errors from `env=staging` (A-31 A-32) during the same storm | a separate group from production's payment group | its own group, `runbook_suggested` RB-01, 0.9996 | Near miss: identical words, different incident |
+| Link already there | Two payment alerts (A-29 A-30) carry `runbook_url` for RB-01 | `linked_runbook` for those two | `linked_runbook` RB-01 | The structured link wins; no model is asked about them |
+| Same symptoms, other environment | Charge errors from `env=staging` (A-31 A-32) during the same storm | a separate group from production's payment group | its own group, `runbook_suggested` RB-01, 0.9996 | Near miss: identical words, different incident |
 
 On our two live runs on 2026-11-04 (UTC), every planted case came out as planned with the settings
 as first written: 7 groups, 12 SIE calls, and all five notes passed their checks. Treat that as a
@@ -373,7 +377,7 @@ then `runbook` and `no_runbook` (now `runbook_suggested` and `no_confident_match
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `embed` | `tencent/R3-embedding-0.6b` | 17 groups instead of 5, so 14 LLM notes instead of 4. Every payment, ad, recommendation and catalog group still got its own runbook, but A-08 alone scored 0.12 and was reported as a runbook gap. `min_cosine_similarity: 0.65` is tuned for Qwen3-Embedding-4B's scores; this model needs its own value. |
+| `embed` | `tencent/R3-embedding-0.6b` | 17 groups instead of 5, so 14 LLM notes instead of 4. Every payment, ad, recommendation and catalog group still got its own runbook, but A-08 alone scored 0.12 and was reported as a runbook gap. `min_cosine_similarity: 0.65` was set with Qwen3-Embedding-4B's scores; this model needs its own value. |
 | `embed` | `Snowflake/snowflake-arctic-embed-l-v2.0` | 19 groups instead of 5. A-14 (recommendation) was grouped with A-06 (ad) under RB-02, and A-08 and A-27 became runbook gaps. The 0.65 threshold does not fit this model's scores either. |
 | `rerank` | `Qwen/Qwen3-Reranker-0.6B` | Same 5 groups, same runbook for each and the Kafka group still a gap. Top scores 0.995 to 0.999, the gap 0.0004, so 0.50 still splits them widely. |
 | `rerank` | `tencent/R3-rerank-0.6b` | Same 5 groups and same runbooks, but the scores are squeezed: matches 0.74 to 0.77, the Kafka gap 0.27. 0.50 still separates them, with far less room. |

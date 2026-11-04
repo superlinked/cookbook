@@ -34,7 +34,7 @@ from sie_sdk.client.errors import (
     SIEError,
     SpendLimitError,
 )
-from slack import User
+from slack import Message, Slack, User
 
 import recipe
 
@@ -193,9 +193,8 @@ def event(status: str, start: str, end: str | None, severity: str = "critical") 
 
 
 def check_alert_window() -> None:
-    # A paging alert whose firing event is before the record: only its resolve. Before the
-    # fix this crashed the run (min() of nothing); now the window comes from its own startsAt
-    # and the history is flagged incomplete.
+    # A paging alert whose firing event is before the record: only its resolve. The window
+    # comes from its own startsAt and the history is flagged incomplete.
     rec = stand_in_record([event("resolved", "2026-10-02T12:10:00", "2026-10-02T13:30:00")])
     window = recipe.alert_window(rec, RULES)
     assert window["start"] == "2026-10-02 12:10:00Z", window
@@ -304,12 +303,15 @@ def check_numbers() -> None:
     # Line IDs and the incident ID in the text are not numbers the claim states.
     ids = claim("In INC-0101 (S03) the pool shrank to 8.", ["S03"], "an async pool with a max of 8")
     assert not has(issues_for(rec, with_change(draft, "summary", ids)), "summary:")
+    # A three-digit line ID (a long channel) is an ID too, not the number 103.
+    long_id = claim("The pool shrank to 8 (see S103).", ["S03"], "an async pool with a max of 8")
+    assert not has(issues_for(rec, with_change(draft, "summary", long_id)), "states 103")
     print("numbers: invented counts, durations and versions fail; 1,140 = 1140 ok")
 
 
 def check_late_impact() -> None:
     # Support's final count, posted the next morning, hours after the alert resolved, is still
-    # evidence. The old rule wanted impact lines within 10 minutes of the window.
+    # evidence: no rule ties impact lines to the alert window.
     rec = record("INC-0101")
     late = claim(
         "Support counted 63 tickets; 1,140 checkout attempts from 812 customers failed.",
@@ -357,6 +359,11 @@ def check_root_cause() -> None:
     assert has(issues_for(rec104, draft), "marked identified", "don't know")
     unknown = {**negated, "status": "unknown", "quote": "We still don't know what caused it."}
     assert has(issues_for(rec104, {**draft, "root_cause": unknown}), "Root cause not established")
+    # A status off the enum is named as such, not passed off as "not established".
+    off = {**GOOD_0103["root_cause"], "status": "probably"}
+    found = issues_for(rec, with_change(GOOD_0103, "root_cause", off))
+    assert has(found, "status 'probably' is not one of identified, unknown"), found
+    assert not has(found, "Root cause not established"), found
     # A flag turned off after the alerts started shares its name with the flag that caused
     # them, so a message naming that flag is not blamed on the later change.
     rec102 = record("INC-0102")
@@ -435,6 +442,29 @@ def check_action_items() -> None:
     found = issues_for(crowded106, draft)
     assert has(found, "no message it cites hands it to sam.okafor"), found
     assert has(found, "S05 names Sam, which matches several people"), found
+    # A mid-incident "I'll roll back" is not an action item: it hands nothing out, and an
+    # invented follow-up citing it has no message handing it to its owner.
+    rec101 = record("INC-0101")
+    s04 = rec101.by_id["S04"]
+    mid = recipe.Line("S04", s04.at, "slack", "dev.patel", "I'll roll back checkout to v2.13.4.")
+    rec_mid = recipe.Record(
+        rec101.incident,
+        rec101.alerts_since,
+        rec101.until,
+        [mid if line.line_id == "S04" else line for line in rec101.lines],
+        rec101.episodes,
+        rec101.directory,
+    )
+    handed = [line.line_id for line, _, _ in recipe.assigned_in_record(rec_mid, RULES)]
+    assert handed == ["S09"], handed
+    rollback = claim(
+        "Roll back checkout to v2.13.4.",
+        ["S04"],
+        "I'll roll back checkout to v2.13.4",
+        owner="dev.patel",
+    )
+    found = issues_for(rec_mid, with_change(GOOD_0103, "action_items", [rollback]))
+    assert has(found, "action_items 1: no message it cites hands it to dev.patel"), found
     print("action items: unassigned, wrong owner, merged, dropped, unknown, shared name ok")
 
 
@@ -533,6 +563,11 @@ def check_parse_draft() -> None:
             "action_items: expected the keys",
         ),
     ]
+    # Content that isn't a string is "not JSON", never a crash; no finish reason is accepted.
+    cases.append(({"finish_reason": "stop", "content": ["a", "list"]}, "not JSON"))
+    cases.append(({"finish_reason": "stop", "content": None}, "not JSON"))
+    answer, _ = recipe.parse_draft(choice(GOOD_0103, None), RULES)
+    assert answer == GOOD_0103
     for given, fragment in cases:
         answer, problem = recipe.parse_draft(given, RULES)
         assert answer is None, fragment
@@ -604,12 +639,18 @@ class StandIn:
         return {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(draft)}}]}
 
 
+def content_reply(content: Any, finish_reason: str | None = "stop") -> dict[str, Any]:
+    return {"choices": [{"finish_reason": finish_reason, "message": {"content": content}}]}
+
+
 def run(
-    replies: dict[str, Any] | None = None, errors: dict[str, list[BaseException]] | None = None
+    replies: dict[str, Any] | None = None,
+    errors: dict[str, list[BaseException]] | None = None,
+    systems: recipe.Systems = SYSTEMS,
 ) -> list[dict[str, Any]]:
     client = cast(SIEClient, StandIn(replies, errors))
     with contextlib.redirect_stdout(io.StringIO()):
-        rows, _ = recipe.run(client, RULES, SYSTEMS)
+        rows, _ = recipe.run(client, RULES, systems)
     return rows
 
 
@@ -684,6 +725,112 @@ def check_statuses() -> None:
     print("statuses: checks_passed and needs_review only; failed claims are held ok")
 
 
+# Hand-written drafts that pass every claim check, so only the alert window can send them to
+# review: INC-0105's page is still firing, INC-0106's warning fired before the record starts.
+GOOD_0105: dict[str, Any] = {
+    "summary": claim(
+        "Payment webhooks backed up because retries hammered the partner endpoint.",
+        ["S02"],
+        "our retries are hammering it",
+    ),
+    "impact": claim(
+        "Merchants did not get payment confirmations.",
+        ["S01"],
+        "Merchants are not getting payment confirmations",
+    ),
+    "root_cause": claim(
+        "v1.9.0 raised the retry ceiling, and the partner answered 429.",
+        ["S02"],
+        "v1.9.0 raised the retry ceiling",
+        status="identified",
+    ),
+    "contributing_factors": [],
+    "action_items": [],
+}
+GOOD_0106: dict[str, Any] = {
+    "summary": claim(
+        "media-upload returned 500 for HEIC images after v4.2.0.",
+        ["S02"],
+        "media-upload returns 500 for HEIC images",
+    ),
+    "impact": claim("Avatar uploads failed for customers.", ["S01"], "avatar uploads fail"),
+    "root_cause": claim(
+        "The new libvips build has no HEIC support.",
+        ["S02"],
+        "the new libvips build has no HEIC support",
+        status="identified",
+    ),
+    "contributing_factors": [],
+    "action_items": [
+        claim(
+            "Add HEIC samples to the upload tests.",
+            ["S05"],
+            "I'll add HEIC samples to the upload tests",
+            owner="dev.patel",
+        ),
+        claim(
+            "Make the upload error-rate alert page above 5%.",
+            ["S05"],
+            "Sam makes the upload error-rate alert page",
+            owner="sam.okafor",
+        ),
+    ],
+}
+
+
+class QuietSlack(Slack):
+    """Slack with one channel's history gone."""
+
+    def __init__(self, quiet: str) -> None:
+        super().__init__()
+        self.quiet = quiet
+
+    def channel_history(self, channel: str) -> list[Message]:
+        return [] if channel == self.quiet else super().channel_history(channel)
+
+
+def check_review_paths() -> None:
+    # The drafts pass every claim check on their own...
+    for incident, draft in (("INC-0105", GOOD_0105), ("INC-0106", GOOD_0106)):
+        assert issues_for(record(incident), draft) == [], (
+            incident,
+            issues_for(record(incident), draft),
+        )
+    # ...and the whole run still sends them to review, for the window.
+    rows = run(
+        replies={
+            "INC-0105": content_reply(json.dumps(GOOD_0105)),
+            "INC-0106": content_reply(json.dumps(GOOD_0106)),
+        }
+    )
+    r105, r106 = row(rows, "INC-0105"), row(rows, "INC-0106")
+    assert r105["status"] == recipe.NEEDS_REVIEW, r105
+    assert r105["issues"] == [
+        "WebhookDeliveryBacklog (critical) is still firing at the end of the record, so the "
+        "alert window has not closed."
+    ], r105["issues"]
+    assert r105["alert_window"]["end"] is None, r105["alert_window"]
+    assert r106["status"] == recipe.NEEDS_REVIEW, r106
+    assert has(r106["issues"], "MediaUploadErrorRate resolved", "history is incomplete"), r106
+    assert has(r106["issues"], "No critical alert fired"), r106
+    assert len(r106["issues"]) == 2, r106["issues"]
+    # One incident with an empty channel goes to review; the others still get drafts.
+    s = SYSTEMS
+    quiet = recipe.Systems(
+        s.incidents, QuietSlack("inc-0107-fulfillment-lag"), s.alerts, s.deploys, s.flags
+    )
+    rows = run(systems=quiet)
+    r107 = row(rows, "INC-0107")
+    assert (r107["status"], r107["sections"], r107["timeline"]) == (recipe.NEEDS_REVIEW, {}, {})
+    assert r107["issues"] == [
+        "No draft: #inc-0107-fulfillment-lag has no messages, so there is no record."
+    ], r107
+    assert row(rows, "INC-0103")["status"] == recipe.CHECKS_PASSED
+    with tempfile.TemporaryDirectory() as name:
+        recipe.write_outputs(Path(name), rows, RULES)
+    print("review paths: open and truncated windows, empty channel go to review ok")
+
+
 def check_sie_failure() -> None:
     for error in TRANSIENT:
         assert not recipe.is_fatal(error), f"{type(error).__name__} should be transient"
@@ -705,6 +852,17 @@ def check_sie_failure() -> None:
     assert has(row(rows, "INC-0103")["issues"], "replied without 'choices[0].message.content'")
     rows = run(replies={"INC-0103": {"choices": []}})
     assert has(row(rows, "INC-0103")["issues"], "the SIE call failed")
+    # Content that is null, not a string or not JSON is a failed call too, never a crash.
+    for content in (None, ["a", "list"], "not json {"):
+        rows = run(replies={"INC-0103": content_reply(content)})
+        found = row(rows, "INC-0103")["issues"]
+        assert has(found, "No draft: the SIE call failed", "without readable JSON"), found
+    found = row(run(replies={"INC-0103": content_reply("{", "length")}), "INC-0103")["issues"]
+    assert has(found, "readable JSON content (finish reason length)"), found
+    # Every reply unusable counts as every call failing: the run stops.
+    unusable = {i.incident_id: content_reply(None) for i in SYSTEMS.incidents.list_incidents()}
+    message = stopped(lambda: recipe.run(cast(SIEClient, StandIn(unusable)), RULES, SYSTEMS))
+    assert "Every SIE call failed (7 of 7" in message, message
     # Every call failed (a dead SIE_BASE_URL): the run stops, with the full message.
     long = "connection refused " + "x" * 300
     dead: dict[str, list[BaseException]] = {"": [SIEConnectionError(long) for _ in range(20)]}
@@ -770,5 +928,6 @@ if __name__ == "__main__":
     check_parse_draft()
     check_template_and_prompt()
     check_statuses()
+    check_review_paths()
     check_sie_failure()
     print("all checks passed")

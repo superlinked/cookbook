@@ -16,13 +16,14 @@ labels against its routes, the route points at a PagerDuty service, and the owni
 on-call gets the page. That only works when the alert carries a label a route knows. Anything
 that doesn't match falls through to the catch-all route, which at most companies is a shared
 fallback queue (a `sre-triage` service in PagerDuty, or a channel in Slack) watched by a central
-SRE or NOC responder.
+SRE or NOC (network operations center) responder.
 
 What that responder does with each fallen-through alert is a small investigation. The phone
 buzzes, they open the incident in PagerDuty, read the labels and the summary, follow the
 dashboard link if there is one, and then go looking for an owner: the service catalog
 (Backstage or a YAML file in a repo), the Kubernetes namespace's owner annotation, the cloud
-tags on the instance, the CMDB. If they find one, they reassign the incident to that team's
+tags on the instance, the CMDB (configuration management database, the record of which hosts
+exist and what runs on them). If they find one, they reassign the incident to that team's
 escalation policy. If they don't, they read the alert text and make an educated guess, page
 that team, and hope. Often at 3 a.m.
 
@@ -174,7 +175,7 @@ about 630 lines and reads top to bottom in the order of the flow.
 | Step | Code | SIE call | What it does |
 | --- | --- | --- | --- |
 | Load | `load_alerts`, `parse_alerts` | none | Reads `data/alerts.json`; repeated alert ids are an error |
-| Catalog | `ServiceCatalog` in `service_catalog.py`: `teams`, `find_service` | none | Loads the catalog CSVs into an in-memory SQLite database. A name or alias matches exactly, ignoring case and spaces; a name used by two services is an error |
+| Catalog | `ServiceCatalog` in `service_catalog.py`: `teams`, `find_service` | none | Loads the catalog CSVs into an in-memory SQLite database. A name or alias matches exactly, ignoring case and surrounding spaces; a name used by two services is an error |
 | Inventory | `Inventory` in `inventory.py`: `find_host`, `find_namespace`, `host_part` | none | Same for the hosts and namespaces. The port is dropped from `address:port` (IPv6 in brackets too); a host matches by address or host name, exactly |
 | Look up the labels | `label_values`, `look_up_labels` | none | Every label in `owner_labels`, every name in a label that holds several (`a,b`). Notes each one no record knows |
 | Decide from records | `route_by_records` | none | One owner: `owner_in_catalog`. No owner: `ownerless_service`. Two owners (an owned and an ownerless service included), or an owner that isn't a catalog team: `no_clear_owner`. Nothing placed: on to the model |
@@ -233,8 +234,8 @@ this recipe.
 | AL-07 | Text sounds like a database disk alert, label says `search-es` | `owner_in_catalog`: search | Near miss: the label wins over the words |
 | AL-08 | Known service `legacy-reports` with no owner | `ownerless_service` | The catalog knows nobody owns it; the model isn't asked |
 | AL-09 | Unknown `service=auth-v2`, OAuth login failures | `team_suggested`: identity 0.88 | A renamed service the text identifies clearly |
-| AL-10 (new) | `service=checkout-v3` (unknown) and `app=checkout-ui` (known) | `owner_in_catalog`: storefront, from `app` | Near miss: an unknown first label must not hide a known second one |
-| AL-11 (new) | No service label, Kafka broker with under-replicated partitions, `instance` of a host not in the inventory | `team_suggested`: streaming 0.56, margin 0.37 | The other half of AL-04: a broker problem really is the streaming team's |
+| AL-10 | `service=checkout-v3` (unknown) and `app=checkout-ui` (known) | `owner_in_catalog`: storefront, from `app` | Near miss: an unknown first label must not hide a known second one |
+| AL-11 | No service label, Kafka broker with under-replicated partitions, `instance` of a host not in the inventory | `team_suggested`: streaming 0.56, margin 0.37 | The other half of AL-04: a broker problem really is the streaming team's |
 
 On our live run on 4 Nov 2026 (UTC) all 11 came out as planned: 5 `owner_in_catalog`, 1
 `ownerless_service`, 4 `team_suggested` and 1 `no_clear_owner`, with the limits as first

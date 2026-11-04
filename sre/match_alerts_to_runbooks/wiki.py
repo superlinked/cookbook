@@ -27,21 +27,24 @@ class Runbook:
 
 
 def page_key(url: str) -> str:
-    """The URL as the wiki matches it: no surrounding spaces, no trailing slash. Nothing else is
-    forgiven, so a link to a page that moved or a near-identical page name finds nothing."""
-    return url.strip().rstrip("/")
+    """The URL as the wiki matches it: no surrounding spaces, no `#anchor` or `?query` (a link
+    to a section of a page is a link to that page), no trailing slash. Nothing else is forgiven,
+    so a link to a page that moved or a near-identical page name finds nothing."""
+    return url.strip().split("#", 1)[0].split("?", 1)[0].rstrip("/")
 
 
 class Wiki:
     def __init__(self, seed: Path) -> None:
         self.db = sqlite3.connect(":memory:")
         names = ", ".join(f'"{name}"' for name in COLUMNS)
-        self.db.execute(f"CREATE TABLE page ({names}, key TEXT UNIQUE)")
+        self.db.execute(f"CREATE TABLE page ({names}, key TEXT UNIQUE, UNIQUE (runbook_id))")
         with seed.open(newline="", encoding="utf-8") as handle:
             rows = [
                 (*(row[name] for name in COLUMNS), page_key(row["url"]))
                 for row in csv.DictReader(handle)
             ]
+        if not rows:
+            raise ValueError(f"{seed} has no runbooks, so there is nothing to match alerts to")
         self.db.executemany(f"INSERT INTO page VALUES ({', '.join('?' * 9)})", rows)
 
     def _runbook(self, row: tuple[str, ...]) -> Runbook:

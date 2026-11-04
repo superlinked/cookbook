@@ -833,6 +833,13 @@ def csv_safe(value: Any) -> str:
     return "'" + text if text.startswith(FORMULA_START) else text
 
 
+def fence_for(content: str) -> str:
+    """A code fence longer than any run of backticks in the content, so a log line can't close
+    it early and turn the rest of the report into Markdown."""
+    longest = max((len(run) for run in re.findall(r"`+", content)), default=0)
+    return "`" * max(3, longest + 1)
+
+
 def render_markdown(groups: list[Group], warnings: list[str]) -> str:
     alerts = sum(len(group.alerts) for group in groups)
     parts = [
@@ -865,10 +872,12 @@ def render_markdown(groups: list[Group], warnings: list[str]) -> str:
         elif group.rejected_note:
             parts.append("The note failed its checks, so it isn't shown here (triage.json).\n")
         if group.log_lines:
+            content = "\n".join(group.log_lines)
+            fence = fence_for(content)
             parts.append(
-                "<details><summary>Log lines the note saw</summary>\n\n```text\n"
-                + "\n".join(group.log_lines)
-                + "\n```\n</details>\n"
+                f"<details><summary>Log lines the note saw</summary>\n\n{fence}text\n"
+                + content
+                + f"\n{fence}\n</details>\n"
             )
     return "\n".join(parts)
 

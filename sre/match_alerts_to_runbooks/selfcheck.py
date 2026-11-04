@@ -15,6 +15,7 @@ import functools
 import io
 import json
 import re
+import sqlite3
 import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -240,6 +241,11 @@ def check_normalize() -> None:
 def check_links() -> None:
     url = "https://wiki.example.internal/sre/runbooks/rb-01-payment-charge-failing"
     assert WIKI.find_page(url + "/") is not None
+    # Fix: a link to a section of the page, or with a query string, is a link to that page.
+    for linked_url in (url + "#check", url + "/?version=3", url + "?a=1#mitigate"):
+        page = WIKI.find_page(linked_url)
+        assert page is not None, linked_url
+        assert page.runbook_id == "RB-01", linked_url
     # Near-identical page names and moved pages find nothing; the alert goes on to matching.
     for near in (url + "-old", url.replace("rb-01", "rb-1"), url.replace("https", "http")):
         assert WIKI.find_page(near) is None, near
@@ -256,6 +262,18 @@ def check_links() -> None:
     assert all(g.status == recipe.LINKED and g.runbook for g in linked)
     assert [a.alert_id for a in rest] == ["A-04", "A-05"]
     assert "is not a page in the wiki" in stale["A-04"], stale
+    # Fix: two pages with one runbook ID, or a wiki with no runbooks, fail at load.
+    header = "runbook_id,url,title,owner_team,symptoms,check,mitigate,escalate\n"
+    with tempfile.TemporaryDirectory() as name:
+        seed = Path(name) / "wiki.csv"
+        seed.write_text(header + "RB-01,https://a/x,A,t,s,c,m,e\nRB-01,https://a/y,B,t,s,c,m,e\n")
+        caught = raised(lambda: Wiki(seed))
+        assert type(caught) is sqlite3.IntegrityError, caught
+        assert "runbook_id" in str(caught), caught
+        seed.write_text(header)
+        caught = raised(lambda: Wiki(seed))
+        assert type(caught) is ValueError, caught
+        assert "has no runbooks" in str(caught), caught
     print("links: exact wiki page only, one linked group per environment, stale link noted ok")
 
 
@@ -321,6 +339,22 @@ def check_logs() -> None:
     # Outside the time window: nothing from the services, even though they logged earlier.
     late = recipe.Group([alert("A-05", 120)])
     assert [line.service for line in recipe.select_logs(late, LOGS, RULES)] == []
+    # Fix: a seed time with an offset or fractional seconds is stored in UTC and still found in
+    # its range; compared as written, "10:01:00+01:00" sorts after 09:02 and is missed.
+    with tempfile.TemporaryDirectory() as name:
+        seed = Path(name) / "logs.csv"
+        seed.write_text(
+            "time,env,service,level,message\n"
+            "2026-10-14T10:01:00+01:00,production,cart,error,offset\n"
+            "2026-10-14T09:01:30.500Z,production,cart,error,fraction\n"
+        )
+        start = datetime(2026, 10, 14, 9, 0, tzinfo=UTC)
+        end = start + timedelta(minutes=2)
+        found = LogPlatform(seed).search("production", ["cart"], start, end)
+        assert [(line.time, line.message) for line in found] == [
+            ("2026-10-14T09:01:00Z", "offset"),
+            ("2026-10-14T09:01:30Z", "fraction"),
+        ], found
     print("logs: environment, services and time window, changes first ok")
 
 
@@ -616,6 +650,17 @@ def check_sie_failure() -> None:
     print("sie failure: transient to review; missing key fails; refusals and all-failed stop ok")
 
 
+def check_markdown_fence() -> None:
+    # Fix: a log line holding backticks can't close the code fence and spill into the report.
+    group = recipe.Group([alert("A-01")], group_id="G1", status="no_confident_match")
+    group.log_lines = ["payment [error] bad input ```", "# not a heading", "``````"]
+    md = recipe.render_markdown([group], [])
+    assert "```````text\n" in md, md
+    assert md.count("```````") == 2, md
+    assert recipe.fence_for("plain") == "```"
+    print("markdown: the log fence is longer than any backtick run in the lines ok")
+
+
 def check_csv_safe() -> None:
     assert recipe.csv_safe("=HYPERLINK(1)") == "'=HYPERLINK(1)"
     assert recipe.csv_safe("-1") == "'-1"
@@ -643,5 +688,6 @@ if __name__ == "__main__":
     check_rejected_note_hidden()
     check_close_call_flow()
     check_sie_failure()
+    check_markdown_fence()
     check_csv_safe()
     print("all checks passed")

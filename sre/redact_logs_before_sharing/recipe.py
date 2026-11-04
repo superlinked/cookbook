@@ -16,7 +16,7 @@ Input:     The vendor case in data/case.yaml (incident, vendor, services, time r
            Remove and keep lists, the company's and the vendor's names and every threshold in
            rules.yaml.
 SIE pipeline (one model):
-           extract  superlinked/pii-redact  called once per window of at most 300 words: names,
+           extract  superlinked/pii-redact  called once per window of at most 150 words: names,
                                             companies, emails, IPs, IDs and URLs in the text
            (Python applies the field rules, the allowlist, one placeholder per value across the
            bundle and a final regex and Luhn sweep, and sets each file's status.)
@@ -163,8 +163,8 @@ class Case:
     incident: str
     vendor: str
     services: tuple[str, ...]
-    start: str
-    end: str
+    start: datetime  # in UTC
+    end: datetime  # in UTC
     notes: str
 
 
@@ -176,16 +176,29 @@ def load_rules(path: Path = RULES_PATH) -> dict[str, Any]:
     return load_yaml(path)
 
 
+def utc_time(value: object, what: str) -> datetime:
+    """A window end as a UTC datetime. YAML gives a datetime for an unquoted timestamp and a
+    string for a quoted one; both must carry a timezone ("Z" or "+02:00"), or the window could
+    be off by hours without anyone noticing."""
+    moment = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        raise ValueError(f"window {what} {value!s} has no timezone; add Z or an offset")
+    return moment.astimezone(UTC)
+
+
 def load_case(path: Path = CASE_PATH) -> Case:
     raw = load_yaml(path)
-    return Case(
+    case = Case(
         incident=str(raw["incident"]),
         vendor=str(raw["vendor"]),
         services=tuple(raw["services"]),
-        start=str(raw["window"]["start"]),
-        end=str(raw["window"]["end"]),
+        start=utc_time(raw["window"]["start"], "start"),
+        end=utc_time(raw["window"]["end"], "end"),
         notes=str(raw["notes"]),
     )
+    if case.end <= case.start:
+        raise ValueError(f"window end {case.end} is not after its start {case.start}")
+    return case
 
 
 def build_bundle(case: Case, data_dir: Path = DATA_DIR) -> list[Document]:
@@ -196,7 +209,9 @@ def build_bundle(case: Case, data_dir: Path = DATA_DIR) -> list[Document]:
     for service in case.services:
         events = log_platform.search(service, case.start, case.end, data_dir / "log_platform.csv")
         if not events:
-            raise ValueError(f"no {service} log lines from {case.start} to {case.end}")
+            raise ValueError(
+                f"no {service} log lines from {case.start.isoformat()} to {case.end.isoformat()}"
+            )
         documents.append(Document(f"{service}.log", log_platform.export(events)))
     notes = data_dir / case.notes
     if Path(case.notes).name != case.notes or not notes.is_file():
@@ -215,9 +230,26 @@ def known_customers(case: Case, data_dir: Path = DATA_DIR) -> list[tuple[str, st
             (ticket.requester_email, "email address"),
             (ticket.organization, "organization"),
         ):
-            if value.strip() and (value, label) not in known:
+            if value.strip() and (value.strip(), label) not in known:
                 known.append((value.strip(), label))
     return known
+
+
+def flag_no_ticket(case: Case, known: list[tuple[str, str]], documents: list[Document]) -> None:
+    """With no linked ticket (or one with no requester fields), the customer's name and email
+    are not known before the model reads the files, so only the model can find them. Warn, and
+    send every file to review so a person looks for the customer."""
+    if known:
+        return
+    print(
+        f"Warning: no support ticket linked to {case.incident} names a requester; only the PII "
+        "model looks for the customer, so every file goes to review."
+    )
+    for document in documents:
+        document.reviews.append(
+            f"no support ticket linked to {case.incident} names a requester, so the customer's "
+            "name and email were not known; a person checks for them"
+        )
 
 
 def line_of(text: str, offset: int) -> int:
@@ -419,7 +451,15 @@ def detect_pii(
 
         def call(item: Item = item) -> list[dict[str, Any]]:
             reply: Any = jsonable(
-                client.extract(model, item, labels=labels, provision_timeout_s=WAIT_S)
+                client.extract(
+                    model,
+                    item,
+                    labels=labels,
+                    # A window too long to read whole fails (InputTooLongError, the transient
+                    # path: the file is blocked as not read) instead of being cut short.
+                    options={"overflow_policy": "error"},
+                    provision_timeout_s=WAIT_S,
+                )
             )
             if not isinstance(reply, dict) or reply.get("error") or reply.get("entities") is None:
                 # A reply without `entities` is a failed call, not an empty result: an empty list
@@ -669,22 +709,25 @@ def near_word(text: str, start: int, word: str, chars: int) -> bool:
 def identifier_spans(
     text: str, rules: dict[str, Any], learned: dict[str, set[str]] | None = None
 ) -> Identifiers:
-    """Apply the identifier rules in order. A match whose value is inside an allowlisted term,
-    or inside a value an earlier rule matched, is skipped: the status page's own IP is kept, a
-    request ID is kept before the customer-ID rule sees it, and a host IP before the IP rule.
+    """Apply the identifier rules in order. A match whose value lies wholly inside an
+    allowlisted term, or overlaps a value an earlier rule matched, is skipped: the status page's
+    own IP is kept, a request ID is kept before the customer-ID rule sees it, and a host IP
+    before the IP rule. A value that only touches an allowlisted term ("felix@corvane.example")
+    is still acted on.
 
     `learned` holds the values each `keep` rule kept anywhere in the bundle. A rule with
     `keep_values_from` keeps those values too; any other rule that would redact one of them
     blocks the file, since the same value is then both one of ours and a customer's."""
     learned = learned or {}
     found = Identifiers()
-    claimed = allowlisted_ranges(text, rules)
+    allowed = allowlisted_ranges(text, rules)
+    claimed: list[tuple[int, int]] = []
     every_learned = {value for values in learned.values() for value in values}
     for label, rule in rules["identifiers"].items():
         strict: list[tuple[int, int]] = []
         for match in re.finditer(rule["pattern"], text):
             start, end = value_span(match)
-            if overlaps(start, end, claimed):
+            if inside(start, end, allowed) or overlaps(start, end, claimed):
                 continue
             value, line = text[start:end], line_of(text, start)
             check = rule.get("check")
@@ -714,7 +757,7 @@ def identifier_spans(
                 found.spans.append(Span(start, end, label, value, "rule"))
         claimed += strict
         for match in re.finditer(rule.get("loose") or "(?!)", text):
-            if not overlaps(match.start(), match.end(), claimed):
+            if not overlaps(match.start(), match.end(), [*allowed, *claimed]):
                 reason = rule.get("loose_reason") or (
                     f"{label} in an unexpected format; the {rule['action']} rule can't apply"
                 )
@@ -759,7 +802,7 @@ def normalize(value: str, label: str, rules: dict[str, Any]) -> str:
     if label in rules["alnum_labels"]:
         return re.sub(r"[^0-9A-Za-z]", "", value).upper()
     if label == "email address":
-        return value.strip().casefold()
+        return value.strip().casefold().replace("%40", "@")  # URL-encoded or not, one address
     value = re.sub("['\N{RIGHT SINGLE QUOTATION MARK}]s\\b", "", value)  # possessive
     words = re.findall(r"[^\W_]+", value.casefold())
     while words and words[0] in rules["honorifics"]:
@@ -1274,6 +1317,7 @@ def main() -> None:
     output = args.output or RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     rules, case = load_rules(), load_case()
     documents, known = build_bundle(case), known_customers(case)
+    flag_no_ticket(case, known, documents)
     with make_client() as client:
         result = stop_on_refusal(lambda: run(client, rules, documents, known))
     write_outputs(output, result)

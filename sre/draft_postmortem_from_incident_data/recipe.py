@@ -17,11 +17,11 @@ SIE pipeline:
                                             line in time order (S01, A01, D01): the timeline;
                                             work out the alert window from the paging alerts'
                                             own startsAt and endsAt
-           generate Qwen/Qwen3.8-27B-FP8    fill in the template's sections (summary, impact,
+           chat_completions                 fill in the template's sections (summary, impact,
                                             root cause, contributing factors, action items),
-                                            each with line IDs and a verbatim quote (chat
-                                            completion, strict JSON schema); called once per
-                                            incident
+                                            each with line IDs and a verbatim quote
+                                            (Qwen/Qwen3.8-27B-FP8, strict JSON schema); called
+                                            once per incident
            (Python)                         check every claim: cited IDs exist, the quote is in a
                                             cited line, its numbers are in the cited lines, a
                                             change blamed as the cause came before the alerts,
@@ -222,13 +222,17 @@ def alert_text(event: AlertEvent, firing_seen: bool) -> str:
     return text
 
 
+class EmptyChannel(ValueError):
+    """The incident's channel has no messages, so there is nothing to draft from."""
+
+
 def build_record(incident: Incident, systems: Systems, rules: dict[str, Any]) -> Record:
     """Look up the incident's messages, alerts and changes, and number every line."""
     sources = rules["sources"]
     prefixes = sources["prefixes"]
     messages = systems.slack.channel_history(incident.channel)
     if not messages:
-        raise ValueError(f"{incident.incident_id}: no messages in #{incident.channel}")
+        raise EmptyChannel(f"No draft: #{incident.channel} has no messages, so there is no record.")
     first, last = messages[0].at, messages[-1].at
     alerts_since = first - timedelta(minutes=sources["alerts_lookback_min"])
     changes_since = first - timedelta(minutes=sources["changes_lookback_min"])
@@ -447,10 +451,15 @@ class Calls:
             self.failures.append((model, error))
             raise CallFailed(f"the SIE call failed: {short(error)}") from error
         if not isinstance(reply, dict) or key not in reply:
-            missing = SIEError(f"{model} replied without '{key}'")
-            self.failures.append((model, missing))
-            raise CallFailed(f"the SIE call failed: {short(missing)}")
+            raise self.bad_reply(model, f"{model} replied without '{key}'")
         return cast(dict[str, Any], reply)
+
+    def bad_reply(self, model: str, message: str) -> CallFailed:
+        """Record a reply that came back but can't be used (wrong shape, unreadable JSON) as a
+        failed call, and return the CallFailed for the caller to raise."""
+        missing = SIEError(message)
+        self.failures.append((model, missing))
+        return CallFailed(f"the SIE call failed: {short(missing)}")
 
     def check_all_failed(self) -> None:
         """Stop the run when every call failed; print a line when only some did."""
@@ -551,7 +560,8 @@ def ask_model(
     client: SIEClient, calls: Calls, record: Record, rules: dict[str, Any]
 ) -> dict[str, Any]:
     """The model's reply choice (finish reason and content). Raises CallFailed when the call
-    failed or the reply has no `choices[0].message.content`."""
+    failed, or `choices[0].message.content` is missing, not a string or not JSON: a reply with
+    nothing to read counts as a failed call, so a run where every reply is unusable stops."""
     model = rules["models"]["report"]
 
     def work() -> Any:
@@ -576,10 +586,18 @@ def ask_model(
         choice = reply["choices"][0]
         content = choice["message"]["content"]
     except (KeyError, IndexError, TypeError):
-        missing = SIEError(f"{model} replied without 'choices[0].message.content'")
-        calls.failures.append((model, missing))
-        raise CallFailed(f"the SIE call failed: {short(missing)}") from None
-    return {"finish_reason": choice.get("finish_reason"), "content": content}
+        raise calls.bad_reply(
+            model, f"{model} replied without 'choices[0].message.content'"
+        ) from None
+    finish_reason = choice.get("finish_reason")
+    try:
+        json.loads(content if isinstance(content, str) else "")
+    except ValueError:
+        cut = f" (finish reason {finish_reason})" if finish_reason not in (None, "stop") else ""
+        raise calls.bad_reply(
+            model, f"{model} replied without readable JSON content{cut}"
+        ) from None
+    return {"finish_reason": finish_reason, "content": content}
 
 
 def _claim_shape_error(value: Any, extra: tuple[str, ...]) -> str | None:
@@ -597,12 +615,14 @@ def _claim_shape_error(value: Any, extra: tuple[str, ...]) -> str | None:
 
 def parse_draft(choice: dict[str, Any], rules: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
     """The model's draft, checked strictly against the template's shape, or None and what was
-    wrong. Nothing is repaired: a reply off the schema is a review reason, not a draft."""
+    wrong. Nothing is repaired: a reply off the schema is a review reason, not a draft. A
+    finish reason of `stop` is accepted, and so is none at all (not every server sends one)."""
     if choice.get("finish_reason") not in (None, "stop"):
         return None, f"the reply was cut off ({choice.get('finish_reason')})"
+    content = choice.get("content")
     try:
-        answer = json.loads(choice.get("content") or "")
-    except json.JSONDecodeError:
+        answer = json.loads(content if isinstance(content, str) else "")
+    except ValueError:
         return None, "the reply is not JSON"
     if not isinstance(answer, dict):
         return None, "the reply is not a JSON object"
@@ -733,7 +753,7 @@ def check_claim(
     # A number the text states must be in what it cites: an invented count or duration fails.
     prefixes = "|".join(re.escape(p) for p in rules["sources"]["prefixes"].values())
     stated = re.sub(
-        rf"\b(?:{prefixes})\d{{2}}\b", " ", text.replace(record.incident.incident_id, " ")
+        rf"\b(?:{prefixes})\d{{2,}}\b", " ", text.replace(record.incident.incident_id, " ")
     )
     known = set().union(*(numbers(line.text) for line in cited)) if cited else set()
     missing = sorted(numbers(stated) - known)
@@ -743,6 +763,10 @@ def check_claim(
     checked: dict[str, Any] = {"text": text, "citations": citations, "quote": quote}
     if kind == "root_cause":
         checked["status"] = claim["status"] if claim["status"] in ROOT_CAUSE_STATUS else "unknown"
+        if claim["status"] not in ROOT_CAUSE_STATUS:
+            problems.append(
+                f"its status {claim['status']!r} is not one of {', '.join(ROOT_CAUSE_STATUS)}"
+            )
         if checked["status"] == "identified":
             problems += root_cause_problems(quote, cited, record, rules)
     if kind == "action_items":
@@ -806,14 +830,14 @@ def root_cause_problems(
 
 
 def assigned_by(line: Line, record: Record, rules: dict[str, Any]) -> tuple[set[str], set[str]]:
-    """Who a message hands an action item to: if it matches the action-item pattern, everyone it
-    names; if its author says "I'll", the author. Also the first names it uses that several
-    people share. A message that hands out nothing gives an empty set."""
+    """Who a message hands an action item to. Only a message matching the action-item pattern
+    hands any out: everyone it names, and its author when it says "I'll". Also the first names
+    it uses that several people share. Any other message, a mid-incident "I'll roll back"
+    included, hands out nothing and gives an empty set."""
     checks = rules["checks"]
-    if line.source != "slack":
+    if line.source != "slack" or not re.search(checks["action_line_pattern"], line.text):
         return set(), set()
-    handed_out = bool(re.search(checks["action_line_pattern"], line.text))
-    named, ambiguous = names_in(line.text, record.directory) if handed_out else (set(), set())
+    named, ambiguous = names_in(line.text, record.directory)
     if re.search(checks["self_assign_pattern"], line.text):
         named.add(line.author)
     return named, ambiguous
@@ -871,7 +895,7 @@ def verify(
             if checked["problems"]:
                 where = f"{name} {index}" if isinstance(value, list) else name
                 issues.append(f"{where}: {'; '.join(checked['problems'])}.")
-        if kind == "root_cause" and sections[name]["status"] == "unknown":
+        if kind == "root_cause" and value["status"] == "unknown":
             issues.append("Root cause not established in the record.")
         if kind == "action_items":
             owned = {item["owner"] for item in sections[name]}
@@ -923,6 +947,22 @@ def report_incident(
     }
 
 
+def empty_row(incident: Incident, reason: str) -> dict[str, Any]:
+    """The report for an incident with nothing to draft from: review, with the reason."""
+    window = dict.fromkeys(("start", "end", "duration_min", "firing_min"))
+    return {
+        "incident": incident.incident_id,
+        "title": incident.title,
+        "channel": incident.channel,
+        "services": list(incident.services),
+        "status": NEEDS_REVIEW,
+        "issues": [reason],
+        "alert_window": {**window, "paging_alerts": []},
+        "sections": {},
+        "timeline": {},
+    }
+
+
 def run(
     client: SIEClient, rules: dict[str, Any], systems: Systems | None = None
 ) -> tuple[list[dict[str, Any]], Calls]:
@@ -930,10 +970,14 @@ def run(
     refusal or on every call failing leaves no partial reports behind."""
     systems = systems or Systems.from_seeds()
     calls = Calls()
-    rows = [
-        report_incident(client, calls, build_record(incident, systems, rules), rules)
-        for incident in systems.incidents.list_incidents()
-    ]
+    rows: list[dict[str, Any]] = []
+    for incident in systems.incidents.list_incidents():
+        try:
+            record = build_record(incident, systems, rules)
+        except EmptyChannel as empty:
+            rows.append(empty_row(incident, str(empty)))
+        else:
+            rows.append(report_incident(client, calls, record, rules))
     calls.check_all_failed()
     return rows, calls
 

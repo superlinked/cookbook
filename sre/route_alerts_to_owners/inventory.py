@@ -10,7 +10,7 @@ SQLite database:
 - `inventory_namespaces.csv`: one row per Kubernetes namespace and the catalog service it holds.
 
 Both map to a service, not a team; the service catalog says who owns the service. Matching is
-exact, ignoring case: `10.0.4.170` is not `10.0.4.17`.
+exact, ignoring case and surrounding spaces: `10.0.4.170` is not `10.0.4.17`.
 """
 
 from __future__ import annotations

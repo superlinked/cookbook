@@ -44,13 +44,20 @@ class ServiceCatalog:
             """
         )
         for row in _rows(data_dir / "catalog_teams.csv"):
-            self._db.execute("INSERT INTO teams VALUES (?, ?)", (row["team"], row["description"]))
+            self._db.execute(
+                "INSERT INTO teams VALUES (?, ?)", (row["team"].strip(), row["description"].strip())
+            )
+        if not self.teams():
+            raise ValueError(
+                f"{data_dir / 'catalog_teams.csv'} lists no teams; the catalog needs at least one "
+                "team for the model to choose from"
+            )
         for row in _rows(data_dir / "catalog_services.csv"):
             service = row["service"].strip()
             self._db.execute(
                 "INSERT INTO services VALUES (?, ?)", (service, row["owner"].strip() or None)
             )
-            aliases = [alias for alias in row["aliases"].split(";") if alias.strip()]
+            aliases = [alias.strip() for alias in row["aliases"].split(";") if alias.strip()]
             for name in [service, *aliases]:
                 try:
                     self._db.execute("INSERT INTO names VALUES (?, ?)", (_key(name), service))

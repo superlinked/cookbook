@@ -42,8 +42,9 @@ class LogPlatform:
         self.db.execute(f"CREATE TABLE line ({', '.join(COLUMNS)})")
         with seed.open(newline="", encoding="utf-8") as handle:
             rows = [tuple(row[name] for name in COLUMNS) for row in csv.DictReader(handle)]
-        for row in rows:
-            stamp(datetime.fromisoformat(row[0]))  # a line with an unreadable time fails here
+        # Stored in one format, UTC with a Z, so the range filters compare like for like whatever
+        # ISO form the seed used (an offset, fractional seconds). An unreadable time fails here.
+        rows = [(stamp(datetime.fromisoformat(row[0])), *row[1:]) for row in rows]
         self.db.executemany("INSERT INTO line VALUES (?, ?, ?, ?, ?)", rows)
 
     def _query(

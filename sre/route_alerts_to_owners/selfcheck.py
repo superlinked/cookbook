@@ -61,6 +61,15 @@ def reply(**top: float) -> dict[str, Any]:
     }
 
 
+def exact_reply(**top: float) -> dict[str, Any]:
+    """A stand-in reply with exactly these probabilities and 0.0 for every other team."""
+    probs = {team: top.get(team, 0.0) for team in TEAMS}
+    choice = max(probs, key=lambda team: probs[team])
+    return {
+        "data": {recipe.QUESTION_ID: {"type": "choice", "choice": choice, "probabilities": probs}}
+    }
+
+
 def alert(alert_id: str = "X-1", **labels: str) -> dict[str, Any]:
     annotations = {"summary": "Something is wrong", "description": "It keeps getting worse."}
     return {
@@ -77,11 +86,13 @@ class StandIn:
     def __init__(self, *replies: Any) -> None:
         self.replies = list(replies)
         self.texts: list[str] = []
+        self.ids: list[str] = []
 
     def extract(self, model: str, item: Any, **_: Any) -> Any:
         assert model == MODEL, model
         assert self.replies, f"the model was asked about {item['id']}, and no reply was planned"
         self.texts.append(item["text"])
+        self.ids.append(item["id"])
         answer = self.replies.pop(0)
         if isinstance(answer, BaseException):
             raise answer
@@ -154,8 +165,42 @@ def check_data() -> None:
     print("data: 11 alerts, 8 teams, every owner a catalog team, inventory services in catalog ok")
 
 
+def check_planted() -> None:
+    """The committed alerts end to end, with stand-in replies scored like the README's run: an
+    edit to a planted alert's labels that changes which alerts reach the model, or how one
+    comes out, fails here."""
+    records = json.loads(recipe.ALERTS_PATH.read_text(encoding="utf-8"))["alerts"]
+    routes, _, client = run(
+        records,
+        reply(loyalty=0.83, streaming=0.15),  # AL-04
+        reply(platform=0.54, storefront=0.38),  # AL-05
+        reply(storefront=0.57, loyalty=0.10),  # AL-06
+        reply(identity=0.88, storefront=0.05),  # AL-09
+        reply(streaming=0.56, storefront=0.19),  # AL-11
+    )
+    assert client.ids == ["AL-04", "AL-05", "AL-06", "AL-09", "AL-11"], client.ids
+    expected = {
+        "AL-01": (recipe.OWNER_IN_CATALOG, "payments"),
+        "AL-02": (recipe.OWNER_IN_CATALOG, "storefront"),
+        "AL-03": (recipe.OWNER_IN_CATALOG, "data-platform"),
+        "AL-04": (recipe.SUGGESTED, "loyalty"),
+        "AL-05": (recipe.NO_CLEAR_OWNER, ""),
+        "AL-06": (recipe.SUGGESTED, "storefront"),
+        "AL-07": (recipe.OWNER_IN_CATALOG, "search"),
+        "AL-08": (recipe.OWNERLESS, ""),
+        "AL-09": (recipe.SUGGESTED, "identity"),
+        "AL-10": (recipe.OWNER_IN_CATALOG, "storefront"),
+        "AL-11": (recipe.SUGGESTED, "streaming"),
+    }
+    got = {alert_id: (route.status, route.team) for alert_id, route in routes.items()}
+    assert got == expected, got
+    assert routes["AL-10"].found_by == "app=checkout-ui", routes["AL-10"]
+    print("planted: the 11 committed alerts give the README's statuses and teams ok")
+
+
 def check_lookups() -> None:
-    # Exact match, ignoring case and spaces; a shorter or longer name is a different service.
+    # Exact match, ignoring case and surrounding spaces; a shorter or longer name is a different
+    # service.
     assert CATALOG.find_service(" PAYMENTS-API ") == Service("payments-api", "payments")
     assert CATALOG.find_service("Frontend") == Service("web-frontend", "storefront")
     for near in ("checkout", "checkout-u", "payments-api-v2", "search", "auth-service-2", ""):
@@ -180,6 +225,27 @@ def check_lookups() -> None:
     caught = raised(lambda: ServiceCatalog(folder))
     assert type(caught) is ValueError, caught
     assert "'Shared'" in str(caught), caught
+    # Fix: an alias written with spaces around it is stored and reported without them.
+    (folder / "catalog_services.csv").write_text(
+        "service,owner,aliases,note\na-api,payments,shared,\nb-api,search, Shared ,\n",
+        encoding="utf-8",
+    )
+    caught = raised(lambda: ServiceCatalog(folder))
+    assert "'Shared'" in str(caught), caught
+    # Fix: a team id with spaces around it still matches the services it owns.
+    (folder / "catalog_teams.csv").write_text(
+        "team,description\n payments , card charges \n", encoding="utf-8"
+    )
+    (folder / "catalog_services.csv").write_text(
+        "service,owner,aliases,note\na-api,payments,,\n", encoding="utf-8"
+    )
+    spaced = ServiceCatalog(folder)
+    assert spaced.teams() == {"payments": "card charges"}, spaced.teams()
+    # Fix: a catalog with no teams fails at load with a clear message, not deep in the run.
+    (folder / "catalog_teams.csv").write_text("team,description\n", encoding="utf-8")
+    caught = raised(lambda: ServiceCatalog(folder))
+    assert type(caught) is ValueError, caught
+    assert "lists no teams" in str(caught), caught
     # Repeated alert ids would overwrite each other's rows.
     caught = raised(lambda: recipe.parse_alerts([alert("A"), alert("A")]))
     assert type(caught) is ValueError, caught
@@ -292,6 +358,10 @@ def check_model() -> None:
     # Exactly at the limits passes.
     route = one(reply(streaming=0.50, storefront=0.30))
     assert route.status == recipe.SUGGESTED, route
+    # Fix: 0.70 - 0.50 is 0.19999999999999996 in floating point; the margin is still 0.20.
+    route = one(exact_reply(streaming=0.70, storefront=0.50))
+    assert route.status == recipe.SUGGESTED, route
+    assert route.margin == 0.2, route
     # No label to look up at all: the reason says the alert names no system (AL-06).
     route = one(reply(storefront=0.77, streaming=0.06))
     assert route.status == recipe.SUGGESTED, route
@@ -470,6 +540,7 @@ def check_outputs() -> None:
 
 if __name__ == "__main__":
     check_data()
+    check_planted()
     check_lookups()
     check_records()
     check_model()

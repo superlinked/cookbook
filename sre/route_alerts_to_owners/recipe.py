@@ -508,7 +508,8 @@ def route_by_model(
     second, second_score = ranked[1] if len(ranked) > 1 else ("", 0.0)
     route.suggested_team, route.score = top, score
     route.runner_up, route.runner_up_score = second, second_score
-    route.margin = score - second_score
+    # Rounded so 0.70 vs 0.50 is a margin of 0.20, not 0.19999999999999996 under 0.20.
+    route.margin = round(score - second_score, 6)
     if score < limits["min_team_score"]:
         reasons.append(
             f"model's top team {top} scored {score:.2f}, under {limits['min_team_score']:.2f} "

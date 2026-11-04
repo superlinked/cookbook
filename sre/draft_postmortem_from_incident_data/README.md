@@ -30,8 +30,8 @@ through their APIs, and doesn't ask a model to work any of it out.
 
 What isn't structured is the conversation. Why the rollback was chosen, which hypothesis turned out
 wrong, that the certificate expired because its renew job had been failing since a DNS API token
-was rotated in September, that Sam agreed to make the upload alert page someone: that's in people's
-messages, in their words, and writing it up is the real work.
+was rotated in September, that Dev assigned Sam to make the upload alert page someone: that's in
+people's messages, in their words, and writing it up is the real work.
 
 Why it matters: postmortems are how a team stops having the same incident twice. A draft that
 gets a time wrong, blames the deploy that happened to land mid-outage, or lists an action item
@@ -98,11 +98,11 @@ their action item before the tickets are filed.
    changes for its services from a lookback before the first message to the last one. Each line
    gets an ID in time order (`S01`, `A01`, `D01`), and the numbered list is the timeline.
 3. **Work out the alert window in Python.** From the first firing of a paging alert to its last
-   resolve, using each alert's own `startsAt` and `endsAt`, with the time actually firing shown
-   when it flapped. It's labelled an alert window, since alerts start and stop on thresholds and
-   customers may have been affected before or after. Still firing, no paging alert, or a resolve
-   whose firing event fell outside the record: `needs_review` with that reason, and the draft is
-   still written.
+   resolve, using each alert's own `startsAt` and `endsAt`. When an alert flapped (resolved, then
+   fired again), the time actually firing is shown too. It's labelled an alert window, since
+   alerts start and stop on thresholds and customers may have been affected before or after.
+   Still firing, no paging alert, or a resolve whose firing event fell outside the record:
+   `needs_review` with that reason, and the draft is still written.
 4. **Have the model write the narrative.** `Qwen/Qwen3.8-27B-FP8` returns the template's
    sections (summary, impact, root cause as `identified` or `unknown`, contributing factors and
    action items) as strict JSON. Every claim carries line IDs (the schema only allows IDs that
@@ -112,18 +112,21 @@ their action item before the tickets are filed.
 5. **Check the draft in Python.** Every cited ID exists; the quote is in one of the cited lines;
    every number the text states is in a cited line; a deploy or flag change cited as the root
    cause happened before the alerts started, and so did any change a cited message names; an
-   `identified` cause isn't resting on a question, on alerts alone, or on lines next to a
-   message saying nobody knows; every action item names someone in the Slack directory, a cited
-   message hands it to them, and `unassigned` is a review reason; and everyone an action-item
-   message hands work to owns at least one item in the draft.
+   `identified` cause isn't resting on a question or on alerts alone, and neither a cited line
+   nor a message posted at or after the last cited line says the cause isn't known; every action
+   item names someone in the Slack directory, a cited message hands it to them, and `unassigned`
+   is a review reason; and everyone an action-item message hands work to owns at least one item
+   in the draft. Only an "Action items:" or "Follow-ups:" message hands work out, so a
+   mid-incident "I'll roll back" doesn't.
 6. **Write the report** with the timeline, the alert window, each claim with its citations and
    check result, and the reasons for review. A claim that failed its checks is held, not shown
    as part of the draft.
 
 If SIE refuses a call outright (a bad key, an unknown model, no credits), the run stops with
 SIE's message and writes nothing; if a call fails for a reason that may pass (a timeout, a busy
-server) or its reply doesn't match the schema, that incident goes to `needs_review` with the
-reason, the others are still written, and the run stops only if every call fails.
+server) or its reply has no readable JSON, that incident goes to `needs_review` with the reason,
+the others are still written, and the run stops only if every call fails. A channel with no
+messages sends its incident to `needs_review` without a call.
 
 ## Picking the model
 
@@ -180,7 +183,7 @@ real API call and nothing else changes:
 | Module | Stands in for | Lookup |
 | --- | --- | --- |
 | `incident_tool.py` | the incident tool's API (PagerDuty, incident.io) | `find_incident`, `list_incidents` |
-| `slack.py` | Slack's `users.list` and `conversations.history` | `users`, `users_with_first_name`, `channel_history` |
+| `slack.py` | Slack's `users.list` and `conversations.history` | `users`, `channel_history` |
 | `alert_history.py` | wherever alert history lives (an Alertmanager webhook log, PagerDuty log entries) | `events(services, since, until)` |
 | `deploy_log.py` | the deploy pipeline's deployment history | `deploys(services, since, until)` |
 | `flag_audit.py` | the flag system's audit log, runtime config included | `changes(services, since, until)` |
@@ -192,21 +195,23 @@ bottom in the order of the flow:
 | --- | --- | --- | --- |
 | Look up and number | `Systems.from_seeds`, `build_record`, `episodes_from`, `alert_text` | none | The channel's messages, alerts from 60 minutes before the first message and changes from 360 minutes before, for the incident's services, to the last message. Firing and resolved events are paired by fingerprint and `startsAt`; a resolve with no firing event keeps its episode and says when it fired |
 | Alert window | `alert_window`, `alerts_started` | none | First `startsAt` to last `endsAt` of the `critical` alerts, and the time with one firing (shorter when it flapped). Any alert still firing, no `critical` alert, or a resolve-only episode is a review reason |
-| Draft | `report_prompt`, `report_schema`, `ask_model`, `parse_draft` | `chat_completions` | One call per incident. The reply must be exactly the template's sections, each claim with `text`, `citations` and `quote` (plus `status` or `owner`), and a finish reason of `stop`. Anything else is a review reason, not a draft |
+| Draft | `report_prompt`, `report_schema`, `ask_model`, `parse_draft` | `chat_completions` | One call per incident. The reply must be exactly the template's sections, each claim with `text`, `citations` and `quote` (plus `status` or `owner`), and a finish reason of `stop` (or none, since not every server sends one). Content that is missing or not JSON is a failed call; JSON off the template is a review reason, not a draft |
 | Check | `check_claim`, `quote_in`, `numbers`, `root_cause_problems`, `later_changes`, `check_owner`, `assigned_by`, `verify` | none | The checks in step 5 above. A quote is at least 12 characters and appears verbatim in one cited line after collapsing whitespace and straightening quote marks. Numbers drop thousands commas and leading zeros, so "1,140" matches "1140", and the `5` of `5xx` doesn't count |
 | Report | `report_incident`, `render_markdown`, `write_outputs` | none | `checks_passed` or `needs_review` with the reasons; failed claims are held, not shown as draft text |
 
 The SIE error rule is the same as in the security recipes. A call that fails for a reason that
 may pass (a timeout, a lost connection, a 5xx, a rate limit, a model still loading, or a reply
-missing `choices[0].message.content`) sends that incident to `needs_review` with a short reason,
-and the run carries on. A refusal every call would repeat (a bad key, no credits, a model name
-SIE doesn't know) stops the run with SIE's full message and writes no outputs. If every call
-failed, the run stops too.
+whose `choices[0].message.content` is missing, null or not JSON) sends that incident to
+`needs_review` with a short reason, and the run carries on. A refusal every call would repeat (a
+bad key, no credits, a model name SIE doesn't know) stops the run with SIE's full message and
+writes no outputs. If every call failed, unusable replies included, the run stops too.
 
 [`selfcheck.py`](./selfcheck.py) checks the lookups, the alert window (a truncated resolve, an
-open warning, flapping), the quote, number, root-cause and action-item checks, the strict
-parsing, the template loading, the prompt's line about text in the record, the two statuses and
-that SIE error rule, offline, with hand-written records and stand-in model replies.
+open warning, flapping), INC-0105 and INC-0106 going to review for their window even with a
+draft that passes every claim check, an empty channel, the quote, number, root-cause and
+action-item checks, the strict parsing, the template loading, the prompt's line about text in
+the record, the two statuses and that SIE error rule, offline, with hand-written records and
+stand-in model replies.
 [`make_data.py`](./make_data.py) writes the six CSV seeds in `data/`, the same bytes every time.
 
 ## Run it
@@ -224,7 +229,7 @@ uv run make_data.py    # optional: rewrite data/ (deterministic)
 `uv run` installs this recipe's few dependencies into its own `.venv` on the first run. Each run
 writes `runs/<timestamp>/`. The first call can wait a few minutes while SIE Cloud starts the
 report model. A warm run makes 7 SIE calls (one per incident, all to `Qwen/Qwen3.8-27B-FP8`) and
-took 39 seconds on our run.
+took 37 seconds on our run.
 
 ## What came out
 
@@ -253,9 +258,9 @@ what our live run on 4 Nov 2026 (UTC) gave:
 | INC-0104 | Latency recovers on its own; nobody finds the cause | `needs_review`: root cause not established | "We don't know" is an honest answer and a person decides what to do with it |
 | INC-0105 | The page is still firing when the record ends | `needs_review`: the alert window has not closed | No end time to report |
 | INC-0106 | Customer-reported; only a warning alert, no page | `needs_review`: no alert window | The window has to come from support data or metrics |
-| INC-0107 | The page flaps (fires, resolves, fires again) | `checks_passed`, 50.3 min (39.7 min firing) | The gap between firings isn't proof customers recovered |
-| Truncated history (new, in INC-0106) | The warning fired at 10:21, six minutes after the bad deploy and more than the 60-minute lookback before the first message; only its resolve is in range | `needs_review`: the alert history is incomplete | The old code dropped a resolve like this, and crashed on a paging one; now it's a review item that says when the alert fired |
-| Late impact confirmation (new, in INC-0101) | Support posts the final count the next morning, 18 hours after the alert resolved | the impact claim cites that message (S11) and passes | A late message is still evidence; the old 10-minute rule would have flagged it |
+| INC-0107 | The page flaps: fires, resolves, fires again | `checks_passed`, 50.3 min (39.7 min firing) | The gap between firings isn't proof customers recovered |
+| Truncated history (in INC-0106) | The warning fired at 10:21, six minutes after the bad deploy and more than the 60-minute lookback before the first message; only its resolve is in range | `needs_review`: the alert history is incomplete | The record can't show when the alert started, so the review item says when it fired |
+| Late impact confirmation (in INC-0101) | Support posts the final count the next morning, 18 hours after the alert resolved | the impact claim cites that message (S11) and passes | A late message is still evidence; nothing ties impact lines to the alert window |
 
 Every planted case came out as planned. We put the truncated history in INC-0106 rather than add
 an eighth incident, because that's where it happens naturally (a warning that paged nobody, well
@@ -294,8 +299,8 @@ A few things worth noticing:
 - **Earlier runs caught real slips.** On an earlier version of this recipe, the first live run
   caught a mis-citation: INC-0102's summary quoted "Turning the flag off now." (S05) but cited
   D01, A01, A02, D02 and S06, so the quote check flagged it and the report went to review. That
-  run also offered only the channel's own members as owners. Sam had agreed to "Sam makes the
-  upload error-rate alert page" (INC-0106), but Sam wasn't in the channel, so as far as the
+  run also offered only the channel's own members as owners. Dev had assigned Sam "Sam makes
+  the upload error-rate alert page" (INC-0106), but Sam wasn't in the channel, so as far as the
   recipe knew there was no Sam, and the item came back `unassigned`. Owners are now everyone in
   the Slack directory. And on this version's first live run, the model turned Priya's "Handing
   over to the EU on-call; keep this channel open." in INC-0105 into an action item, which passed
