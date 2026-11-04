@@ -226,6 +226,15 @@ def check_review() -> None:
     assert (chisel.status, chisel.reasons) == ("filed", []), chisel.reasons
     bad = {"text": "Heron", "label": "threat actor", "start": 0, "end": 5, "score": 0.9}
     assert "invalid span" in run(text, [{"entities": [bad]}]).reasons[0]
+    # Malformed items are invalid spans too, not a crash.
+    malformed: tuple[Any, ...] = (
+        "Ashen Heron",
+        span(text, "Ashen Heron", "threat actor") | {"start": 0.0},
+        span(text, "Ashen Heron", "threat actor") | {"score": "high"},
+        span(text, "Ashen Heron", "threat actor") | {"score": None},
+    )
+    for item in malformed:
+        assert "invalid span" in run(text, [{"entities": [item]}]).reasons[0], item
     # A reply with no `entities` is a failed call: with one call, every call failed.
     message = stopped(lambda: run(text, [{"error": "model timed out"}]))
     assert "the reply has no `entities` (item error: model timed out)" in message, message

@@ -900,10 +900,13 @@ def sentences(text: str) -> list[str]:
     return out
 
 
-def resolve_in_context(span: str, text: str, sent: datetime, rules: dict[str, Any]) -> When:
+def resolve_in_context(
+    span: str, text: str, sent: datetime, rules: dict[str, Any], change: bool = False
+) -> When:
     """Resolve the extracted span; a missing date or time is taken from the span's sentence
     ("practice this Saturday moves to 11 AM" when the model returned only "11 AM"). A time zone
-    named anywhere in that sentence is a question."""
+    named anywhere in that sentence is a question, and so is a change whose sentence names two
+    weekdays ("Monday's practice moves to Friday at 5 PM"), even when the span has both."""
     when = resolve(span, sent, rules)
     if when.problem:
         return when
@@ -912,6 +915,10 @@ def resolve_in_context(span: str, text: str, sent: datetime, rules: dict[str, An
             continue
         if zone := other_zone(sentence, rules):
             return When(problem=f"'{sentence}' is in another time zone ({zone})")
+        named = [name for name in WEEKDAYS if re.search(rf"\b{name}\b", sentence, re.I)]
+        if change and len(named) > 1:
+            days = ", ".join(name.title() for name in named)
+            return When(problem=f"'{sentence}' names more than one day ({days})")
         if when.day and when.at:
             return when
         around = resolve(sentence, sent, rules)
@@ -1174,7 +1181,7 @@ def build_proposal(
 
     when: When | None = None
     if kind in ("schedule", "change") and "when" in values:
-        when = resolve_in_context(values["when"], text, sent, rules)
+        when = resolve_in_context(values["when"], text, sent, rules, change=kind == "change")
     elif kind in ("schedule", "change") and (
         found_when := date_in_sentence(proposal.what, text, sent, rules)
         or (date_in_sentence("", text, sent, rules) if kind == "change" else None)

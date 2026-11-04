@@ -129,7 +129,7 @@ recipe's SIE requests (one request can carry many items).
 | [Triage reported phishing and pull out the indicators](security/triage_reported_phishing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 1 s |
 | [Screen prompts before they reach an AI assistant (copilot)](security/screen_assistant_prompts) | Qwen3Guard-Gen-4B, LightOnOCR-3-4B | 15 | 10 s |
 | [Triage threat reports against what your company runs](security/triage_threat_reports) | NuNER_Zero | 1 | 1 s |
-| [Find the attacker tools your detection rules don't cover](security/find_detection_gaps) | gliner-relex-large-v1.0 | 1 | 1 s |
+| [Find the attacker tools your detection rules don't cover](security/find_detection_gaps) | gliner-relex-large-v1.0 | 1 | 3 s |
 
 ### Personal agents
 

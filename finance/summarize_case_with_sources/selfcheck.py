@@ -698,6 +698,16 @@ def check_sweep() -> None:
     for written in ("4917  6620 5318 4421", "4917.6620.5318.4421", "4917 - 6620 - 5318 - 4421"):
         assert has(hits(f"Card {written}."), "has a card number"), written
     assert has(hits("Her card is 4917 6620\n5318 4421."), "has a card number")
+    # A value ending in a held reference and the next value's digits stay apart.
+    apart: dict[str, Any] = {section: [] for section in recipe.SECTIONS}
+    apart["what_happened"] = [{"text": f"Dispute reference {REF}", "quote": "12 March"}]
+    assert hits(recipe.summary_text(apart)) == [], recipe.summary_text(apart)
+    # A run of amounts with single spaces is 16 digits: it counts as a card number. This fails
+    # closed (the team lead reads the case); keep it unless the card rule is redesigned.
+    amounts = "Charges of 23.40 89.99 12.50 45.00 were disputed."
+    assert has(hits(amounts), "has a card number")
+    remove, _ = recipe.rule_spans(amounts, CASE_FILE.dispute_refs, RULES)
+    assert [span.kind for span in remove] == [recipe.CARD], remove
     print("sweep: card numbers, CVV with and without its words, PIN; reference passes ok")
 
 

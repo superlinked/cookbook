@@ -874,11 +874,12 @@ def process_invoice(
     except CallFailed as failure:
         result.add("readable", REVIEW, f"{where} was not read: {failure}")
         return result
-    if len(text.strip()) < rules["thresholds"]["min_page_chars"]:
+    flat = flatten_markdown(text)  # measured without table tags, as the receipts recipe does
+    if len(flat.strip()) < rules["thresholds"]["min_page_chars"]:
         result.add("readable", REVIEW, f"{where} could not be read")
         return result
     result.fields = extract_fields(client, calls, text, rules, result)
-    result.line_items, result.table_problems = line_items(flatten_markdown(text), rules)
+    result.line_items, result.table_problems = line_items(flat, rules)
     check_invoice(result.fields, result.claim, claims, rules, result)
     return result
 

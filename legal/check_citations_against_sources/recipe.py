@@ -494,9 +494,14 @@ def resolve(
 
 def count_sections(paragraphs: list[str]) -> int:
     """How many places in the draft cite a section ("§ 23.40.020", "§§ 4-5") in any code. Used
-    to spot statutes in codes rules.yaml doesn't list."""
+    to spot statutes in codes rules.yaml doesn't list. A section sign inside an explanatory
+    parenthetical, one that starts with a lowercase word ("(construing § 12)"), says what a
+    case did, not what the draft cites, so it is not counted."""
     sign = re.escape(SECTION_SIGN)
-    return sum(len(re.findall(rf"{sign}{sign}?\s*\d", normalize(p))) for p in paragraphs)
+    return sum(
+        len(re.findall(rf"{sign}{sign}?\s*\d", re.sub(r"\((?=[a-z])[^()]*\)", " ", normalize(p))))
+        for p in paragraphs
+    )
 
 
 def count_case_names(paragraphs: list[str]) -> int:

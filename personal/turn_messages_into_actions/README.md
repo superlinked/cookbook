@@ -108,9 +108,10 @@ question when the two are close.
    disagree on a date or an amount are a question.
 6. **Check in plain Python.** "Next Tuesday at 10:30am" is resolved against the sent time and
    Jordan's time zone; "sometime next week" is a question, never a date. So is a span with two
-   dates or two weekdays ("Monday's practice moves to Friday"), a time in another time zone, or
-   a date with no year that falls just before the message was sent. A range ("2-4 PM", "from 1
-   to 3 PM") starts at its first time; "11-1 PM" and "moves from 9 to 11 AM" are questions. A bill amount must be the bill's "amount due" line, its own summary must add up,
+   dates or two weekdays, a change whose sentence names two weekdays ("Monday's practice moves
+   to Friday at 5 PM", even when the model's span is just "Friday at 5 PM"), a time in another
+   time zone, or a date with no year that falls just before the message was sent. A range
+   ("2-4 PM", "from 1 to 3 PM") starts at its first time; "11-1 PM" and "moves from 9 to 11 AM" are questions. A bill amount must be the bill's "amount due" line, its own summary must add up,
    and a credit stays negative.
 7. **Reconcile with what's already known.** Messages are taken in sent-time order. Two messages
    are the same event only when the who (the sender's contact), the date and the time agree,
@@ -120,9 +121,12 @@ question when the two are close.
    become a question). A `change` must match one calendar entry or earlier
    hold on the day it names, and the proposal edits or removes that entry; "is NOT cancelled"
    doesn't cancel, and a change from someone not in the contacts who didn't set up the event is
-   a question. An event already on the calendar is `matches_existing`; so is a bill from a payee
-   on autopay. An unknown payee, or a new hold that overlaps a calendar event or sits next to a
-   similar one the same day, is a question.
+   a question. "In the contacts" means the sender's display name matches a contact's name or
+   alias: `inbox.jsonl` carries no email address, so a stranger who sends as "Coach Dana Ramos"
+   passes this check. Jordan still approves every change, and `todo.md` shows the message.
+   An event already on the calendar is `matches_existing`; so is a bill from a payee on autopay.
+   An unknown payee, or a new hold that overlaps a calendar event or sits next to a similar one
+   the same day, is a question.
 8. **Write the list.** `todo.md` with questions first and the source sentence under every item,
    `events.ics` with the new holds as tentative events, and `proposals.json` with every source.
 

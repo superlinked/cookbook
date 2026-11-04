@@ -665,6 +665,11 @@ def check_guards() -> None:
     result = run({"clm-01": short_page})[0]
     assert flagged(result) == ["readable"], result.checks
     assert detail(result, "readable").endswith("could not be read"), result.checks
+    # The length is of the flattened text: table markup around the same words doesn't count.
+    wrapped = f"<table><tbody><tr><td>{short_page}</td><td></td></tr></tbody></table>\n" * 2
+    assert len(wrapped) >= RULES["thresholds"]["min_page_chars"]
+    result = run({"clm-01": wrapped})[0]
+    assert flagged(result) == ["readable"], result.checks
     # A document file in the seed must be a file name inside data/, not a path.
     with tempfile.TemporaryDirectory() as name:
         folder = Path(name)

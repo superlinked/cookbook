@@ -656,6 +656,14 @@ def check_sie_failure() -> None:
         assert results[0]["status"] == recipe.SIE_CALL_FAILED, (bad, results[0])
         assert "the reply has no numeric score for COV-01" in results[0]["reasons"][0]
 
+    # A stray entry that isn't a dict, next to a full set of dicts, is a failed call too.
+    def stray(items: list[Any]) -> dict[str, Any]:
+        return {"scores": [*({"item_id": i["id"], "score": 0.5} for i in items), "COV-01"]}
+
+    results, _, _ = run(stray, *OK)
+    assert results[0]["status"] == recipe.SIE_CALL_FAILED, results[0]
+    assert "the reply has a score entry that is not an object" in results[0]["reasons"][0]
+
     def stops(*replies: Any) -> str:
         """The stop message; also checks the run wrote nothing."""
         folder = temp_dir()

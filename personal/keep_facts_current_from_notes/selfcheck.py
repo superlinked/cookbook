@@ -171,7 +171,8 @@ class StandIn:
     its RELEVANT chunks, and the reranker returns their scores (0.01 for the rest). The answer
     model returns `answers[fact id]`. `errors` maps an item id prefix ("fact/eye_exam",
     "ocr/lease", "" for every call) to the errors its calls raise, one per call; `replies` maps
-    a prefix to a raw reply that replaces the normal one."""
+    a prefix to a raw reply that replaces the normal one (for a score call, a function of the
+    normal reply)."""
 
     def __init__(
         self,
@@ -226,14 +227,16 @@ class StandIn:
         return out
 
     def score(self, model: str, query: Any, items: list[Any], **options: Any) -> Any:
-        if (raw := self._before(query["id"] + "/score")) is not None:
+        raw = self._before(query["id"] + "/score")
+        if raw is not None and not callable(raw):
             return raw
         scores = self.relevant.get(query["id"].removeprefix("fact/"), {})
-        return {
+        reply = {
             "scores": [
                 {"item_id": item["id"], "score": scores.get(item["id"], 0.01)} for item in items
             ]
         }
+        return raw(reply) if callable(raw) else reply
 
     def chat_completions(self, model: str, messages: list[Any], **options: Any) -> Any:
         prompt = messages[0]["content"]
@@ -341,6 +344,16 @@ def check_parsing() -> None:
     assert recipe.day_in_words(date(2026, 10, 26), "on 26 Oct")
     assert not recipe.day_in_words(date(2026, 10, 26), "October 22 at 9:30, room 26")
     assert not recipe.day_in_words(date(2026, 10, 2), "October 22")
+    # `calendar:` only makes sense on a date fact; anywhere else facts.yaml is rejected.
+    with tempfile.TemporaryDirectory() as name:
+        facts = Path(name) / "facts.yaml"
+        fact = "{id: x, name: X, question: When is X, kind: text, calendar: X}"
+        facts.write_text(f"facts:\n  - {fact}\n", encoding="utf-8")
+        error = raised(lambda: recipe.load_facts(facts))
+        assert isinstance(error, ValueError), error
+        assert "calendar" in str(error), error
+        facts.write_text(f"facts:\n  - {fact.replace('text', 'date')}\n", encoding="utf-8")
+        assert recipe.load_facts(facts)[0].calendar == "X"
     print("parsing: OCR tables flattened; glued numbers, times and days read ok")
 
 
@@ -545,6 +558,17 @@ def check_unread() -> None:
     index, lines, _, _ = run(["denver_seat"], pages=pages)
     assert index.unread[0].reason == "the text read came back empty", index.unread
     assert lines["denver_seat"]["status"] == "needs_review", lines
+    # A corrupt image or PDF is unread; the run goes on.
+    with tempfile.TemporaryDirectory() as name:
+        folder = copy_data(Path(name))
+        for broken in ("boarding-pass-2026-10-20.png", "lease-2026-07-15.pdf"):
+            (folder / broken).write_bytes((folder / broken).read_bytes()[:64])
+        index, lines, _, _ = run(["denver_seat", "furnace_filter"], data=folder)
+        reasons = {u.file: u.reason for u in index.unread}
+        assert reasons["boarding-pass-2026-10-20.png"].startswith("could not open: "), reasons
+        assert reasons["lease-2026-07-15.pdf"].startswith("could not open: "), reasons
+        assert lines["denver_seat"]["status"] == "needs_review", lines
+        assert lines["furnace_filter"]["status"] == "found", lines
     print("unread: a file that may hold the fact sends it to review, and only that fact ok")
 
 
@@ -835,6 +859,17 @@ def check_sie_failure() -> None:
     assert index.unread[0].reason == "the text read came back empty", index.unread
     _, lines, _, _ = run(two, replies={"fact/denver_seat/score": {"no_scores": []}})
     assert "replied without a score for every candidate" in lines["denver_seat"]["reason"]
+    # An entry with no score, or a score that isn't a number, is the same failed call.
+    no_scores: list[dict[str, Any]] = [{}, {"score": None}, {"score": "high"}, {"score": []}]
+    for broken in no_scores:
+
+        def first_broken(reply: Any, broken: dict[str, Any] = broken) -> Any:
+            first = {key: value for key, value in reply["scores"][0].items() if key != "score"}
+            return {"scores": [{**first, **broken}, *reply["scores"][1:]]}
+
+        _, lines, _, _ = run(two, replies={"fact/denver_seat/score": first_broken})
+        assert "replied without a score for every candidate" in lines["denver_seat"]["reason"]
+        assert lines["furnace_filter"]["status"] == "found", lines["furnace_filter"]
     _, lines, _, _ = run(two, replies={"fact/denver_seat/chat": {"id": "x"}})
     assert "replied without 'choices'" in lines["denver_seat"]["reason"], lines["denver_seat"]
     _, lines, _, _ = run(two, replies={"fact/denver_seat": [{"sparse": {}}]})

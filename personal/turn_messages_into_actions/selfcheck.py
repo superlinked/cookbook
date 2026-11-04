@@ -534,6 +534,13 @@ def check_review_fixes() -> None:
     item = one(body, "change", {"what": "practice", "when": "5 PM"}, sender="Coach Dana Ramos")
     assert item.status == recipe.QUESTION, item.questions
     assert item.change is None
+    item = one(
+        body, "change", {"what": "practice", "when": "Friday at 5 PM"}, sender="Coach Dana Ramos"
+    )
+    assert item.status == recipe.QUESTION, item.questions
+    assert item.change is None
+    in_context = recipe.resolve_in_context("Friday at 5 PM", body, SENT, RULES, change=True)
+    assert in_context.problem, "the span has a day and a time, but the sentence has two days"
     # A negated cancel word does not cancel.
     assert not recipe.has_cancel("Saturday's practice is NOT cancelled.", RULES)
     assert not recipe.has_cancel("Practice won\u2019t be called off.", RULES)

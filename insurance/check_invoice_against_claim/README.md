@@ -213,7 +213,7 @@ VIN could be real); and the SIE failure rule with a transient error, a refusal, 
 failing, a reply missing its key (an OCR reply with no Markdown counts as a failed call), and the
 empty-result 500 counted as "nothing found" only from the extraction model; and the guards: every
 GLiNER2 call asks for `overflow_policy: error`, a claim that isn't open runs no check, a page
-shorter than `min_page_chars` is unreadable, and a document file in the seed must be a bare file
+shorter than `min_page_chars` (table tags not counted) is unreadable, and a document file in the seed must be a bare file
 name inside `data/`. [`make_data.py`](./make_data.py) draws the invoices and writes the seeds.
 
 ## Run it

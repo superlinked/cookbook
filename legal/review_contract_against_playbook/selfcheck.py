@@ -132,6 +132,7 @@ def check_parsing() -> None:
         "three (3) years and six (6) months": 3.5,  # units joined by "and" are one duration
         "2 years and 18 months": 3.5,
         "two years plus six months": 2.5,
+        "two years, six months for trade secrets": 2,  # a bare comma lists two durations
         "UNILATERAL": None,
         "until the Transaction closes": None,
     }

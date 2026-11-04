@@ -218,6 +218,8 @@ def load_facts(path: Path = FACTS_PATH) -> list[Fact]:
         kind = str(raw.get("kind", "text"))
         if kind not in ("text", "amount", "date"):
             raise ValueError(f"{raw['id']}: kind must be text, amount or date, not {kind!r}")
+        if raw.get("calendar") and kind != "date":
+            raise ValueError(f"{raw['id']}: calendar is only for a fact of kind date")
         facts.append(
             Fact(
                 id=str(raw["id"]),
@@ -623,7 +625,8 @@ def read_file(
     memos: VoiceMemos,
 ) -> tuple[list[Chunk], list[Unread]]:
     """Read one file into chunks. A file, or a page of one, that reads shorter than
-    `min_read_chars` or whose SIE call failed is returned as unread, never silently dropped."""
+    `min_read_chars`, whose SIE call failed or that won't open is returned as unread, never
+    silently dropped."""
     kind = cast(str, source_kind(path, rules))
     title = file_title(path, memos)
     min_chars = rules["sources"]["min_read_chars"]
@@ -658,6 +661,9 @@ def read_file(
                 return chunks, unread
     except CallFailed as failed:
         return [], [Unread(path.name, title, str(failed))]
+    except (OSError, pdfium.PdfiumError) as error:
+        # A corrupt or unreadable image or PDF is unread; the rest of the run goes on.
+        return [], [Unread(path.name, title, f"could not open: {type(error).__name__}: {error}")]
     if sum(len(chunk.text.strip()) for chunk in chunks) < min_chars:
         what = "the transcription" if kind == "audio" else "the text read"
         return [], [Unread(path.name, title, f"{what} came back empty")]
@@ -801,6 +807,11 @@ def nearest(index: Index, query: np.ndarray, k: int) -> list[Chunk]:
     return [index.chunks[i] for i in order[:k]]
 
 
+def _is_number(value: Any) -> bool:
+    """A score the reranker can sort by: an int or a float, not a bool or a string."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
 def rerank(
     calls: Calls,
     client: SIEClient,
@@ -822,7 +833,8 @@ def rerank(
         lambda r: (
             isinstance(r, dict)
             and isinstance(r.get("scores"), list)
-            and {e.get("item_id") for e in r["scores"] if isinstance(e, dict)} == set(by_id)
+            and all(isinstance(e, dict) and _is_number(e.get("score")) for e in r["scores"])
+            and {e.get("item_id") for e in r["scores"]} == set(by_id)
         ),
         "a score for every candidate",
     )
