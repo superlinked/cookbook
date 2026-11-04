@@ -47,6 +47,16 @@ Run time is a warm live run on SIE Cloud, on the date in each recipe's README (2
 for most). A run that has to start a cold model can take several minutes longer. Calls counts the
 recipe's SIE requests (one request can carry many items).
 
+### Finance
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Map financial statements into your template and check the totals](finance/map_financial_statements_to_template) | docling, Qwen3-Reranker-4B | 98 | 30 s |
+| [Check KYC documents against your policy and list what's missing](finance/check_kyc_documents_against_policy) | LightOnOCR-3-4B, gliner2-large-v1 | 48 | 90 s |
+| [Alert the right person when the news mentions one of your counterparties](finance/alert_on_counterparty_news) | NuNER_Zero, GLiNER2.5-Decide | 7 | 2 s |
+| [Answer your standing questions on a new filing, next to last year's answers](finance/answer_questions_on_new_filing) | Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 28 | 29 s |
+| [Keep a case summary current, with a source for every line and no card data](finance/summarize_case_with_sources) | pii-redact, Qwen3.8-27B-FP8 | 6 | 8 s |
+
 ### E-commerce
 
 | Recipe | Models | SIE calls | Run time |

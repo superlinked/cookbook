@@ -1,0 +1,23 @@
+borrower_id,statement,heading,label,item_id,confirmed_period
+BRW-20417,income_statement,,Turnover,revenue,2025-03-31
+BRW-20417,income_statement,,Cost of sales,cost_of_revenue,2025-03-31
+BRW-20417,income_statement,,Gross profit,gross_profit,2025-03-31
+BRW-20417,income_statement,,Administrative expenses,sga,2025-03-31
+BRW-20417,income_statement,,Operating profit,operating_income,2025-03-31
+BRW-20417,income_statement,,Interest payable and similar expenses,interest_expense,2025-03-31
+BRW-20417,income_statement,,Profit before taxation,pretax_income,2025-03-31
+BRW-20417,income_statement,,Tax on profit,income_tax,2025-03-31
+BRW-20417,income_statement,,Profit for the financial year,net_income,2025-03-31
+BRW-20417,balance_sheet,Fixed assets,Tangible assets,ppe_net,2025-03-31
+BRW-20417,balance_sheet,Current assets,Stocks,inventory,2025-03-31
+BRW-20417,balance_sheet,Current assets,Debtors,accounts_receivable,2025-03-31
+BRW-20417,balance_sheet,Current assets,Cash at bank and in hand,cash,2025-03-31
+BRW-20417,balance_sheet,Creditors: amounts falling due within one year,Trade creditors,accounts_payable,2025-03-31
+BRW-20417,balance_sheet,Creditors: amounts falling due within one year,Directors' loan account,accrued_and_other_current_liabilities,2025-03-31
+BRW-20417,balance_sheet,Creditors: amounts falling due within one year,Other creditors and accruals,accrued_and_other_current_liabilities,2025-03-31
+BRW-20417,balance_sheet,,Net current assets,working_capital,2025-03-31
+BRW-20417,balance_sheet,Creditors: amounts falling due after more than one year,Bank loans,long_term_debt,2025-03-31
+BRW-20417,balance_sheet,,Net assets,total_equity,2025-03-31
+BRW-20417,balance_sheet,Capital and reserves,Called up share capital,share_capital,2025-03-31
+BRW-20417,balance_sheet,Capital and reserves,Profit and loss account,retained_earnings,2025-03-31
+BRW-20417,balance_sheet,,Shareholders' funds,total_equity,2025-03-31

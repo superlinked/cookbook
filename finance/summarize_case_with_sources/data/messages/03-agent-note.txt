@@ -1,0 +1,9 @@
+THORNBURY VALE BANK - CASE NOTE (internal)
+Case: CASE-2026-04417    Team: Card Services    Author: Priya Castellane
+
+Card ending 4421 reported lost on 22 October 2026 and frozen in chat. The customer disputes two
+card payments: Quillon Electronics, 89.99 GBP, and Copperpot Cafe, 23.40 GBP. Raised both with
+the card network. Network dispute reference 8806 2144 5739 0012.
+
+Called Ros back and told her she'll have the refund within five working days. Passing to Joel
+Ambrose (Fraud Operations) to check the merchant.

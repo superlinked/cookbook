@@ -1,0 +1,85 @@
+# The compliance team's customer due diligence (CDD) policy for a personal account, as the recipe
+# checks it. This is a made-up policy for the demo, modelled on the US Customer Identification
+# Program rule (31 CFR 1020.220) and the UK JMLSG guidance. It is not legal advice and not any
+# bank's real policy: take yours from your compliance team.
+#
+# Every requirement comes out met, not_met or missing. `ask` is what goes on the list of things
+# to ask the customer for when the requirement isn't met; a requirement with no `ask` is for the
+# analyst to look at first (an MRZ check digit that fails may be a misread, not the customer's
+# mistake). `{oldest}` is replaced with the oldest date an address document may carry.
+
+name: Personal current account CDD policy (demo)
+
+# Mandatory form fields: field name in the onboarding system -> what to call it when asking.
+# The legal minimum is name, date of birth, address and an ID number; occupation, nationality
+# and tax residency are this policy's own additions, as many banks' are.
+form:
+  mandatory:
+    surname: surname
+    given_names: given names
+    date_of_birth: date of birth
+    house_number: house number
+    street: street
+    town: town
+    postcode: postcode
+    nationality: nationality
+    occupation: occupation
+    tax_residency: country of tax residence
+  # A field holding only one of these counts as blank.
+  blank_values: ["-", "n/a", "na", "tbc", "unknown", "."]
+
+identity:
+  # Document type -> name. A document the customer gave for identity must be one of these.
+  accepted:
+    passport: passport
+    id_card: national identity card
+    driving_licence: driving licence
+  # Types that must carry an ICAO 9303 machine-readable zone. An MRZ found on a document of
+  # another type is checked too.
+  mrz_types: [passport, id_card]
+  min_validity_days: 0     # the ID must still be valid this many days after the case date
+  # What an accepted identity document verifies, one requirement each.
+  requirements:
+    id_mrz: The MRZ is there and every ICAO 9303 check digit holds (passports and ID cards)
+    id_name: The name on the ID is the name on the application, printed and in the MRZ
+    id_date_of_birth: The date of birth on the ID is the one on the application
+    id_number: The ID number is read, and agrees with the MRZ where it has one
+    id_valid: The ID has not expired on the case date
+
+address:
+  # Document type -> name. Proof of address must be one of these; a mobile phone bill is not.
+  accepted:
+    utility_bill: utility bill
+    bank_statement: bank statement
+    council_tax_bill: council tax bill
+  separate_from_identity: true   # the document that proves identity can't also prove address
+  max_age_months: 3              # dated within this many months before the case date
+  requirements:
+    address_type: The issuer read from the document issues a type the policy accepts
+    address_holder: The document is in the applicant's name
+    address_matches: The address is the application's (house number, flat, street, postcode)
+    address_age: The document is dated within max_age_months and not after the case date
+
+# Case-level requirements.
+documents:
+  identity_document: An accepted identity document was provided
+  address_document: A separate, accepted proof of address was provided
+  address_documents_agree: Where there are several address documents, they give one address
+
+asks:
+  form: "your {field} (it was left blank on the form)"
+  identity_document: "an identity document: a passport, national identity card or driving licence"
+  id_name: confirmation of your full name as it is printed on your identity document
+  id_date_of_birth: confirmation of your date of birth
+  id_valid: an identity document that is still in date
+  address_document: >-
+    a proof of address, separate from your identity document, dated on or after {oldest}: a
+    utility bill, bank statement or council tax bill
+  address_type: >-
+    a utility bill, bank statement or council tax bill dated on or after {oldest}, as the
+    document you sent as proof of address is not a type we accept
+  address_holder: a proof of address in your own name, dated on or after {oldest}
+  address_matches: >-
+    a proof of address showing the address on your application, dated on or after {oldest}
+  address_age: a proof of address dated on or after {oldest}
+  address_documents_agree: confirmation of which address you live at

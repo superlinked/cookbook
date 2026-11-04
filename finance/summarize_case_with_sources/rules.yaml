@@ -1,0 +1,71 @@
+# What counts as card data, how the summary is written and checked, and every threshold.
+# Thresholds are starting points, not tuned values: check them against your own cases.
+
+models:
+  # SIE Cloud's PII model: urchade/gliner_multi_pii-v1 and numind/NuNER_Zero composed on the
+  # server (spans scoring 0.6 or more, the two models' spans unioned). Here it only looks for
+  # card data and secrets; names, dates, amounts and merchants stay.
+  pii: superlinked/pii-redact
+  # Writes the summary from the masked messages, with a source and a quote per line (chat,
+  # strict JSON schema).
+  summary: Qwen/Qwen3.8-27B-FP8
+
+# The PII model's labels this recipe asks for, and what each one counts as. Only card data and
+# secrets: the next agent is allowed to see who the customer is.
+pii_labels:
+  credit card number: card number
+  cvv: CVV
+  pin: PIN
+  one-time passcode: passcode
+  password: password
+
+masking:
+  # The PII model reads about 384 words per request, so a longer message is sent as windows of
+  # this many words, each sharing `window_overlap_words` with the last.
+  window_words: 300
+  window_overlap_words: 50
+  # A card number: 13 to 19 digits, with up to three spaces, dots or hyphens between any two
+  # ("4917  6620", "4917.6620", "4917 - 6620") and the number may wrap onto the next line. Every
+  # one is masked to its last `show_last` digits, whether or not it passes the Luhn check (a
+  # mistyped card number fails it and is still a card number). The one exception is a dispute
+  # reference the card system holds for this card: that is kept, so the next agent can chase it.
+  card_number: '(?<![\d-])\d(?:[ .\-]{0,3}(?:\r?\n[ \t]{0,3})?\d){12,18}(?![\d-])'
+  show_last: 4
+  # Secrets found by the words in front of them: `words` names the secret, `gap` is what may sit
+  # between the words and the value (by default up to 25 characters with no digit and no line
+  # break: "the 3 numbers on the back too? They're 731"), and `value` is the part removed. The
+  # words stay, so the summary can say a CVV was given without holding it.
+  secret_gap: '[^\d\n]{0,25}?'
+  secrets:
+    CVV:
+      words: '(?i)\b(?:cvv2?|cvc2?|security code|(?:3|three|4|four) (?:numbers|digits) on the back)\b'
+      value: '\d{3,4}\b'
+    PIN:
+      words: '(?i)\bpin(?: number| code)?\b'
+      value: '\d{4,6}\b'
+    passcode:
+      words: '(?i)\b(?:one[- ]time (?:pass)?code|passcode|otp|verification code|texted me a code|code (?:they|you) (?:texted|sent))\b'
+      value: '\d{4,8}\b'
+    password:
+      words: '(?i)\b(?:password|passphrase)\b'
+      gap: '(?:\s+(?:is|was))?\s*[:=]?\s*'
+      value: '[^\s,;]*[^\s,;.]'
+  # What a removed secret becomes in the text the summary model reads.
+  removed: "[{kind} removed]"
+
+case:
+  # The card system's transactions are read from this many days before the case was opened to
+  # the newest message.
+  lookback_days: 14
+
+checks:
+  # A quote counts when, after collapsing whitespace and straightening quote marks, it appears
+  # verbatim in the one message the line cites and is at least this long.
+  min_quote_chars: 12
+  # A line under "what the bank told the customer" whose quote has one of these words and whose
+  # text has none states as a promise what its source denies ("refund within five days" quoting
+  # "we can't promise a refund"): it goes to review.
+  negation_words: ["not", "n't", "cannot", "never", "unable", "no"]
+
+summary:
+  max_completion_tokens: 4000   # includes any reasoning the model does first

@@ -1,0 +1,14 @@
+THORNBURY VALE BANK - WEB CHAT TRANSCRIPT
+Case: CASE-2026-04417    Channel: web chat    Agent: Priya Castellane
+
+[14:02] Customer: Hi, I think I left my debit card in a taxi last night.
+[14:02] Priya Castellane: I'm sorry to hear that. Can you confirm your full name and date of birth?
+[14:03] Customer: Rosalind Achterberg, 22 June 1986.
+[14:03] Priya Castellane: Thank you, Rosalind. Which card is it?
+[14:04] Customer: The long number is 4917 6620 5381 4421.
+[14:04] Priya Castellane: I can't find a card with that number. Could you check it?
+[14:05] Customer: Sorry, it's 4917 6620 5318 4421. Do you need the 3 numbers on the back too? They're 731.
+[14:05] Priya Castellane: Found it, thank you, but please don't type your card details in chat. I've
+frozen the card ending 4421 now, so nothing more can be paid with it.
+[14:06] Customer: Thanks. My friends call me Ros, by the way.
+[14:06] Priya Castellane: Noted, Ros. A replacement card will arrive in 3 to 5 working days.

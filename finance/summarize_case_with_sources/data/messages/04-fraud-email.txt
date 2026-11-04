@@ -1,0 +1,15 @@
+From: Joel Ambrose, Fraud Operations, Thornbury Vale Bank
+To: Card Services
+Subject: CASE-2026-04417 - card ending 4421
+
+Priya,
+
+Someone tried to send 150.00 GBP from the frozen card to a joint account held by Edvard and
+Maren Lindqvist at another bank on 22 October. It was declined because the card was frozen, so
+there's nothing to refund and nothing to dispute.
+
+I've asked Quillon Electronics for the delivery address and IP address behind the 89.99 order.
+They have until 6 November to answer. Please don't close the dispute before then.
+
+Joel Ambrose
+Fraud Operations

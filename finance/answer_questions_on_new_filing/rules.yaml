@@ -1,0 +1,41 @@
+# The research desk's rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own questions.
+# The standing questions themselves are in data/questions.yaml.
+
+models:
+  rerank: Qwen/Qwen3-Reranker-4B       # scores every passage of the filing against a question
+  answer: Qwen/Qwen3.8-27B-FP8         # answers from the top passages with quotes (chat, JSON schema)
+
+rerank:
+  # Passed to the reranker with every question.
+  instruction: >-
+    Given an analyst's question about a company's annual report, judge whether this 10-K
+    passage states the facts that answer the question.
+  # Passages scoring below this do not answer the question. If none of the filing's passages
+  # reaches it, the question is `no_answer_found` for that filing.
+  min_score: 0.50
+  # At most this many passages at or above min_score go to the answer step. The others above
+  # it are listed in the brief, so nothing that scored high disappears.
+  max_passages: 3
+
+answer:
+  max_completion_tokens: 3000          # includes any reasoning the model does first
+  max_answer_words: 60                 # a longer answer is not one line of a brief
+  min_quote_words: 5                   # a shorter quote is not evidence
+
+checks:
+  # An answer that says the passages don't give it is not an answer, whatever `found` says.
+  # Case-insensitive regular expressions.
+  not_answered_patterns:
+    - '\bnot (disclosed|stated|provided|given|reported|broken out)\b'
+    - '\b(does|do|did) not (disclose|state|provide|give|report|break out)\b'
+    - '\bno (figure|amount|number|breakdown)\b'
+    - '\bnot (in|found in) the passages?\b'
+  # A figure next to one of these words is a change between two years ("a $10.7 billion
+  # year-over-year decrease"), so it has no single year to check.
+  change_words: [year-over-year, increase, decrease, change]
+  # How many words around a figure count as "next to" for change_words.
+  change_window_words: 3
+  # A year this many characters after a figure, with no other figure in between, is that
+  # figure's year ("22.2 percent in 2024"). Otherwise the first year earlier in the sentence is.
+  year_after_chars: 30
