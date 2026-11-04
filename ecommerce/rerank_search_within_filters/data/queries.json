@@ -1,0 +1,109 @@
+{
+  "queries": [
+    {
+      "id": "Q-01",
+      "esci_query_id": 112614,
+      "query": "women s black tennis shoes size 8",
+      "filters": {
+        "color": [
+          "black"
+        ],
+        "size": "8",
+        "size_system": "women",
+        "in_stock": true
+      }
+    },
+    {
+      "id": "Q-02",
+      "esci_query_id": 52479,
+      "query": "i want a warm jacket with a hood and that is waterproof and black or dark coloured like navy",
+      "filters": {
+        "color": [
+          "black",
+          "navy"
+        ],
+        "size": null,
+        "size_system": null,
+        "in_stock": true
+      }
+    },
+    {
+      "id": "Q-03",
+      "esci_query_id": 67457,
+      "query": "mens black 100% cotton dress socks",
+      "filters": {
+        "color": [
+          "black"
+        ],
+        "size": null,
+        "size_system": null,
+        "in_stock": true
+      }
+    },
+    {
+      "id": "Q-04",
+      "esci_query_id": 8142,
+      "query": "all white boots for girls",
+      "filters": {
+        "color": [
+          "white"
+        ],
+        "size": null,
+        "size_system": null,
+        "in_stock": true
+      }
+    },
+    {
+      "id": "Q-05",
+      "esci_query_id": 30283,
+      "query": "cropped black shirt",
+      "filters": {
+        "color": [
+          "black"
+        ],
+        "size": null,
+        "size_system": null,
+        "in_stock": true
+      }
+    },
+    {
+      "id": "Q-06",
+      "esci_query_id": 16215,
+      "query": "biys sz 9 black tennis shoes",
+      "filters": {
+        "color": [
+          "black"
+        ],
+        "size": "9",
+        "size_system": "toddler",
+        "in_stock": true
+      }
+    },
+    {
+      "id": "Q-07",
+      "esci_query_id": 112641,
+      "query": "women shoes flats black size 12w",
+      "filters": {
+        "color": [
+          "black"
+        ],
+        "size": "12W",
+        "size_system": "women",
+        "in_stock": true
+      }
+    },
+    {
+      "id": "Q-08",
+      "esci_query_id": null,
+      "query": "black running shoes",
+      "filters": {
+        "color": [
+          "black"
+        ],
+        "size": "8.5",
+        "size_system": "women",
+        "in_stock": true
+      }
+    }
+  ]
+}

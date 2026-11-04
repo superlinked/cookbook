@@ -1,0 +1,23 @@
+record_id,parent_id,product_line,brand,title,gtin,model_number,color,size,pack_count,plug,material,x,y,w,h
+L02,PL-LTG-CABLE,Lightning to USB A Cable,AmazonBasics,AmazonBasics MFi-Certified Lightning to USB A Cable for Apple iPhone and iPad - 6 Feet (1.8 Meters) - Black,2000000000022,,Black,6 ft,,,,256,0,256,256
+L04,PL-LTG-CABLE,Lightning to USB A Cable,AmazonBasics,AmazonBasics MFi-Certified Lightning to USB A Cable for Apple iPhone and iPad - 6 Feet (1.8 Meters) - White,2000000000046,,White,6 ft,,,,768,0,256,256
+L06,PL-LTG-CABLE,Lightning to USB A Cable,AmazonBasics,"AmazonBasics Lightning to USB A Cable - MFi Certified iPhone Charger - White, 6-Foot, 2-Pack",2000000000060,,White,6 ft,2,,,1280,0,256,256
+L07,PL-HICKORY-HAMMER,Hickory Handle Claw Hammer,AmazonBasics,"AmazonBasics Hickory Handle Claw Hammer - Forged Steel Construction, 20 oz.",2000000000077,,,20 oz,,,,1536,0,256,256
+L09,PL-HICKORY-HAMMER,Hickory Handle Claw Hammer,AmazonBasics,AmazonBasics Hickory Wood Handle Claw Hammer - 16 oz.,2000000000091,,,16 oz,,,,256,256,256,256
+L11,PL-65W-CHARGER,65W One-Port USB-C Wall Charger,AmazonBasics,"AmazonBasics 65W One-Port USB-C 3.0 Wall Charger for Laptops, Tablets and Phones - White",2000000000114,CHG65-W1,White,,,,,768,256,256,256
+L12,PL-65W-CHARGER,65W One-Port USB-C Wall Charger,AmazonBasics,"AmazonBasics 65W One-Port USB-C 3.0 Wall Charger for Laptops, Tablets and Phones - Black",2000000000121,CHG65-B1,Black,,,,,1024,256,256,256
+L14,PL-PHONE-CHARGER,One-Port USB-C Wall Charger for Phones,AmazonBasics,AmazonBasics One-Port USB-C Wall Charger for  Phones,2000000000145,CHG1P-G,White,,,UK,,1536,256,256,256
+L15,PL-TABLET-STAND,Multi-Angle Portable Stand,AmazonBasics,"AmazonBasics Multi-Angle Portable Stand for Tablets, E-readers and Phones - Silver",2000000000152,,Silver,,,,,0,512,256,256
+L18,PL-CASHEWS-UNSALTED,Organic Roasted Unsalted Cashews,365 Everyday Value,"365 Everyday Value, Organic Cashews - Roasted & Unsalted, 12 oz",2000000000183,,,12 oz,,,,768,512,256,256
+L20,PL-WHITE-CHIPS,White Chocolate Mini Baking Chips,365 Everyday Value,"365 Everyday Value, White Chocolate Mini Baking Chips, 12 oz",2000000000206,,,12 oz,,,,1280,512,256,256
+L22,PL-SEMISWEET-CHIPS,Semi-Sweet Chocolate Mini Baking Chips,365 Everyday Value,"365 Everyday Value, Semi-Sweet Chocolate Mini Baking Chips, 12 oz",2000000000220,,,12 oz,,,,0,768,256,256
+L23,PL-BOND-SANDAL,Bond Studded Block Heel Dress Sandal,The Fix,"The Fix Amazon Brand Women's Bond Studded Block Heel Dress Sandal,Matte Silver Mirror,10 B US",2000000000237,,Matte Silver Mirror,10 B US,,,Leather,256,768,256,256
+L25,PL-BOND-SANDAL,Bond Studded Block Heel Dress Sandal,The Fix,"Amazon Brand - The Fix Women's Bond Studded Block Heel Dress Sandal,Black,8.5 B US",2000000000251,,Black,8.5 B US,,,Leather,768,768,256,256
+L27,PL-MADISON-FLAT,Madison Ballet Flat,206 Collective,"206 Collective Amazon Brand Women's Madison Ballet Flat, Gold Metallic, 8.5 B US",2000000000275,,Gold Metallic,8.5 B US,,,Leather,1280,768,256,256
+L29,PL-MADISON-FLAT,Madison Ballet Flat,206 Collective,"206 Collective Amazon Brand Women's Madison Ballet Flat, Black, 7 B US",2000000000299,,Black,7 B US,,,Leather,0,1024,256,256
+L32,PL-MADISON-FLAT,Madison Ballet Flat,206 Collective,"Amazon Brand - 206 Collective Women's Madison Ballet Flat, Navy, 9 B US",2000000000329,,Navy,9 B US,,,Suede,768,1024,256,256
+L34,PL-REVOLVE-SOFA,Revolve Modern Upholstered,Rivet,"Amazon Brand - Rivet Revolve Modern Upholstered Sofa Couch, 80""W, Grey Weave",2000000000343,,Grey Weave,"80""W",,,,1280,1024,256,256
+L36,PL-REVOLVE-SOFA,Revolve Modern Upholstered,Rivet,"Amazon Brand - Rivet Revolve Modern Upholstered Sofa Couch, 80""W, Storm Grey",2000000000367,,Storm Grey,"80""W",,,,0,1280,256,256
+L38,PL-REVOLVE-SOFA,Revolve Modern Upholstered,Rivet,"Amazon Brand - Rivet Revolve Modern Upholstered Loveseat Sofa, 56""W, Denim Blue",2000000000381,,Denim Blue,"56""W",,,,512,1280,256,256
+L39,PL-CHAMOMILE-TEA,Chamomile Tea,Wickedly Prime,"Wickedly Prime Organic Chamomile Tea, Full-Leaf Bags, 15 Count",2000000000398,,,15 count,,,,768,1280,256,256
+L41,PL-MADISON-FLAT,Madison Ballet Flat,206 Collective,"206 Collective Women's Madison Ballet Flat, Navy, 12 B US",2000000000411,206MB-NV-12,Navy,12 B US,,,Suede,1280,1280,256,256

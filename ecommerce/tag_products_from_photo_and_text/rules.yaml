@@ -1,0 +1,127 @@
+# The catalog team's lists, the words that map onto them, and how the recipe routes a listing.
+# Everything here is a starting point we did not tune. Change the lists to yours: nothing is
+# trained, the model reads them from the prompt.
+
+models:
+  tagger: Qwen/Qwen3.8-27B-FP8   # reads the photo and the listing text together, once per listing
+
+tagger:
+  # Each photo is shrunk (never enlarged) so its longest side is at most this many pixels before
+  # it is sent. The files in data/photos/ are never changed by a run.
+  max_edge_px: 512
+  max_completion_tokens: 1500
+
+# The team's own lists: 52 home and fashion types, 14 colors and 14 materials. The materials
+# include cast iron, cotton and faux leather, so a listing can say what it is made of rather
+# than only what it looks like.
+lists:
+  type: [backpack, basket, bean bag chair, bed, bed sheet, bench, blanket, boots, bucket, cabinet,
+    ceiling light, chair, clock, clothes rack, desk, dresser, dutch oven, frying pan, handbag,
+    hat, headboard, headphones, jar, lamp, laundry hamper, makeup bag, mirror, ottoman,
+    phone case, pillow, placemat, planter, rug, sandals, shelf, shoes, sofa, sofa cover, stool,
+    storage box, suitcase, table, tablet cover, tap, trash can, umbrella, vase, wall art,
+    wall hook, wallet, water bottle, window blind]
+  color: [beige, black, blue, brown, gold, green, grey, orange, pink, purple, red, silver,
+    white, yellow]
+  material: [cast iron, ceramic, cotton, fabric, faux leather, glass, jute, leather, metal,
+    plastic, rattan, suede, velvet, wood]
+
+# The words that mean a value, per field. Each value on a list also means itself. A word matches
+# whole, in any case, with or without a plural "s" or "es". Longer phrases win over the words
+# inside them, so "faux leather" is faux leather and never leather, and "cast iron" is never
+# plain iron. The same words read the quote the model gives for a tag and the listing's current
+# field.
+synonyms:
+  type:
+    sofa: [couch, loveseat]
+    ottoman: [pouf, footstool]
+    stool: [barstool, bar stool]
+    blanket: [throw blanket, throw]
+    suitcase: [luggage, spinner luggage]
+    sandals: [sandal]
+    boots: [boot]
+    bed: [bed frame]
+    rug: [area rug]
+    mirror: [wall mirror]
+  color:
+    blue: [navy, navy blue]
+    brown: [chestnut, chocolate, dark chocolate, tan, bronze]
+    green: [seafoam, seafoam green]
+    beige: [natural, cream]
+    grey: [gray, charcoal, anthracite]
+    white: [ivory, off-white]
+    gold: [brass]
+  material:
+    cast iron: [cast-iron, enameled cast iron, enamelled cast iron]
+    ceramic: [stoneware, earthenware, porcelain]
+    cotton: [100% cotton, all-cotton]
+    faux leather: [vegan leather, pu leather, polyurethane leather, leatherette,
+      synthetic leather, imitation leather, bonded leather]
+    leather: [top-grain leather, genuine leather, full-grain leather]
+    metal: [iron, steel, aluminum, aluminium, brass]
+    plastic: [polycarbonate, abs, polypropylene]
+    fabric: [polyester, linen, textile, microfiber]
+    velvet: [velvet fabric]
+    wood: [pine, oak, walnut, hardwood, plywood, rubberwood]
+    rattan: [wicker]
+    suede: [nubuck]
+
+# Values that cover narrower ones. When the text says a narrower value and the photo shows the
+# broader one ("cotton" in a bullet, "fabric" in the photo), that's no conflict: the tag is the
+# text's value, from_text, since the photo can't confirm it.
+broader:
+  material:
+    fabric: [cotton, velvet, jute]
+    metal: [cast iron]
+
+# Words next to a value that say the product is NOT that value: "leather-free", "no leather",
+# "made without any leather" (up to two words between), "wood-look". A quote with one of these
+# never supports that value. (A phrase like "faux leather" is caught earlier, as its own value.)
+negation:
+  before: ["no", "not", "non", "without", "free of", "faux", "imitation", "artificial", "fake"]
+  after: ["free", "look", "like", "effect"]
+
+# How the catalog's current fields map onto the lists.
+current:
+  # Product type -> type. A product type in broad_types says nothing about the type (HOME,
+  # HOME_FURNITURE_AND_DECOR) and counts as an empty field. Any other product type is a value
+  # that isn't on the type list: a new tag is then `changed` from it, never `filled`.
+  types:
+    BACKPACK: backpack
+    BED: bed
+    BED_FRAME: bed
+    BENCH: bench
+    BOOT: boots
+    CABINET: cabinet
+    CHAIR: chair
+    DESK: desk
+    DRESSER: dresser
+    DUTCH_OVENS: dutch oven
+    FLAT_SHEET: bed sheet
+    HOME_MIRROR: mirror
+    LAMP: lamp
+    OTTOMAN: ottoman
+    PILLOW: pillow
+    PLANTER: planter
+    RUG: rug
+    SANDAL: sandals
+    SHOES: shoes
+    SOFA: sofa
+    STOOL_SEATING: stool
+    SUITCASE: suitcase
+    TABLE: table
+  broad_types: [HOME, HOME_FURNITURE_AND_DECOR]
+  # Color: the standardized color first, then the seller's color. Material: the material field.
+  # Each is read with the synonyms above and must name exactly one value; a field that names
+  # none or several (e.g. "Glass" as a color, "Multicolor") is kept as it is and shown next to
+  # the new tag.
+
+# What sends a listing to review. A listing with none of these is `checks_passed`; the
+# specialist still decides what to write back.
+review:
+  conflict: true            # the text says one value and the photo shows another
+  not_found: true           # neither the text nor the photo gives a value on the list
+  quote_failed: true        # the model named a value from the text, but its quote didn't hold
+  photo_only:               # only the photo supports the tag:
+    material: true          #   always for material: a photo shows a surface, not what it's made of
+    changed: true           #   for any field, when it would change the current value

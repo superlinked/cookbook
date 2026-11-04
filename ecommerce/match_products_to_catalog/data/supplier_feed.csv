@@ -1,0 +1,24 @@
+record_id,brand,title,gtin,model_number,color,size,pack_count,plug,material,x,y,w,h
+L01,AmazonBasics,"AmazonBasics Lightning to USB A Cable, 6-Foot",,,,,,,,0,0,256,256
+L03,AmazonBasics,AmazonBasics MFi-Certified Lightning to USB A Cable for Apple iPhone and iPad - 10 Feet (3 Meters) - Black,,,,,,,,512,0,256,256
+L05,AmazonBasics,"AmazonBasics Lightning to USB A Cable - MFi Certified iPhone Charger - Blue, 6-Foot",,,,,,,,1024,0,256,256
+L08,AmazonBasics,"AmazonBasics - Carpenter's Hammer with Hickory Handle, DS-HH20",,,,,,,,0,256,256,256
+L10,AmazonBasics,AmazonBasics Fiberglass Handle Claw Hammer - 16 oz.,,,,,,,,512,256,256,256
+L13,AmazonBasics,AmazonBasics One-Port USB-C Wall Charger for Phones,,,,,,,,1280,256,256,256
+L16,AmazonBasics,"AmazonBasics Multi-Angle Portable Stand for Tablets, E-readers and Phones - Black",,,,,,,,256,512,256,256
+L17,365 Everyday Value,"365 EVERYDAY VALUE Organic Roasted Unsalted Cashews, 10 OZ",,,,,,,,512,512,256,256
+L19,365 Everyday Value,"365 Everyday Value, Organic Cashews - Roasted & Salted, 12 oz",,,,,,,,1024,512,256,256
+L21,365 Everyday Value,"365 Everyday Value, White Chocolate Mini Baking Chips, 12 oz",,,,,,,,1536,512,256,256
+L24,The Fix,"Amazon Brand - The Fix Women's Bond Studded Block Heel Dress Sandal,Matte Silver Mirror,10 B US",,,,,,,,512,768,256,256
+L26,The Fix,"The Fix Amazon Brand Women's Bond Studded Block Heel Dress Sandal,Mushroom Python Print,9.5 B US",,,,,,,,1024,768,256,256
+L28,206 Collective,"Amazon Brand - 206 Collective Women's Madison Ballet Flat, Gold Metallic, 8.5 B US",,,,,,,,1536,768,256,256
+L30,206 Collective,"Amazon Brand - 206 Collective Women's Madison Ballet Flat, Black, 7 B US",,,,,,,,256,1024,256,256
+L31,206 Collective,"206 Collective Women's Madison Ballet Flat, Black Suede, 7 B US",,,Black,,,,Suede,512,1024,256,256
+L33,206 Collective,"Amazon Brand - 206 Collective Women's Madison Ballet Flat, Navy, 10 B US",,,,,,,,1024,1024,256,256
+L35,Rivet,"Amazon Brand - Rivet Revolve Modern Upholstered Sofa Couch, 80""W, Grey Weave",,,,,,,,1536,1024,256,256
+L37,Rivet,"Amazon Brand - Rivet Revolve Modern Upholstered Sofa Couch, 80""W, Denim Blue",,,,,,,,256,1280,256,256
+L40,Wickedly Prime,"Wickedly Prime Herbal Tea, Organic, Cool Calm & Chamomile, 15-ct",,,,,,,,1024,1280,256,256
+L42,206 Collective,"206 Collective Amazon Brand Women's Madison Ballet Flat, Navy, 12 B US",,206MB-NV-12,,,,,,1536,1280,256,256
+L43,AmazonBasics,"AmazonBasics Lightning to USB A Cable - MFi Certified iPhone Charger - Black, 6-Foot",,,,,,,,0,1536,256,256
+L44,AmazonBasics,"AmazonBasics 65W One-Port USB-C 3.0 Wall Charger for Laptops, Tablets and Phones - Black",,CHG65-B2,,,,,,256,1536,256,256
+L45,AmazonBasics,"AmazonBasics Lightning to USB A Cable - MFi Certified iPhone Charger - White, 6-Foot",,,,,,,,512,1536,256,256

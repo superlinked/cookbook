@@ -1,0 +1,4 @@
+product_id,supplier,supplier_sku,title,category_id,category_path,attributes
+P-10198,Tollgate Trading,TT-S02,Cotton Crew Socks White L (3 pk),gid://shopify/TaxonomyCategory/aa-1-18-3,Apparel & Accessories > Clothing > Socks > Crew Socks,color=white; size=L; material=cotton blend
+P-10231,Tollgate Trading,TT-A08,Merino Hiking Socks Grey M (2 pk),gid://shopify/TaxonomyCategory/aa-1-18-3,Apparel & Accessories > Clothing > Socks > Crew Socks,color=grey; size=M; material=merino wool blend
+P-31007,Marrowby Goods,TT-A01,Enamel Camping Mug Blue 350ml,gid://shopify/TaxonomyCategory/hg-11-10-5-5,Home & Garden > Kitchen & Dining > Tableware > Drinkware > Mugs,material=enamelled steel

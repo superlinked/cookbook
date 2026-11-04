@@ -23,13 +23,13 @@ for every model it calls. Grouped:
 
 | Images | Recipes |
 | --- | --- |
-| `cuda12-default` | [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging), [redact_logs_before_sharing](sre/redact_logs_before_sharing) |
+| `cuda12-default` | [categorize_products_into_taxonomy](ecommerce/categorize_products_into_taxonomy), [rerank_search_within_filters](ecommerce/rerank_search_within_filters), [search_products_by_photo_and_text](ecommerce/search_products_by_photo_and_text), [threat_relations](security/threat_relations), [threat_report_tagging](security/threat_report_tagging), [redact_logs_before_sharing](sre/redact_logs_before_sharing) |
 | `cuda12-transformers5` | [check_parts_in_assembly_photos](manufacturing/check_parts_in_assembly_photos), [route_alerts_to_owners](sre/route_alerts_to_owners) |
-| `cuda13-sglang-cu130` | [draft_postmortem_from_incident_data](sre/draft_postmortem_from_incident_data) |
+| `cuda13-sglang-cu130` | [tag_products_from_photo_and_text](ecommerce/tag_products_from_photo_and_text), [draft_postmortem_from_incident_data](sre/draft_postmortem_from_incident_data) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` | [check_delivery_against_po](manufacturing/check_delivery_against_po) |
 | `cuda12-sglang` + `cuda12-sglang-vision-extract` | [screen_assistant_prompts](security/screen_assistant_prompts) |
 | `cuda12-default` + `cuda12-transformers5` | [fill_work_order_from_notes](manufacturing/fill_work_order_from_notes), [route_customer_emails](retail/route_customer_emails), [triage_reported_phishing](security/triage_reported_phishing) |
-| `cuda12-default` + `cuda13-sglang-cu130` | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual), [match_alerts_to_runbooks](sre/match_alerts_to_runbooks) |
+| `cuda12-default` + `cuda13-sglang-cu130` | [match_products_to_catalog](ecommerce/match_products_to_catalog), [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual), [match_alerts_to_runbooks](sre/match_alerts_to_runbooks) |
 | `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_returned_item_against_sale](retail/check_returned_item_against_sale) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_shelf_from_photo](retail/check_shelf_from_photo) |
 

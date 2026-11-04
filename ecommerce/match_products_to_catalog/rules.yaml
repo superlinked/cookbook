@@ -1,0 +1,107 @@
+# The data steward's matching rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own catalog.
+
+models:
+  image: google/siglip-so400m-patch14-384   # one vector per photo
+  text: Qwen/Qwen3-Embedding-4B             # one vector per title
+  judge: Qwen/Qwen3.8-27B-FP8               # looks at both photos and titles, unsure pairs only
+
+similarity:
+  # Combined similarity of a pair = image_weight * photo cosine + text_weight * title cosine.
+  image_weight: 0.5
+  text_weight: 0.5
+  # Below this a pair is two different products: settled in Python, never shown to a model,
+  # and left out of pairs.csv.
+  low: 0.80
+  # At or above this, a pair with no attribute conflict and nothing stated on one side only is
+  # likely_same_product without the judge. Between low and high the judge looks.
+  high: 0.97
+  # Titles this close, naming no different attribute, with photos this far apart: one record's
+  # photo or title is probably wrong (a cable title over an HDMI cable photo). The pair goes to
+  # review, before the low threshold can drop it. A blunt rule set on this data: L43 (the HDMI
+  # photo) vs L02 scores title 0.959, photo 0.678. Looser, it catches pairs that are fine: the
+  # lifestyle cable photo L01 vs L02 (title 0.910, photo 0.729) and the white vs semi-sweet
+  # chocolate chips L21 vs L22 (title 0.932, photo 0.723).
+  disagree:
+    title_min: 0.94
+    photo_max: 0.70
+
+attributes:
+  # An attribute only one record states is unknown, not a default: no pack count is not a pack
+  # of 1, no plug is not your country's plug, no material is not the PIM's material. A pair
+  # with one of these stated on one side only goes to review. Color and size left out on one
+  # side go on to the photos and the judge, which can see a color but can't count a pack or
+  # read a plug from a title. Material is here because the judge can't be trusted to see it: it
+  # can call a black leather flat (L29) and a black suede one (L30) the same product with high
+  # confidence.
+  review_when_one_side_missing: [pack_count, plug, material]
+  # Spellings that mean the same color, compared word by word.
+  color_synonyms: {gray: grey, colour: color}
+  # Colors read from a title when the record's color field is blank. Matched longest first, as
+  # whole words.
+  colors:
+    - matte silver mirror
+    - mushroom python print
+    - gold metallic
+    - storm grey
+    - grey weave
+    - denim blue
+    - black
+    - white
+    - blue
+    - red
+    - green
+    - grey
+    - silver
+    - gold
+    - navy
+    - nude
+    - burgundy
+    - brown
+    - tan
+    - beige
+    - pink
+  # Materials read from a title when the record's material field is blank. Matched as whole
+  # words, longest first, so "faux leather" is not "leather" too. A hyphen counts as a space.
+  materials:
+    - faux leather
+    - leather
+    - suede
+    - canvas
+    - nylon
+    - mesh
+    - wool
+    - cotton
+    - polyester
+    - velvet
+    - linen
+  # Other names for a material, read as the material they name.
+  material_synonyms: {vegan leather: faux leather}
+  # Size patterns, read from the size field or, when it is blank, from the title. The first
+  # capture group that matched is the value, compared as a number per unit. Numbers glued to
+  # their unit ("6-Foot", "15-ct", '80"W', "65W") count. Patterns run in this order and each
+  # match is taken out of the text, so the US shoe size goes first: "8 M US" (M is the medium
+  # width, as are B and B/M) is a shoe size, not 8 meters. A size field none of these read
+  # ("One Size", "M") is compared as written. Two records whose sizes share no unit can't be
+  # compared and go to review.
+  sizes:
+    - {unit: us_shoe, pattern: '(\d+(?:\.\d+)?)\s*(?:[A-EMW]{1,2}(?:/[A-EMW]{1,2})?\s+)?US\b'}
+    - {unit: feet, pattern: '(\d+(?:\.\d+)?)[\s-]*(?:foot|feet|ft)\b'}
+    - {unit: meters, pattern: '(\d+(?:\.\d+)?)\s*(?:meters?|m)\b'}
+    - {unit: oz, pattern: '(\d+(?:\.\d+)?)\s*(?:oz|ounces?)\b'}
+    - {unit: count, pattern: '(\d+)[\s-]*(?:count|ct)\b'}
+    - {unit: width_in, pattern: '(\d+(?:\.\d+)?)"\s*W\b'}
+    - {unit: watts, pattern: '\b(\d+)\s*W\b'}
+  # Pack count, read from the title when the pack_count field is blank, and from the field
+  # when it is not a plain number ("2 pack"). A field these can't read goes to review. No
+  # default.
+  pack_count:
+    - '(\d+)[\s-]*pack\b'
+    - '\bpack of (\d+)\b'
+  # Plug type, read from the title when the plug field is blank, and from the field ("UK plug"
+  # is UK). No default.
+  plug:
+    - '\b(UK|US|EU|AU)[\s-]+plug\b'
+
+judge:
+  max_completion_tokens: 300

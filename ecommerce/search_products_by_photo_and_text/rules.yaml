@@ -1,0 +1,67 @@
+# The search team's rules and every threshold the recipe uses.
+# The score bars and weights are starting points fitted to this demo data (see below). Check them
+# against your own catalog and searches before relying on them.
+
+models:
+  # One model embeds catalog photos, shopper photos, the shopper's words and the color words into
+  # the same space.
+  embed: google/siglip-so400m-patch14-384
+
+search:
+  # At most this many results are shown per search.
+  top_k: 5
+  # SigLIP reads words best as a caption. {query} is replaced by the shopper's words, for a
+  # words-only search and for the words under a photo alike.
+  text_template: "a photo of {query}."
+  # A photo with words: the photo picks this many of the closest products (what kind of thing),
+  # then the words reorder that shortlist (which one).
+  photo_shortlist: 5
+  # The shortlist's order: photo_weight * photo score + words_weight * words score. Words scores
+  # spread about a tenth as much as photo scores on this data (0.076 to 0.098 across the lamp
+  # shortlist, where the photo scores run 0.711 to 0.876), so the words get ten times the
+  # weight; with equal weights the photo would decide alone and the words would change nothing.
+  photo_weight: 1.0
+  words_weight: 10.0
+  # Every hit has to clear the bar for its search kind (cosine similarity) to be shown; a hit
+  # below it stays in results.json as a candidate and, for a failed search, as context in the
+  # search gap log. Words and photos sit on very different scales with this model, so each kind
+  # has its own bar.
+  min_score:
+    # Fitted to the demo data: on-target word searches score 0.14 to 0.19 against their product;
+    # "cordless power drill" scores at most 0.013 against anything.
+    text: 0.10
+    # Fitted to the demo data: two unrelated product photos on white backgrounds already score
+    # about 0.55 to 0.62 (the claw hammer vs a drinking glass: 0.619), and a room shot where
+    # the product is small scores 0.64. A worn shot and a shopper's crop of a catalog product
+    # score 0.87 and up against it.
+    photo: 0.70
+    # A photo with words has to clear both: it looks like the photo, and it has what the words
+    # ask for. Words that only name a change ("but the base should be dark wood") score lower
+    # against everything than a full description, so their bar sits below the words-only one.
+    # Fitted to the demo data: the dark wood lamp scores 0.098 against those words, the white
+    # glass lamp 0.085, the light wood lamp 0.081 and the chrome lamp 0.076. The grey messenger
+    # bag scores 0.041 against "in brown leather".
+    photo_and_text:
+      photo: 0.70
+      words: 0.09
+  # An embedding reads "not" poorly: with this model, "a lamp without a dark wood base" still
+  # puts the dark wood lamp first (0.149; "with" gives 0.172). Words holding one of these, or a
+  # word ending in n't, are not scored: the search gets no_good_match and goes to the log.
+  # Quote every word: YAML reads a bare no as false.
+  negation_words: ["not", "no", "without", "non", "never", "except", "nothing", "none"]
+  # Hyphenated words that start with a negation word but name a product property, not something
+  # the shopper doesn't want. Any other one ("non-wood", "no-wood") counts as a negation.
+  negation_kept: ["non-stick", "non-slip", "non-toxic", "non-woven", "non-iron"]
+  # SigLIP reads at most 64 tokens of text, caption included. Words longer than this many words
+  # (a word count, not a token count; about 1.3 tokens a word in English) are not scored: the
+  # shopper is asked to shorten them.
+  max_words: 40
+
+close_style:
+  # A photo search's top result is checked against the PIM's color for that product. The photo's
+  # color is the color word below whose caption scores highest against the photo. When it is not
+  # the product's PIM color, the result is still shown, and the search goes to the gap log as a
+  # close style: right look, maybe not the exact item. Every PIM color must be in this list.
+  template: "a photo of a {color} product."
+  colors: [black, white, grey, silver, gold, brown, beige, cream, red, orange, green, blue, navy,
+    clear]

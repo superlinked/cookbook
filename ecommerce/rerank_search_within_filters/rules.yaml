@@ -1,0 +1,54 @@
+# The search team's rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own queries.
+
+models:
+  rerank: Qwen/Qwen3-Reranker-4B       # orders the products that passed the filters, once per search
+
+keyword_search:
+  # The stand-in keyword engine (keyword_search.py): BM25 over title, brand and color.
+  k1: 1.2
+  b: 0.75
+  page_size: 20                        # hits asked for per page while walking down the results
+  # Stop walking after this many hits even if fewer than rerank.candidates passed. In
+  # production this bounds the latency of a query that matches nearly nothing; the page says
+  # when it was reached.
+  max_hits: 200
+
+filters:
+  # The PIM color must contain one of these words or phrases, as whole words, for the shopper's
+  # color facet ("Black/White/Carbon" counts as black; "Blackberry" doesn't; "midnight blue"
+  # counts as navy, "Midnight Green" doesn't). Words that also name other colors (midnight, jet,
+  # chalk, snow) are left out, or listed only inside a phrase. A multicolor product counts for
+  # every color it names. A product with no PIM color is held, never guessed from its title.
+  color_words:
+    black: [black, ebony, onyx, noir, blk]
+    white: [white, ivory]
+    navy: [navy, midnight blue]
+  # Size, sizing system and stock come from the variant rows in the stock feed, for the
+  # shopper's color: a sold-out black size 8 doesn't pass because the white size 8 is in stock.
+  # A product missing from the feed is held, never shown as in stock.
+
+rerank:
+  # Walk down the keyword hits until this many products pass the filters, or the hits run out.
+  # Those, plus any held product met on the way, are what the reranker scores.
+  candidates: 20
+  # Passed to the reranker with every query.
+  instruction: >-
+    Given a shopper's search query on an online store, judge whether this product is what
+    the shopper is looking for.
+  # A result scoring at least this is shown as a match; below it, as a related item. If even
+  # the best result is below it, the status is no_good_match. 0.50 is the reranker's yes/no
+  # midpoint, not a value fitted to this data.
+  min_score: 0.50
+  max_results: 10                      # results shown per query
+
+data_gaps:
+  # A held product that scores at least rerank.min_score and would rank this high among the
+  # results goes on the data gap list. At 3, the two held Dr. Martens boots in Q-04, both at
+  # rank 4, would not be listed.
+  held_within: 5
+  # Who fixes each kind of gap.
+  owners:
+    color not in the PIM: catalog owner
+    not in the stock feed: inventory owner
+    variant color not in the stock feed: inventory owner

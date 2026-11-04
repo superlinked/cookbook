@@ -1,0 +1,105 @@
+# The catalog team's rules and every threshold the recipe uses.
+# Thresholds are starting points, not tuned values. Check them against your own supplier sheets.
+
+models:
+  embed: Qwen/Qwen3-Embedding-4B        # one vector per taxonomy path and per product
+  rerank: Qwen/Qwen3-Reranker-4B        # scores the top candidate paths against each product
+  extract: fastino/gliner2-large-v1     # the attributes the chosen category requires
+
+# Who sent the sheet. The PIM lookup is by supplier and SKU together, since two suppliers can
+# use the same code for different products.
+supplier: Tollgate Trading
+
+pim:
+  # A row whose supplier SKU is in the PIM keeps the PIM's category and attributes and never
+  # reaches a model, but only when the titles agree: at least this share of the supplier
+  # title's words (three letters or more) must be in the PIM title, every PIM title word must
+  # be in the row, and both titles must name the same sizes, pack counts and model numbers
+  # (tokens with a digit, words of one or two letters). Otherwise the SKU may have been reused
+  # for another product or variant, and the row is categorized and sent to review. So is a PIM
+  # record with no category.
+  min_title_share: 0.5
+
+taxonomy:
+  # Shopify's categories.txt format: "<gid> : <Top> > <Child> > ...". Point this at the full
+  # file (14,000+ paths) to classify into the whole taxonomy; nothing else changes.
+  file: data/shopify-categories-subset.txt
+  embed_batch_size: 128                 # texts per encode call
+  # Prepended to each product before it is embedded as a query (Qwen3-Embedding instruction).
+  embed_instruction: >-
+    Given a product listing from a supplier spreadsheet, retrieve the product taxonomy
+    category path that classifies the product
+  rerank_instruction: >-
+    Given a product listing from a supplier spreadsheet, judge whether the product taxonomy
+    category path is the correct category for the product being sold
+
+thresholds:
+  top_k: 10                  # paths by cosine similarity that go to the reranker
+  # Below this reranker score the best path is not trusted: the row goes to review
+  # (often the right category is not in the taxonomy file at all).
+  min_top_score: 0.50
+  # Margin = how far the best path leads the best path that is not its ancestor or descendant
+  # (a parent and its child are the same answer at two depths, not a tie). The reranker's
+  # scores are probabilities that crowd near 1.0 (0.99 vs 0.98), so the margin is measured in
+  # log-odds, log(p / (1 - p)), which is the reranker's own yes-vs-no logit: 0.99 vs 0.98 is a
+  # margin of 0.70, 0.99 vs 0.50 is 4.60. Below this margin two different categories are both
+  # plausible: review.
+  min_logit_margin: 1.0
+  # A pick must be at least this many levels deep. 1 is a top-level branch such as
+  # "Home & Garden", which is no category a shopper can browse or filter.
+  min_depth: 2
+  # GLiNER2 reads at most 512 tokens per item. Words are counted conservatively and windows
+  # overlap so an attribute cut at a window edge is still seen whole in the next window.
+  window_words: 180
+  window_overlap_words: 30
+
+# Values that say an attribute was not given. A value that is one of these, or starts with
+# "no", "not" or "without", counts as missing.
+not_given: [n/a, na, none, not specified, unspecified, unknown, tbc, tbd, various, assorted]
+# A model number or brand right after one of these words ("for the AV-H700", "fits AV-H700",
+# "compatible with the Aurivox AV-H700") names the product an accessory fits, not the
+# accessory. Checked on attributes with `fits_check: true`, and only when every place the
+# value appears follows such a word.
+fits_words: [for, fits, fit, compatible with, works with, replacement for]
+# How many words before a value the fits words are looked for (a phrase such as "compatible
+# with" counts as one word).
+fits_window_words: 3
+
+# The attributes each top-level category requires. Every one must be found in the row's text,
+# or the row goes to review. `description` goes into the GLiNER2 output_schema; `pattern`
+# (optional) is a regex the value must match. `one_value: true` sends a value that lists two
+# ("M or L", "340 g, 500 g") to review. `scan` (optional) is a regex Python runs over the whole
+# row: if it finds two different values (title says 340g, description 400 g), the row goes to
+# review whatever the model returned.
+# Ask only for required attributes. With an extra optional `color` field, SIE Cloud answered
+# five of twelve electronics rows with the HTTP 500 it uses for an empty result, although brand
+# and model were in the text; the required-only schema read all twelve. That 500 sends the row
+# to review with the reason.
+# A top-level category with no entry here sends the row to review: add the entry before
+# classifying into that part of the taxonomy.
+attributes:
+  "Apparel & Accessories":
+    color: {description: "color of the garment"}
+    size:
+      description: "garment or shoe size, such as S, M, L, XL, 28, US 9 or One Size"
+      one_value: true
+    material: {description: "fabric or material the item is made of"}
+  "Electronics":
+    brand: {description: "brand name of the device", one_value: true, fits_check: true}
+    model_number:
+      description: "model number of the device"
+      # Letters and digits together: "2.1" (a soundbar's channels) or "5.3" (a Bluetooth
+      # version) is not a model number.
+      pattern: '^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9][A-Za-z0-9./-]*$'
+      one_value: true
+      fits_check: true
+  "Home & Garden":
+    material: {description: "material the item is made of"}
+  "Food, Beverages & Tobacco":
+    net_quantity:
+      description: "net weight or net volume of the package, such as 340 g or 500 ml"
+      pattern: '\d\s*(g|kg|mg|ml|cl|l|oz|lb|fl oz)\b'
+      one_value: true
+      # Every weight or volume in the row, glued ("340g") or not ("340 g"). A pack count
+      # ("12 x") is not part of the match, so "12 x 330 ml" and "12x330ml" both read as 330 ml.
+      scan: '(\d+(?:[.,]\d+)?)\s*(kg|mg|g|ml|cl|l|fl\s?oz|oz|lb)\b'
