@@ -20,7 +20,7 @@ You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you) and 
 
 ```bash
 cp .env.example .env   # then set SIE_API_KEY; every recipe reads this root .env
-cd security/copilot_prompt_screening
+cd security/screen_copilot_prompts
 uv run recipe.py
 ```
 
@@ -51,25 +51,25 @@ requests (one request can carry many items).
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Check a shelf from one photo: in stock, right product, right price](retail/shelf_inventory_check) | grounding-dino-base, GLM-OCR, Qwen3.8-27B-FP8 | 43 | 43 s |
-| [Check a returned item against the sale before taking it back](retail/return_item_check) | GLM-OCR, Qwen3.8-27B-FP8 | 15 | 31 s |
-| [Route customer emails to the right team](retail/customer_email_routing) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
+| [Check a shelf from one photo: in stock, right product, right price](retail/check_shelf_stock) | grounding-dino-base, GLM-OCR, Qwen3.8-27B-FP8 | 43 | 43 s |
+| [Check a returned item against the sale before taking it back](retail/check_returned_item) | GLM-OCR, Qwen3.8-27B-FP8 | 15 | 31 s |
+| [Route customer emails to the right team](retail/route_customer_emails) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 2 s |
 
 ### Manufacturing
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Draft the work-order completion form from a technician's notes](manufacturing/work_order_closeout) | GLiNER2.5-Decide, gliner2-large-v1 | 14 | 4 s |
-| [Check a steel delivery against its purchase order and mill certificates](manufacturing/inspection_reports) | LightOnOCR-3-4B, gliner2-large-v1 | 52 | 3 min |
-| [Answer maintenance questions from the equipment manual](manufacturing/equipment_manual_qa) | tomoro-colqwen3-embed-4b:compact, Qwen3.8-27B-FP8 | 31 | 50 s |
-| [Check every bolt is there in inspection photos](manufacturing/inspection_photos) | sam3 | 9 | 6 s |
+| [Draft the work-order completion form from a technician's notes](manufacturing/close_out_work_order) | GLiNER2.5-Decide, gliner2-large-v1 | 14 | 4 s |
+| [Check a steel delivery against its purchase order and mill certificates](manufacturing/check_steel_delivery) | LightOnOCR-3-4B, gliner2-large-v1 | 52 | 3 min |
+| [Answer maintenance questions from the equipment manual](manufacturing/answer_from_equipment_manual) | tomoro-colqwen3-embed-4b:compact, Qwen3.8-27B-FP8 | 31 | 50 s |
+| [Check every bolt is there in inspection photos](manufacturing/check_bolts_in_photos) | sam3 | 9 | 6 s |
 
 ### Security
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Triage reported phishing and pull IOCs](security/phishing_triage) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 1 s |
-| [Screen prompts to your security copilot](security/copilot_prompt_screening) | Qwen3Guard-Gen-4B, LightOnOCR-3-4B | 15 | 10 s |
+| [Triage reported phishing and pull IOCs](security/triage_phishing_reports) | GLiNER2.5-Decide, gliner2-large-v1 | 2 | 1 s |
+| [Screen prompts to your security copilot](security/screen_copilot_prompts) | Qwen3Guard-Gen-4B, LightOnOCR-3-4B | 15 | 10 s |
 | [Tag actors, malware and tools in threat reports](security/threat_report_tagging) | NuNER_Zero | 1 | 1 s |
 | [Map how threats relate across reports](security/threat_relations) | gliner-relex-large-v1.0 | 1 | 1 s |
 

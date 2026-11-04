@@ -6,7 +6,7 @@ body:
     id: recipe
     attributes:
       label: Recipe folder
-      placeholder: security/copilot_prompt_screening
+      placeholder: security/screen_copilot_prompts
     validations:
       required: true
   - type: dropdown

@@ -1,10 +1,9 @@
 [project]
-name = "sie-shelf-inventory-check"
+name = "sie-close-out-work-order"
 version = "0.1.0"
-description = "Check each shelf tag in one photo: is its product there, the right one, at the catalog price?"
+description = "Draft the CMMS work-order completion form from a technician's notes."
 requires-python = ">=3.12"
 dependencies = [
-    "pillow>=12.3.0,<13",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
     "sie-sdk>=0.10.1",

@@ -1,11 +1,12 @@
 [project]
-name = "sie-inspection-photos"
+name = "sie-answer-from-equipment-manual"
 version = "0.1.0"
-description = "Count the bolts in inspection photos and flag assemblies with bolts missing."
+description = "Answer maintenance questions from the equipment manual, diagrams included, with a checked page quote."
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2",
     "pillow>=12.3.0,<13",
+    "pypdfium2>=5.14.0",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
     "sie-sdk>=0.10.1",
