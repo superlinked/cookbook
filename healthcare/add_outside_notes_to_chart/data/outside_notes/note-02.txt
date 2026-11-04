@@ -1,0 +1,17 @@
+HARROW CREEK MEDICAL GROUP
+Office visit note. Visit date: 09/02/2026. Clinician: Inez Calloway, NP.
+Printed for a records request.
+Patient: Rowan Petrakis   DOB: 11/03/1979
+Chief complaint: Tiredness, thyroid recheck.
+HPI: 46-year-old man with hypothyroidism, diagnosed last year. Reports mild fatigue. Also has
+heartburn after meals most days, better with omeprazole.
+Allergies: NKDA.
+Medications:
+- Levothyroxine 50 mg PO daily before breakfast
+- Omeprazole 20 mg PO daily
+Vitals: BP 122/80, HR 64, Temp 98.1 F, RR 12, SpO2 99%, Weight 79 kg.
+Exam: Thyroid not enlarged. Abdomen soft, non-tender.
+Assessment and plan:
+1. Hypothyroidism. TSH today. Continue levothyroxine.
+2. Gastroesophageal reflux disease without esophagitis. Continue omeprazole.
+Follow-up: 6 weeks after TSH result.

@@ -1,0 +1,5 @@
+note_id,patient_id,note_type,note_date,file
+N-70114,P-1001,discharge_summary,2026-09-08,notes/01-discharge-summary.txt
+N-70388,P-1001,referral_letter,2026-09-22,notes/02-referral-letter.txt
+N-70951,P-1002,home_nursing_note,2026-10-02,notes/03-home-nursing-note.txt
+N-71002,P-1001,outside_lab_result,2026-10-02,notes/04-lab-fax.txt

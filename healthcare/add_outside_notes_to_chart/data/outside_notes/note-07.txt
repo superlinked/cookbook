@@ -1,0 +1,16 @@
+BELLWETHER INTERNAL MEDICINE
+Office visit note. Visit date: 10/01/2026. Clinician: Teodor Vash, MD.
+Printed for a records request.
+Patient: Lucan Merriweather   DOB: 12/01/1975
+Chief complaint: Left heel pain.
+HPI: 50-year-old man with sharp pain in the left heel, worst with the first steps in the morning,
+for six weeks. Started walking for weight loss this summer.
+Allergies: No known drug allergies.
+Medications:
+- Ibuprofen 400 mg PO every 8 hours as needed for pain
+Vitals: BP 130/84, HR 74, Temp 98.6 F, RR 14, SpO2 98%, Weight 104 kg, BMI 32.4.
+Exam: Tender at the medial calcaneal tubercle of the left foot. Normal ankle range of motion.
+Assessment and plan:
+1. Plantar fasciitis, left foot. Stretching, supportive shoes, ice. Ibuprofen as needed.
+2. Obesity. Discussed diet and a walking plan.
+Follow-up: Return in 6 weeks.

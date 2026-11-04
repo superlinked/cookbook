@@ -1,0 +1,25 @@
+# An approved data request, as the privacy office's request system hands it to the honest broker.
+# Everything here is fictional.
+request_id: QI-2026-031
+title: What happens in the weeks after discharge
+requester: Transitions of Care quality-improvement team
+approval:
+  reference: PO-2026-118
+  approved_by: privacy office
+  # How the privacy office says this release is covered. The recipe copies it into the manifest
+  # and decides nothing from it.
+  route: expert determination
+# EHR patient IDs from the cohort query in the data warehouse.
+cohort: [P-1001, P-1002]
+note_types: [discharge_summary, referral_letter, home_nursing_note, outside_lab_result]
+# Note dates, inclusive.
+date_window: {start: 2026-09-01, end: 2026-10-31}
+# What the release may keep.
+#   dates: shift (each patient's dates move by one offset drawn for this request) or remove
+#   zip: three_digits (000 for a restricted three-digit area) or remove
+#   ages_over_89: group_90_plus or remove
+# A date of birth is always removed.
+release:
+  dates: shift
+  zip: three_digits
+  ages_over_89: group_90_plus

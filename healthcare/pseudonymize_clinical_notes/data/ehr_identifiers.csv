@@ -1,0 +1,4 @@
+patient_id,kind,value
+P-1002,alias,Bart Quill
+P-1002,health_plan_member_id,QHP-77310-4428-01
+P-1003,health_plan_member_id,NEH-20418-7713

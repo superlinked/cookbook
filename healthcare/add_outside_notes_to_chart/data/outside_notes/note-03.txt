@@ -1,0 +1,17 @@
+HARROW CREEK MEDICAL GROUP
+Office visit note. Visit date: 09/09/2026. Clinician: Teodor Vash, MD.
+Printed for a records request.
+Patient: Delphine Okonkwo-Hale   DOB: 07/30/1957
+Chief complaint: Blood pressure check.
+HPI: 69-year-old woman with hypertension and high cholesterol. Home readings in the 160s systolic
+for two weeks. No chest pain, no headache, no shortness of breath.
+Allergies: No known drug allergies.
+Medications:
+- Amlodipine 10 mg PO once daily (increased today)
+- Atorvastatin 40 mg PO at bedtime
+Vitals: BP 168/102, HR 720, Temp 98.9 F, RR 16, SpO2 97%, Weight 70 kg.
+Exam: Heart regular. No edema.
+Assessment and plan:
+1. Essential hypertension, not at goal. Amlodipine increased to 10 mg daily.
+2. Hyperlipidemia. Continue atorvastatin.
+Follow-up: Nurse blood pressure check in 2 weeks.

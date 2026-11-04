@@ -1,0 +1,17 @@
+ST. BRANNOC REGIONAL MEDICAL CENTER
+Discharge Summary
+
+Patient: Teodora Vance
+MRN: 00482913
+DOB: 04/22/1959
+Address: 27 Quillfeather Lane, Harrowgate, MA 02134
+Phone: (508) 555-0187
+Admitted: 09/03/2026
+Discharged: 09/08/2026
+Attending: Dr. Selwyn Achebe
+
+Teodora Vance is a 67-year-old retired dispatcher for Corrimore Freight who was admitted on 09/03/2026 with community-acquired pneumonia. History includes Hashimoto's thyroiditis on levothyroxine 75 mcg daily, and hypertension since 2019.
+
+She improved on IV ceftriaxone and was switched to oral amoxicillin-clavulanate on September 6, 2026. A chest X-ray on 2026-09-07 showed partial clearing. Morning BP 98/64 on the day of discharge, so lisinopril was reduced: take 1/2 tablet daily until follow-up. She was discharged home on 09/08/2026 with her daughter, Ines Vance (phone 508-555-0164), who will stay with her for the first week.
+
+Follow-up: pulmonary clinic with Dr. Selwyn Achebe on 2026-09-22. Repeat chest X-ray in six weeks.

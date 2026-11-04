@@ -1,0 +1,17 @@
+BELLWETHER INTERNAL MEDICINE
+Office visit note. Visit date: 08/27/2026. Clinician: Inez Calloway, NP.
+Printed for a records request.
+Patient: Priya Halvorsen   DOB: 05/18/2004
+Chief complaint: Wheezing with exercise and spring allergies.
+HPI: 22-year-old woman with wheeze when running, about twice a month. No night symptoms. Sneezing
+and itchy eyes each spring.
+Allergies: Sulfa drugs (rash).
+Medications:
+- Albuterol inhaler as needed for wheeze
+- Cetirizine 10 mg PO daily
+Vitals: BP 110/70, HR 70, Temp 98.0 F, RR 14, SpO2 99%, Weight 58 kg.
+Exam: Lungs clear today. Nasal turbinates pale and swollen.
+Assessment and plan:
+1. Mild intermittent asthma, uncomplicated. Continue albuterol as needed.
+2. Allergic rhinitis due to pollen. Continue cetirizine.
+Follow-up: Return in 6 months or sooner if needed.

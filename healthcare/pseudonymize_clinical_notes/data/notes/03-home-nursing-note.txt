@@ -1,0 +1,14 @@
+St. Brannoc Regional Medical Center
+Home Health Nursing - Telephone Note
+
+Patient: Bartholomew Quill
+MRN: 00517746
+Age: 92
+Address: 6 Tamarack Hollow Road, Pinecliff, NH 03601
+Health plan member ID: QHP-77310-4428-01
+Call date: 10/02/2026
+[Emergency contact: W. Brightwater 603-555-0187]
+
+Mr. Quill is a 92-year-old man followed at home after a hip fracture repair on 08/14/2026. His granddaughter, Willa Brightwater, called to report that he has been more confused since the nurse's visit on 9/29 and has not eaten a full meal for two days. No fever reported. She can be reached at willa.brightwater@example.com or 603-555-0119.
+
+Plan: urinalysis and basic metabolic panel at the next visit, on 10/05/2026. Dr. Selwyn Achebe was informed and agreed with the plan.

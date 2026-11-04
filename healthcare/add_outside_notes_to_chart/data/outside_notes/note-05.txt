@@ -1,0 +1,15 @@
+HARROW CREEK MEDICAL GROUP
+Office visit note. Visit date: 10/06/2026. Clinician: Teodor Vash, MD.
+Printed for a records request.
+Patient: Anselm Brightwater   DOB: 09/09/1962
+Chief complaint: Muscle aches on cholesterol medicine.
+HPI: 64-year-old man with hyperlipidemia. Simvastatin 40 mg was stopped on 09/30/2026 because of
+muscle aches, which have since resolved. LDL 162 last month.
+Allergies: No known drug allergies.
+Medications:
+- Atorvastatin 20 mg PO nightly, started today
+Vitals: BP 126/82, HR 68, Temp 98.2 F, RR 14, SpO2 98%, Weight 88 kg.
+Exam: Full strength in all limbs. No muscle tenderness.
+Assessment and plan:
+1. Hyperlipidemia. Start atorvastatin 20 mg nightly. Lipid panel and CK in 8 weeks.
+Follow-up: Return in 8 weeks.

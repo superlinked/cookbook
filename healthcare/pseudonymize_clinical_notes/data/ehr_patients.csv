@@ -1,0 +1,4 @@
+patient_id,name,mrn,dob,street,city,state,zip,phone
+P-1001,Teodora Vance,00482913,1959-04-22,27 Quillfeather Lane,Harrowgate,MA,02134,508-555-0187
+P-1002,Bartholomew Quill,00517746,1934-03-11,6 Tamarack Hollow Road,Pinecliff,NH,03601,603-555-0142
+P-1003,Hollis Merriweather,00993021,1971-11-02,14 Larkspur Court,Easton,MA,02356,508-555-0191

@@ -1,0 +1,16 @@
+HARROW CREEK MEDICAL GROUP
+Office visit note. Visit date: 10/12/2026. Clinician: Teodor Vash, MD.
+Printed for a records request.
+Patient: Tobias Renfrew   DOB: 06/12/1971
+Chief complaint: Dry cough for a month.
+HPI: 55-year-old man with hypertension, on lisinopril for two years. Dry, tickly cough for four
+weeks. No fever, no shortness of breath, no wheeze.
+Allergies: No known drug allergies.
+Medications:
+- Lisinopril 10 mg daily
+Vitals: BP 134/84, HR 70, Temp 98.2 F, RR 14, SpO2 98%, Weight 91 kg.
+Exam: Lungs clear. Throat normal.
+Assessment and plan:
+1. Essential hypertension. Stop lisinopril because of a dry cough. Start losartan 50 mg daily.
+Expect the cough to settle within a month.
+Follow-up: Blood pressure and potassium check in 2 weeks.

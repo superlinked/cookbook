@@ -57,6 +57,15 @@ recipe's SIE requests (one request can carry many items).
 | [Redact documents to the agreed rules and log every redaction](legal/redact_documents_with_log) | pii-redact | 6 | 2 s |
 | [Check citations against the documents they cite](legal/check_citations_against_sources) | Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 22 | 19 s |
 
+### Healthcare
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Turn a faxed referral into a draft intake record](healthcare/process_faxed_referrals) | LightOnOCR-3-4B, gliner2-large-v1 | 48 | 68 s |
+| [Add outside visit notes to your chart, marked new, matching or different](healthcare/add_outside_notes_to_chart) | gliner2-large-v1, Qwen3-Reranker-4B | 48 | 16 s |
+| [Pseudonymize clinical notes and log every replacement](healthcare/pseudonymize_clinical_notes) | pii-redact | 4 | 1 s |
+| [Search clinical guidance and put the passage that answers first](healthcare/search_clinical_guidance) | Qwen3-Reranker-4B | 16 | 6 s |
+
 ### Insurance
 
 | Recipe | Models | SIE calls | Run time |
