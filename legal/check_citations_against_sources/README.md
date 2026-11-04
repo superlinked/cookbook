@@ -112,7 +112,7 @@ Here are three of the citations in `data/draft_brief.docx`, and what should happ
   a legitimate business interest such as customer goodwill or confidential information." Ardley, 214
   Westm. 2d at 381.
 - **What should happen:** The case says "necessary", not "reasonably necessary", so the draft's
-  quoted words check fails even though the passage is on point.
+  quoted words aren't in the case, even though the passage is on point.
 - **Expected outcome:** `check_citation`: quoted words not in the authority, with the closest
   passage shown.
 
@@ -121,10 +121,11 @@ Here are three of the citations in `data/draft_brief.docx`, and what should happ
   a restriction of up to three years. Pell v. Drayton Insurance Agency, 141 Westm. App. 90, 97
   (2008).
 - **What should happen:** Only Judge Varga's dissent says three years. The reranker and the model
-  may both like that paragraph; the part check in Python should refuse it.
+  may both like that paragraph, so Python checks which part of the case it's from and should refuse
+  it.
 - **Expected outcome:** `check_citation`: support only in the dissent.
 
-On the live run, 9 of 9 planted cases came out as expected; [What came out](#what-came-out) has each
+On the live run, 9 of 9 citations came out as expected. [What came out](#what-came-out) has every
 one.
 
 ## How we'll solve it
@@ -267,8 +268,8 @@ ellipsis in and out of order, a word inside a longer word, words only the facts 
 quotes in one sentence; a dozen bad answers (a stitched quote, the right words from the wrong
 passage, a quote starting mid-word, a passage it wasn't shown, a short quote, "not supported" with a quote, support from the
 dissent, the facts or a history note); an injected instruction the stand-in obeys; the prompt's
-injection line and that no part label reaches the model; a threshold nobody clears; the planted
-flow end to end; the SIE failure rule with a transient error, a refusal, every call failing,
+injection line and that no part label reaches the model; a threshold nobody clears; the sample
+draft end to end; the SIE failure rule with a transient error, a refusal, every call failing,
 replies missing their key, a NaN score and a duplicated score; formula cells and pipes; and that
 [`make_data.py`](./make_data.py) rebuilds the draft byte for byte.
 
@@ -295,19 +296,42 @@ already warm, took 19 s.
 
 ### The three examples
 
-1. **Ardley, exact quote:** `support_found`, P3 (majority) at 0.9999. As expected.
-2. **Ardley, one word changed:** `check_citation`. The model said P3 supports the sentence, and
-   `check_draft_quotes` flagged the draft's quote and showed the closest words: "and necessary to
-   protect a legitimate business interest such as customer goodwill or confidential information." As
-   expected.
-3. **Pell, dissent cited as the holding:** `check_citation`, "The only support the model found is in
-   the dissent (P6), not the majority opinion or the statute's text." The model did read the dissent
-   as support; the part check caught it. As expected.
+**1. An exact quote.**
+- **Expected outcome:** `support_found`, from a majority paragraph.
+- **What came back:** `support_found`, P3 (majority) at 0.9999.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. One word changed.**
+- **Expected outcome:** `check_citation`: quoted words not in the authority, with the closest
+  passage shown.
+- **What came back:** `check_citation`. The model said P3 supports the sentence, and
+  `check_draft_quotes` flagged the draft's quote and showed the closest words: "and necessary to
+  protect a legitimate business interest such as customer goodwill or confidential information."
+- **Verdict:** Pass. Python caught the changed word; the model was happy with the passage.
 
-On the live run on 2026-11-04 (UTC), 9 of 9 planted cases came out as expected (the table below).
+**3. A dissent cited as the holding.**
+- **Expected outcome:** `check_citation`: support only in the dissent.
+- **What came back:** `check_citation`, "The only support the model found is in the dissent (P6),
+  not the majority opinion or the statute's text."
+- **Verdict:** Pass. It was closer than it looks. The model did read the dissent as support, and
+  the majority paragraph that answers it (P4, 0.3569) scored under `min_score` 0.5, so the model
+  never saw it. Only the part check caught this one.
+
+### Every example
+
+On the live run on 2026-11-04 (UTC), 9 of 9 citations came out as expected (the table below).
 The draft's 3 ordinary statute citations also came out `support_found`.
+
+**Where it works:** the mistakes that read fine on a quick pass. It caught one changed word in a quote
+(row 4), a sentence the case says the opposite of (row 6), a dissent cited as the holding (row 5),
+an overruled case and a superseded statute (rows 9 and 10), and another state's case cited with no
+signal (row 8), and it let the same kind of case through when the draft says so (row 7).
+
+**Where it fails:** the one to worry about is the threshold, which can keep the contrary passage away
+from the model, as it did for Pell's P4 (row 5). That row came out right only because of the part
+check. A citation it can't look up (row 12) gets no check at all, and the cite checker does it by
+hand. It doesn't test citation format, page pin cites or anything in the brief that isn't a
+citation, and `support_found` means the checks passed, not that the argument is good.
 
 The input is one draft and the matter's files, in [`data/`](./data):
 
@@ -325,7 +349,7 @@ The input is one draft and the matter's files, in [`data/`](./data):
 > **All of it is fictional:** the states of Westmark and Ardena, the courts, parties, citations,
 > statutes, the firm and the draft. No real case or statute is quoted or summarized.
 
-| # | Citation | What we planted | Expected | Came out | Why |
+| # | Citation | What's in it | Expected | Came out | Why |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Ardley (A01), exact quote | The reasonableness rule, quoted word for word | `support_found` | `support_found`, P3 (majority) at 0.9999 | The plain case |
 | 4 | Ardley, one word changed | "reasonably necessary" where the case says "necessary" | `check_citation`: quoted words not in the authority, closest passage shown | `check_citation`, closest words in P3 (majority) shown | A near miss that a search for the quote misses entirely |
@@ -340,8 +364,9 @@ The input is one draft and the matter's files, in [`data/`](./data):
 The other three rows (the Noncompetition Covenants Act, the Trade Secrets Act and the Wage Payment
 Act, rows 2, 3 and 11) are ordinary support and came out `support_found`. With the settings in
 `rules.yaml` the run gave 5 `support_found`, 6 `check_citation`, 1 `not_in_folder`, 22 SIE calls.
-Treat that as a demo that the wiring works, not as a measure of accuracy. One draft with tidy plants
-tells you each path through the recipe runs, not how often a real brief gets checked right.
+Treat that as a demo that the wiring works, not as a measure of accuracy. One draft with tidy
+problems we wrote ourselves tells you each path through the recipe runs, not how often a real brief
+gets checked right.
 
 A few things worth noticing:
 

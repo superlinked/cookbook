@@ -99,33 +99,36 @@ approved for claim data.
 ### Examples
 
 The committed claim, CLM-2026-004417, has five documents in `data/documents/`. Here are three
-of the things planted in them, and what should happen to each.
+of the things we wrote into them, and what should happen to each.
 
-**1. A promise the new adjuster has to keep.**
-- **Input:** `04-claim-note.txt` (D4): "Told Ilona the plumber's emergency call-out ($385.00,
-  Cascade Rooter & Plumbing, paid on Tibor's card) will be reimbursed, and that the contents
-  adjuster will call her by October 16 to set up the contents inventory."
-- **What should happen:** both promises land under what the insurer told or promised the
-  insured, each quoting D4, and the quote check finds the words in the file.
-- **Expected outcome:** both listed under promises; the claim comes out `summary_checked`.
-
-**2. A bank account in an email.**
+**1. A bank account in an email.** D3.
 - **Input:** `03-insured-email.txt` (D3): "For the direct deposit please use our joint account
   at Cedar Ridge Credit Union, account number 0081 4472 9310." (The number is made up for this
   example.)
-- **What should happen:** the account rule and the PII model mask it before the LLM reads the
-  email, so it can't reach the summary; if it did, the final sweep would block the summary.
+- **What should happen:** a pattern rule and a model that spots personal numbers both hide it
+  before the LLM reads the email, so it can't reach the summary. If it ever did, a last check over
+  the summary would block it.
 - **Expected outcome:** masked to `XXXX XXXX 9310`, nowhere in the summary.
 
-**3. A health reason, without the diagnosis.**
-- **Input:** D4 again: "The reason is Tibor's asthma: the dust and the dehumidifiers have set it
-  off twice this week. Approved a hotel stay under Coverage D."
+**2. A health reason, without the diagnosis.** D4.
+- **Input:** `04-claim-note.txt` (D4): "The reason is Tibor's asthma: the dust and the dehumidifiers
+  have set it off twice this week. Approved a hotel stay under Coverage D."
 - **What should happen:** the summary says a health reason was given for the hotel and never
   names the condition; a line that does goes to review with its text withheld.
 - **Expected outcome:** a line that says "a health reason", with a quote that doesn't name it.
 
-On the live run, 8 of 9 planted cases came out as expected (a tenth is checked only in the
-selfcheck); [What came out](#what-came-out) has each one.
+**3. A promise the new adjuster has to keep.** D4.
+- **Input:** D4 again: "Told Ilona the plumber's emergency call-out ($385.00, Cascade Rooter &
+  Plumbing, paid on Tibor's card) will be reimbursed, and that the contents adjuster will call her
+  by October 16 to set up the contents inventory." The claim record has no payment to the plumber.
+- **What should happen:** both promises land under what the insurer told or promised the insured,
+  each quoting D4, and we check those words are in the file. The plumber is owed and unpaid, so
+  that one should show as open too.
+- **Expected outcome:** both listed under promises, the plumber also under open items; the claim
+  comes out `summary_checked`.
+
+On the live run, 8 of 9 cases came out as expected (a tenth is checked only in the selfcheck).
+[What came out](#what-came-out) has every one.
 
 ## How we'll solve it
 
@@ -290,20 +293,42 @@ models. A warm run makes 6 SIE calls (5 to `superlinked/pii-redact`, one per doc
 
 ### The three examples
 
-- **The promise:** the plumber reimbursement and the contents adjuster's call by October 16 are
-  both listed under promises, quoting D4. As expected, though the model left them out of the
-  open items (see below).
-- **The bank account:** masked to `XXXX XXXX 9310` before the model read it, found by both the
-  rule and the PII model, and not in the summary. As expected.
-- **The health reason:** "A hotel stay was approved for the insureds under Coverage D due to a
-  health reason.", quoting a sentence that doesn't name it. As expected.
+**1. A bank account in an email.** D3.
+- **Expected outcome:** masked to `XXXX XXXX 9310`, nowhere in the summary.
+- **What came back:** masked to `XXXX XXXX 9310` before the model read it, found by both the rule
+  and the PII model, and not in the summary.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A health reason, without the diagnosis.** D4.
+- **Expected outcome:** a line that says "a health reason", with a quote that doesn't name it.
+- **What came back:** "A hotel stay was approved for the insureds under Coverage D due to a health
+  reason.", quoting a sentence that doesn't name it.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026 (UTC), 8 of the 9 planted cases the run covers came out as
+**3. A promise the new adjuster has to keep.** D4.
+- **Expected outcome:** both listed under promises, the plumber also under open items; the claim
+  comes out `summary_checked`.
+- **What came back:** both listed under promises, quoting D4, and neither under open items. The
+  claim came out `summary_checked`.
+- **Verdict:** Miss. Nothing checks that a promise with no matching payment also appears as open, so
+  the status didn't change. The new adjuster still sees the promise, just in one section instead of
+  two.
+
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 8 of the 9 cases the run covers came out as
 expected; the tenth row in the table, the wrong reserve, is a stand-in reply in the selfcheck
-only. The one that didn't is the plumber reimbursement, which was planted as promised and open
-and came out as promised only.
+only. The one that didn't is the plumber reimbursement, which we wrote to come out as promised and
+open, and it came out as promised only.
+
+**Where it works:** on the numbers and on what stays readable: the account number, the SSN and the mistyped
+card are all masked, the vendor's job ticket and the names stay, the unanswered question is listed
+as open, and the health reason doesn't name the condition.
+
+**Where it fails:** on the plumber reimbursement,
+promised and not paid, which came out as promised but not open. That's the one to worry about,
+because no check looks for it and the status stays `summary_checked`. And this is one claim, so it
+tells you the checks run, not how often the summaries are right.
 
 The input is the claim in [`data/`](./data):
 
@@ -328,7 +353,7 @@ The input is the claim in [`data/`](./data):
 One claim, the Varga water loss. Here's what our live run on 4 Nov 2026 (UTC) gave. The claim
 came out `summary_checked`:
 
-| Case | What we planted | Came out | Why |
+| Case | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | Bank account | Tibor's email gives the credit union account number for the direct deposit | Masked to `XXXX XXXX 9310` before the model read it, found by both the rule and the PII model; not in the summary | The most common way an account number ends up in a file note |
 | SSN | "You asked for my SSN for the 1099: ..." | Replaced with "SSN on file"; the summary lists no open SSN request | The adjuster needs to know it arrived, not what it is |

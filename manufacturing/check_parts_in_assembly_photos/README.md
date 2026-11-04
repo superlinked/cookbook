@@ -96,27 +96,27 @@ The model never closes a ticket on its own.
 Here are three of the ten photos in `data/inspection-photos.jpg`, and what should happen to each.
 
 **1. A complete flange.** FL-101.
-- **Input:** `FL-101,WO-4101,pipe_flange_8,...`, a drawn 8-bolt flange with all 8 bolts fitted.
-- **What should happen:** the photo passes the sharpness and brightness check, the detector finds
-  the flange and 8 sure bolts on it, and no empty hole.
+- **Input:** a drawn photo of an 8-bolt flange (`pipe_flange_8`, work order WO-4101) with all 8
+  bolts fitted.
+- **What should happen:** the photo is sharp and bright enough to read, and a model finds the
+  flange, 8 bolts on it that it's sure about, and no empty hole.
 - **Expected outcome:** `all_bolts_seen`, 8 of 8.
 
 **2. One bolt missing.** FL-102.
-- **Input:** `FL-102,WO-4102,pipe_flange_8,...`, the same flange with 1 bolt missing and its
-  hole empty.
+- **Input:** the same flange (work order WO-4102) with 1 bolt missing and its hole empty.
 - **What should happen:** the count comes up one short, and one empty hole is seen to prove it.
 - **Expected outcome:** `defect`, with the clock position of the empty hole.
 
 **3. A loose bolt lying over the empty hole.** FL-107.
-- **Input:** `FL-107,WO-4107,pipe_flange_8,...`, 1 bolt missing, with a loose bolt lying on the
-  flange across the empty hole.
-- **What should happen:** the count looks complete (8 bolts), but a sure bolt and a sure hole sit
-  on the same spot, so the recipe calls it a conflict and sends it to a person instead of letting
-  the higher score win.
+- **Input:** the same flange (work order WO-4107) with 1 bolt missing and a loose bolt lying on
+  the flange across the empty hole.
+- **What should happen:** the count looks complete (8 bolts), but the model is sure about both a
+  bolt and a hole on the same spot, so the recipe calls it a conflict and sends it to a person
+  instead of letting the higher score win.
 - **Expected outcome:** `inspector`, with the conflict's position.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 10 of 10 photos came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -277,17 +277,39 @@ This is from the live run on 2026-11-03 (UTC), `runs/20261103T142629Z`.
 
 ### The three examples
 
-- **FL-101:** `all_bolts_seen`, 8 of 8 bolts on the part, no empty hole. As expected.
-- **FL-102:** `defect`, hole at 6 o'clock: one empty hole (0.90) for the one missing bolt. An
-  unsure bolt (0.33) on it was dropped. As expected.
-- **FL-107:** `inspector`, conflict at 8 o'clock: the loose bolt (0.81) and the hole under it
-  (0.79) on the same spot. As expected.
+**1. A complete flange.** FL-101.
+- **Expected outcome:** `all_bolts_seen`, 8 of 8.
+- **What came back:** `all_bolts_seen`, 8 of 8 bolts on the part, no empty hole.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. One bolt missing.** FL-102.
+- **Expected outcome:** `defect`, with the clock position of the empty hole.
+- **What came back:** `defect`, hole at 6 o'clock: one empty hole (0.90) for the one missing bolt.
+  An unsure bolt (0.33) on it was dropped.
+- **Verdict:** Pass.
 
-On the live run on 3 Nov 2026, 10 of 10 planted cases came out as expected.
+**3. A loose bolt lying over the empty hole.** FL-107.
+- **Expected outcome:** `inspector`, with the conflict's position.
+- **What came back:** `inspector`, conflict at 8 o'clock: the loose bolt (0.81) and the hole under
+  it (0.79) on the same spot.
+- **Verdict:** Pass. This catch depends on SAM 3 seeing the hole. If the loose bolt had covered the
+  hole entirely, there'd be no hole box and this flange would count 8 and pass.
 
-| Photo | Assembly | What we planted | Status | Why |
+### Every example
+
+On the live run on 3 Nov 2026, 10 of 10 photos came out as expected.
+
+**Where it works:** It passed complete assemblies (FL-101, CV-201), found missing bolts when the
+empty hole was there to see (FL-102, FL-103, CV-202), ignored a spare bolt on the bench (FL-104),
+and sent a bad photo and a covered position to the inspector (FL-105, FL-106).
+
+**Where it fails:** This run didn't test real photos: these ten are drawn, and real ones have glare,
+rust and paint. The limit to worry about is FL-107: the conflict rule only catches what SAM 3 sees,
+so a loose bolt that covers its hole entirely would count as fitted and pass. The cost on the other
+side is FL-108, a complete flange that goes to a person anyway. If your line uses socket-head screws
+everywhere, every photo lands in that queue.
+
+| Photo | Assembly | What we drew | Status | Why |
 | --- | --- | --- | --- | --- |
 | FL-101 | 8-bolt flange | complete | `all_bolts_seen` | 8 of 8 bolts on the part, no empty hole |
 | FL-102 | 8-bolt flange | 1 bolt missing | `defect`, hole at 6 o'clock | one empty hole (0.90) for the one missing bolt; an unsure bolt (0.33) on it was dropped |
@@ -389,7 +411,7 @@ at a time, changed nothing else, and ran the recipe on SIE Cloud on all 10 photo
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `detect` | `IDEA-Research/grounding-dino-base` | Every photo went to the inspector: 0 `all_bolts_seen`, 0 `defect`, so all 4 planted missing-bolt photos (FL-102, FL-103, FL-107, CV-202) were missed. It found no `flange` box on 7 of the 8 flange photos it read (one at 0.32 on FL-106) and gave bolts 0.25 to 0.41, under `bolt_sure` 0.60. It did find the `metal plate` (0.76 and 0.73) |
+| `detect` | `IDEA-Research/grounding-dino-base` | Every photo went to the inspector: 0 `all_bolts_seen`, 0 `defect`, so all 4 photos we drew with bolts missing (FL-102, FL-103, FL-107, CV-202) were missed. It found no `flange` box on 7 of the 8 flange photos it read (one at 0.32 on FL-106) and gave bolts 0.25 to 0.41, under `bolt_sure` 0.60. It did find the `metal plate` (0.76 and 0.73) |
 | `detect` | `google/owlv2-base-patch16-ensemble` | Returned almost nothing: no part box in any photo and at most 2 hole boxes, so all 9 photos it read went to the inspector |
 
 The output shape is the same (`objects` with label, score and `[x, y, w, h]` box), so both run
@@ -419,9 +441,9 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 
 - `recipe.py`: the pipeline
 - `selfcheck.py`: plain asserts on the rules and the SIE failure handling, no SIE call
-- `make_data.py`: draws the planted photos (`uv run make_data.py`)
+- `make_data.py`: draws the photos (`uv run make_data.py`)
 - `rules.yaml`: the model, prompts, assemblies, photo-quality limits and thresholds
-- `data/inspection-photos.jpg`, `data/photos.csv`: the 10 planted photos and their work orders
+- `data/inspection-photos.jpg`, `data/photos.csv`: the 10 photos and their work orders
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
 See the SIE task page for [object detection](https://superlinked.com/detect?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=manufacturing-check-parts-in-assembly-photos).

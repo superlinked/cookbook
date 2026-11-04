@@ -62,13 +62,15 @@ The first call can wait minutes while SIE Cloud starts a cold model.
   difference; do not tune rules to hide it.
 - Write READMEs in plain words, like a blog post from an engineer to a peer,
   in this order: background (who does this job and why it matters to the
-  company), the problem (ending with `### Examples`: two or three planted
-  inputs and what should happen to each), how the flow solves it, why each model,
-  the flow as a Mermaid chart, how it's built (rules vs code, a step table
-  naming the functions), how to run it, what came out (`### The three
-  examples` as they actually came out, `### Every planted case` with "N of M
-  planted cases came out as expected" on the live run and the table, and
-  `### What you do next`), and potential improvements. Every README also has
+  company), the problem (ending with `### Examples`: two or three inputs from
+  `data/` and what should happen to each), how the flow solves it, why each
+  model, the flow as a Mermaid chart, how it's built (rules vs code, a step
+  table naming the functions), how to run it, what came out (`### The three
+  examples` in the same shape as `### Examples`, ending each one with a `Pass.`
+  or `Miss.` verdict, then `### Every example` with "N of M emails came out as
+  expected" on the live run, using the recipe's own noun for emails, then
+  `**Where it works:**` and `**Where it fails:**`, then the table, and `### What you do next`), and
+  potential improvements. At least one example shows a limit or a trade-off. Every README also has
   `## Try another model` (swaps you actually ran, with what changed) and
   `## Run it on your own SIE` (the SIE image for each model);
   `tools/check_tree.py` fails without them.

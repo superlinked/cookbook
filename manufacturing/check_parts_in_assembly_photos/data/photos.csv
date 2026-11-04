@@ -1,4 +1,4 @@
-photo,work_order,assembly,x,y,width,height,planted
+photo,work_order,assembly,x,y,width,height,drawn
 FL-101,WO-4101,pipe_flange_8,0,0,640,640,complete: 8 of 8 bolts
 FL-102,WO-4102,pipe_flange_8,640,0,640,640,1 bolt missing
 FL-103,WO-4103,pipe_flange_8,1280,0,640,640,2 bolts missing

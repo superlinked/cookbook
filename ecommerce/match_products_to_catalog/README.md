@@ -83,26 +83,27 @@ Here are three of the supplier records in `data/supplier_feed.csv`, and what sho
 **1. A size variant.** L03 against PIM product L02
 - **Input:** "AmazonBasics MFi-Certified Lightning to USB A Cable for Apple iPhone and iPad - 10
   Feet (3 Meters) - Black", no GTIN or model number; L02 is the same cable at "6 Feet".
-- **What should happen:** no identifier settles it, so the titles and photos are compared, and
-  the size rule sees 10 feet vs 6 feet on the same brand and product line.
-- **Expected outcome:** `likely_variant`, a new child under PL-LTG-CABLE.
+- **What should happen:** no barcode or model number settles it, so the titles and photos get
+  compared. 10 feet vs 6 feet on the same brand and product line makes it a size variant.
+- **Expected outcome:** `likely_variant`, a new child under the same parent, PL-LTG-CABLE.
 
-**2. A pack count only one side states.** L45 against PIM product L06
-- **Input:** "AmazonBasics Lightning to USB A Cable - MFi Certified iPhone Charger - White,
-  6-Foot", with the 2-pack's photo; L06 is the same cable with "2-Pack" and a pack count of 2.
-- **What should happen:** the pair looks near-identical, but a pack count the supplier doesn't
-  state can't be treated as 1, so the attribute rule should stop it.
-- **Expected outcome:** `review`, pack count unknown.
-
-**3. Leather vs suede, same title.** L30 against PIM product L29
+**2. Leather vs suede, same title.** L30 against PIM product L29
 - **Input:** "Amazon Brand - 206 Collective Women's Madison Ballet Flat, Black, 7 B US", a photo
   of a suede flat; L29 is the leather flat with the same color and size.
-- **What should happen:** the titles agree, so this must not become a confident link; the PIM
-  states leather and the supplier states no material.
+- **What should happen:** the titles agree, but the PIM states leather and the supplier states no
+  material, so this must not become a confident link.
 - **Expected outcome:** `likely_variant` or `review`, never `likely_same_product`.
 
-On the live run, 10 of 14 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+**3. The same sandal, with no material in the supplier's title.** L24 against PIM product L23
+- **Input:** "Amazon Brand - The Fix Women's Bond Studded Block Heel Dress Sandal,Matte Silver
+  Mirror,10 B US", with another photo from the same listing; L23 is the same sandal, and the PIM
+  states leather.
+- **What should happen:** it's the same shoe, so it should be linked to L23 without the steward
+  having to work it out.
+- **Expected outcome:** `likely_same_product`.
+
+On the live run, 10 of 14 cases came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -312,20 +313,41 @@ records came out as 1 `same_identifier`, 3 `likely_same_product`, 8 `likely_vari
 
 ### The three examples
 
-- **L03:** `likely_variant`, a new child under PL-LTG-CABLE, reason "Feet 10 vs 6". As expected.
-- **L45:** `review`, "pack_count: 2 stated by the PIM only", at a combined 0.980. As expected,
-  and without the rule it would have cleared the high threshold.
-- **L30:** `review`, "material: leather stated by the PIM only", before the judge. As expected.
-  On the first run, before we added the material rule, it was linked to L29 as
+**1. A size variant.** L03 against PIM product L02
+- **Expected outcome:** `likely_variant`, a new child under the same parent, PL-LTG-CABLE.
+- **What came back:** `likely_variant`, a new child under PL-LTG-CABLE, reason "Feet 10 vs 6".
+- **Verdict:** Pass.
+
+**2. Leather vs suede, same title.** L30 against PIM product L29
+- **Expected outcome:** `likely_variant` or `review`, never `likely_same_product`.
+- **What came back:** `review`, "material: leather stated by the PIM only", before the judge.
+- **Verdict:** Pass. On the first run, before we added the material rule, it was linked to L29 as
   `likely_same_product` (see below).
 
-### Every planted case
+**3. The same sandal, with no material in the supplier's title.** L24 against PIM product L23
+- **Expected outcome:** `likely_same_product`.
+- **What came back:** `review`, "material: leather stated by the PIM only".
+- **Verdict:** Miss. This is what the rule that catches L30 costs: the supplier's title names no
+  material, so the steward has to check it. On the first run the judge linked it correctly.
 
-On the live run on 4 Nov 2026, 10 of 14 planted cases came out as expected (counting each supplier
+### Every example
+
+On the live run on 4 Nov 2026, 10 of 14 cases came out as expected (counting each supplier
 record on its own, so a table row with two records is two cases); the four that didn't are L08,
 the second-photo shoes L24 and L28, and L01, which went to `review` for another reason.
 
-| Case | What we planted | Spec | Came out | Why |
+**Where it works:** identifiers settle L42 and L44 by rule, size and color variants land
+under the right parent (L03, L05), and near-identical titles that are different products stay apart
+(L10, L19). What one side states and the other doesn't goes to the steward: the plug (L13), the pack
+count (L45) and the material (L30). So does a title and photo that disagree (L43).
+
+**Where it fails:** none of the four misses is a confident wrong link, but three are real matches the
+steward has to make by hand. L24 and L28 are the same shoes as L23 and L27, and L08 is the same
+hammer as L07, which the judge also matched to the 16 oz L09. L01 went to review, as we wanted, for
+another reason. Worry about L24 and L28: they aren't one-offs, because every shoe whose supplier
+names no material goes to review the same way.
+
+| Case | What's in it | Should come out | Came out | Why |
 | --- | --- | --- | --- | --- |
 | Shared identifier | L41-L42, the same ballet flat with one model number on both records | `same_identifier`, no model call | `same_identifier`, link to L41 | "Same model number as L41." L42 was never embedded |
 | Same product, nothing shared | L07-L08, the same hickory hammer under two different titles and photos | `likely_same_product` | **`review`** | The judge called L08 the same product as the 20 oz L07 and the 16 oz L09, so the chain check sent both matches to review |
@@ -339,12 +361,12 @@ the second-photo shoes L24 and L28, and L01, which went to `review` for another 
 | Same look, different model number | L44, the same title and photo as L12, model number CHG65-B2 vs CHG65-B1 | `different`, by rule | `different`, create a new product | "Model numbers differ: CHG65-B2 vs CHG65-B1." No model call for that pair |
 | Pack count missing | L45, a white 6-foot cable with no pack count, against the L06 2-pack | `review`: pack count unknown | `review` | "pack_count: 2 stated by the PIM only", at a combined 0.980 |
 
-Two differences from the spec are worth saying up front. The color variant is L02-L05, not
+Two things are worth saying up front. The color variant is L02-L05, not
 L02-L04: the chain case needs L02 and L04 on the same side (both in the PIM), and records on one
 side are never compared. And four cases didn't come out as planned, in bold above or explained
 in the Why column: L08, L24 and L28, and L01's reason.
 
-None of the planted records trips the checks on identifiers, sizes in no shared unit or fields
+None of the records in the table trips the checks on identifiers, sizes in no shared unit or fields
 that can't be read: L42's color and size agree with L41's, and every size in the data shares a
 unit with the size it's compared with. One rule did change the outcome, and you should know
 which. The first live run linked L30 to L29 as `likely_same_product`: a confident wrong link.
@@ -357,7 +379,7 @@ wiring is right, not how often it's wrong.
 
 A few things worth noticing:
 
-- **L08 is the chain check doing its job, on the wrong case.** We planted it as the easy
+- **L08 is the chain check doing its job, on the wrong case.** We meant it to be the easy
   duplicate. The judge agreed, calling it "the AmazonBasics 20 oz hickory handle claw hammer",
   and then agreed again for the 16 oz hammer: "the same AmazonBasics claw hammer with a
   hickory wood handle and identical head shape". It can't be both. Here are the two rows from
@@ -508,12 +530,12 @@ How the records were picked (all in `make_data.py`):
 - Where two listings show the very same main photo of one product, one of them uses another
   photo from its own ABO listing. Otherwise the match would be a pixel match; this way the
   recipe has to recognise it from a second photo (L08, L14, L24, L28, L31).
-- L35 is planted: a re-list of the L34 sofa with the listing's second photo.
+- L35 we added: a re-list of the L34 sofa with the listing's second photo.
 - L40 is assembled: the amazon.com/go tea title with a photo from the amazon.com listing of
   the same ABO item, because the go listing's own photos show a different tea.
 - L43 is left as ABO has it: its title is a black Lightning cable and its photo an HDMI cable.
-- L44 is planted: L12's title and photo with another model number.
-- L45 is planted: a white 6-foot cable title with no pack count, shown with the L06 2-pack photo.
+- L44 we added: L12's title and photo with another model number.
+- L45 we added: a white 6-foot cable title with no pack count, shown with the L06 2-pack photo.
 
 ## Files
 

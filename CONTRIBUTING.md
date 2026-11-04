@@ -22,7 +22,7 @@ uvx pre-commit install          # ruff, file hygiene, actionlint, tree and lock 
    for the rules every recipe follows.
 2. Add a `pyproject.toml` with `[tool.uv] package = false` that lists only what
    the recipe imports, then run `uv lock`.
-3. Run it live: `uv run recipe.py`. Put the planted cases and what came out in
+3. Run it live: `uv run recipe.py`. Put the examples and what came out in
    the README.
 4. Add `## Try another model` with at least one swap you ran, and
    `## Run it on your own SIE` with the image for each model (copy the table

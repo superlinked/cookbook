@@ -94,30 +94,32 @@ Here are three of the inputs in `data/`, and what should happen to each.
 
 - **Input:** `bill-1028-bayview-water-power.png`, a photo of a Bayview Water & Power bill: amount
   due $84.17, due November 12, 2026, with a $5.00 late fee printed on the page.
-- **What should happen:** OCR reads the page, the action type is `pay`, and Python takes the
-  amount from the "amount due" line (not the late fee), checks the bill's summary adds up, and
+- **What should happen:** OCR reads the page, a model reads it as a bill to pay, and Python takes
+  the amount from the "amount due" line (not the late fee), checks the bill's summary adds up, and
   finds the payee in the payee list.
 - **Expected outcome:** `checks_passed`, pay $84.17 to Bayview Water & Power, due Nov 12.
 
-**2. Coffee, sometime.**
-
-- **Input:** msg-07 from Theo Marsh: "let's grab coffee sometime next week to plan the community
-  garden plot."
-- **What should happen:** the date check sees a vague time and refuses to pick a day.
-- **Expected outcome:** `question`: "'next week' is not a date".
-
-**3. A cancellation sitting on top of the original.**
+**2. A cancellation sitting on top of the original.**
 
 - **Input:** msg-15 from Hillcrest PTA: "Sorry, Saturday's book-fair shift is cancelled..." and
   below it, the earlier email: "> Thanks for signing up for the book fair! Your shift is
   Saturday, November 7 at 10 AM..."
 - **What should happen:** Python splits off the earlier email, so its 10 AM is never read as a
-  new booking. The new text is a `change` that has to match the one calendar entry that day.
-- **Expected outcome:** `checks_passed`, a `change` removing the book-fair shift (`cal-06`), and
-  no hold at 10 AM.
+  new booking. The new text cancels something already planned, so it has to match the one calendar
+  entry that day.
+- **Expected outcome:** `checks_passed`, a `change` (an edit to an entry already on the calendar)
+  removing the book-fair shift (`cal-06`), and no hold at 10 AM.
 
-On the live run, 12 of 12 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+**3. A vet appointment nobody has booked yet.**
+
+- **Input:** msg-09, a voice memo to self, with the phone's transcript: "Reminder. Book a vet
+  appointment for Biscuit. His vaccines are due by November 20th."
+- **What should happen:** booking it is a task for Jordan, and the appointment doesn't exist yet.
+  The memo gives no time, so nobody should make one up.
+- **Expected outcome:** a to-do or a `question`, with no time invented.
+
+On the live run, 12 of 12 cases came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -249,7 +251,7 @@ with a short reason, and the run carries on. A refusal every call would repeat (
 credits, a model name SIE doesn't know) stops the run with SIE's full message and writes no
 outputs. If every call failed, the run stops too.
 
-[`selfcheck.py`](./selfcheck.py) runs the whole planted inbox through the real code with
+[`selfcheck.py`](./selfcheck.py) runs the whole sample inbox through the real code with
 hand-written stand-in model replies, then checks the lookups and their near misses, the quoted
 history split, the date, bill and payee rules, the reconcile rules, the SIE error rule and the
 four statuses, offline. It also tries the cases a reviewer would: "2-4 PM", "Monday's practice
@@ -280,18 +282,48 @@ GLiNER2.5-Decide, 13 to gliner2-large-v1, one each to parakeet and LightOnOCR) a
 
 ### The three examples
 
-- **The water bill** came out `checks_passed`: `pay` $84.17 to Bayview Water & Power, due Nov
-  12, with `pay` at 0.84 and the note "Checked: $79.40 - $79.40 + $84.17 = $84.17, the amount
-  due." As expected.
-- **Coffee** came out `question`: "'next week' is not a date". As expected.
-- **The cancellation** came out `checks_passed`, a `change` removing `cal-06` with `"cancel":
-  true`, and no hold at 10 AM. gliner2-large-v1 found no fields at all, so the recipe worked from
-  the sentence itself (the full item is below). As expected.
+**1. The paper water bill.**
 
-### Every planted case
+- **Expected outcome:** `checks_passed`, pay $84.17 to Bayview Water & Power, due Nov 12.
+- **What came back:** `checks_passed`: `pay` $84.17 to Bayview Water & Power, due Nov 12, with `pay`
+  at 0.84 and the note "Checked: $79.40 - $79.40 + $84.17 = $84.17, the amount due."
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026 (UTC), 12 of 12 planted cases came out as expected (13 items from
+**2. A cancellation sitting on top of the original.**
+
+- **Expected outcome:** `checks_passed`, a `change` removing the book-fair shift (`cal-06`), and no
+  hold at 10 AM.
+- **What came back:** `checks_passed`, a `change` removing `cal-06` with `"cancel": true`, and no
+  hold at 10 AM.
+- **Verdict:** Pass. gliner2-large-v1 found no fields at all, so the recipe worked from the sentence
+  itself (the full item is below).
+
+**3. A vet appointment nobody has booked yet.**
+
+- **Expected outcome:** a to-do or a `question`, with no time invented.
+- **What came back:** `question`: "What is the date and time for 'Book a vet appointment'?" The
+  model read it as `schedule` (0.85).
+- **Verdict:** Pass. No time got invented, and here's the trade-off: the model read a task as a
+  booking, so Jordan answers a question about an appointment that doesn't exist yet instead of
+  getting a to-do.
+
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 12 of 12 cases came out as expected (13 items from
 15 messages).
+
+**Where it works:** messages with a date you can work out from the sent time (msg-04, msg-06,
+msg-11), and the ones you'd trip on reading each message alone: a reminder that repeats a
+confirmation (msg-03, msg-10), a second appointment on the same day (msg-14), a moved practice
+(msg-02, msg-13), a cancellation above its original (msg-15). It also refuses to pick a day for a
+vague "next week" (msg-07), and it takes the amount due from the bill, not the late fee (msg-08).
+
+**Where it fails:** nothing missed here, but this run didn't test the limits the recipe knows it
+has. One message gives one action, a hedged "Maybe practice is cancelled" still reads as a
+cancellation, clashes between two new holds aren't checked (msg-03 and msg-14 overlap), and those
+same two get identical titles in `todo.md`. The one to worry about is the `change` description: we
+tuned that sentence until these fifteen messages behaved, so don't trust it on your own inbox
+without trying it there.
 
 The input is [`data/inbox.jsonl`](./data/inbox.jsonl): 15 messages from October 26 to
 November 1, 2026 (emails, texts, one line per memo or photo), each with its sent time and UTC
@@ -306,7 +338,7 @@ Power as paper-billed, no autopay, and Bayview Waste Collection as a near miss o
 > person, business, address and number is invented. The bill photo carries no EXIF or other
 > metadata.
 
-| Case | What we planted | Came out | Why |
+| Case | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | School conference (msg-01) | Email: "Thursday, November 5 at 4:15 PM", already on the calendar | `matches_existing`, calendar `cal-04`, no new hold | The calendar already has it; a duplicate hold is noise |
 | Dentist, two messages (msg-03, msg-10) | Confirmation for Tuesday, November 3 at 10:30 AM, then a reminder text "next Tuesday at 10:30am" | One `schedule` hold, `checks_passed`, both sources | Same who, date and time: one event |
@@ -322,7 +354,7 @@ Power as paper-billed, no autopay, and Bayview Waste Collection as a near miss o
 | Newsletter, delivery (msg-05, msg-12) | Neighborhood news, "Your package was delivered" | `no_action` | Nothing to do, and a delivery time is not an appointment |
 
 The run gave 8 `checks_passed`, 2 `question`, 1 `matches_existing` and 2 `no_action`, from 15
-messages. The vet memo was planted to come out as a to-do or a question, and it came out as the
+messages. We wrote the vet memo to come out as a to-do or a question, and it came out as the
 question. Two warm runs gave the same results. Treat this as a demo that the wiring works, not as a
 measure of accuracy: fifteen messages tell you the rules fire, not how often the models read your
 own inbox right.
@@ -334,8 +366,8 @@ A few things worth noticing:
   confirmations as changes (0.47 and 0.51), most likely because both end with "Call us at
   555-0148 to make changes". The recipe would have asked about both, since a change with nothing
   to change is a question, but that's still two questions about plain bookings. We tried nine
-  wordings, and the one in `rules.yaml` now is the only one that left every planted message clear
-  of both limits: "booked or confirmed" in `schedule`, and `change` as "a message saying a
+  wordings, and the one in `rules.yaml` now is the only one that left every message in the inbox
+  clear of both limits: "booked or confirmed" in `schedule`, and `change` as "a message saying a
   planned event moves to another time or is cancelled". The dentist confirmations now score 0.58
   for `schedule`, and the practice text 0.56 for `change` against 0.27 for `schedule`. Two other
   wordings fixed the dentist and turned the practice text into a question instead. So yes, we
@@ -463,7 +495,7 @@ with one worker pool per image routes each model to its pool. See
   would hide Python's own `calendar` module)
 - `contacts.py`: lookups in the address book, over `data/contacts.csv`
 - `payees.py`: lookups in the banking app's payee list, over `data/payees.csv`
-- `selfcheck.py`: plain asserts on the planted inbox, the lookups, the date, bill and reconcile
+- `selfcheck.py`: plain asserts on the sample inbox, the lookups, the date, bill and reconcile
   rules and the SIE failure rule, no SIE call (`uv run selfcheck.py`)
 - `make_data.py`: the synthetic inbox, seeds, memos and bill
 - `rules.yaml`: models, action types, fields, date rules and thresholds

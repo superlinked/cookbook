@@ -172,7 +172,7 @@ def check_committed_data() -> None:
     rec = record("INC-0103")
     assert rec.by_id["D01"].subject == "v3.8.1"
     assert rec.by_id["D01"].at > rec.by_id["A01"].at
-    print("committed data: 7 incidents, planted windows, truncated and late cases ok")
+    print("committed data: 7 incidents, expected windows, truncated and late cases ok")
 
 
 # --- Alert window -----------------------------------------------------------------------------

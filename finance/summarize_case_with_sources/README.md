@@ -94,8 +94,9 @@ are three of the messages in `data/messages/`, and what should happen to each.
 
 - **Input:** `01-web-chat.txt`, 14:05: "Sorry, it's 4917 6620 5318 4421. Do you need the 3 numbers
   on the back too? They're 731." (The card number and CVV are made up for this example.)
-- **What should happen:** the masking rules and a PII model mask the card number, and a rule removes
-  the three digits as a CVV, all before the summary model reads the chat.
+- **What should happen:** rules and a model that spots personal data mask the card number, and a
+  rule removes the three digits as a CVV, all before the model that writes the summary reads the
+  chat.
 - **Expected outcome:** `XXXX XXXX XXXX 4421` and `[CVV removed]` in the masked text, and neither
   in the summary.
 
@@ -106,8 +107,8 @@ are three of the messages in `data/messages/`, and what should happen to each.
   for this card, so it stays readable for the next agent to chase the dispute.
 - **Expected outcome:** kept readable in the masked note, and carried into the summary.
 
-On the live run, 6 of 7 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 6 of 7 things we looked for came out as expected.
+[What came out](#what-came-out) has every one.
 
 ## How we'll solve it
 
@@ -182,7 +183,7 @@ by rules: a model can't know which 16-digit number the card network issued.
 
 On this case it found both card numbers in the chat and tagged "4421" in "Card ending 4421" as a
 card number, and it didn't tag the CVV. Asked for CVVs, it walked past "They're 731". In a few
-probes outside the planted case it did tag "security code is 731", "CVV 731" and "cvc 731", and
+probes outside this case it did tag "security code is 731", "CVV 731" and "cvc 731", and
 the first four words of a card number written out as words. The rules carried the CVV here; the
 model is the net for the shapes the rules don't know.
 
@@ -288,22 +289,46 @@ models. A warm run makes 6 SIE calls (5 to `superlinked/pii-redact`, one per mes
 
 The case came out `summary_checked`.
 
-- **The withdrawn dispute** came out as planned: Quillon Electronics 89.99 (TXN-5503, open), and
-  Copperpot Cafe 23.40 withdrawn (TXN-5502), quoting "the 23.40 at the cafe was me, sorry" from
-  M5. As expected.
-- **The card number and CVV** were masked before the model read the chat, to `XXXX XXXX XXXX
-  4421` and `They're [CVV removed].` The rule found the CVV; the PII model didn't tag it. Neither
-  is in the summary. As expected.
-- **The dispute reference** stayed readable in the masked case note, but the model didn't put it
-  in the summary, so the agent finds it in the case note the summary links to. Not what we
-  planned, and no check looks for it.
+**1. A dispute withdrawn.**
 
-### Every planted case
+- **Expected outcome:** Quillon Electronics 89.99 still disputed (TXN-5503, open); Copperpot Cafe
+  23.40 withdrawn (TXN-5502).
+- **What came back:** Quillon Electronics 89.99 still disputed (TXN-5503, open), and Copperpot Cafe
+  23.40 withdrawn (TXN-5502), quoting "the 23.40 at the cafe was me, sorry" from M5.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026 (UTC), 6 of 7 planted cases came out as expected. The one that
+**2. Card data typed into the chat.**
+
+- **Expected outcome:** `XXXX XXXX XXXX 4421` and `[CVV removed]` in the masked text, and neither
+  in the summary.
+- **What came back:** masked before the model read the chat, to `XXXX XXXX XXXX 4421` and `They're
+  [CVV removed].` Neither is in the summary.
+- **Verdict:** Pass. The rule found the CVV; the PII model didn't tag it.
+
+**3. A long number that isn't card data.**
+
+- **Expected outcome:** kept readable in the masked note, and carried into the summary.
+- **What came back:** readable in the masked case note, but the model didn't put it in the summary.
+- **Verdict:** Miss. The agent has to find it in the case note the summary links to, and no check
+  looks for it, so the case still came out `summary_checked`.
+
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 6 of 7 things we looked for came out as expected. The one that
 didn't is the dispute reference, which stayed readable but didn't make it into the summary, as
 explained below the table. The table's eighth row, the wrong amount, is a stand-in reply in
 `selfcheck.py`, not part of the live run.
+
+**Where it works:** getting card data out before the summary model reads it (the card number, the
+mistyped card and the CVV), staying current when the customer withdraws a dispute, and quoting the
+promise the bank made.
+
+**Where it fails:** what the summary leaves out. The checks can tell you a quote is real, but
+nothing looks for a line that's missing. That's the miss to worry about: the dispute reference the
+next agent needs to chase the dispute isn't in the summary, and the case still came out
+`summary_checked`. The "waiting on" line also leaves out that Quillon has until 6 November. And on
+this case the CVV rests on the rule alone: it caught "They're 731", and the PII model walked past
+it.
 
 The input is the case in [`data/`](./data):
 
@@ -324,7 +349,7 @@ The input is the case in [`data/`](./data):
 One case, the lost debit card above. Here's what our live run on 4 Nov 2026 (UTC) gave. The case
 came out `summary_checked`:
 
-| Case | What we planted | Came out | Why |
+| What we looked for | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | Card number in chat | The customer types her full card number into the chat | Masked to `XXXX XXXX XXXX 4421` before the model read it, found by both the rule and the PII model; not in the summary | The most common way card data ends up in a CRM |
 | CVV in passing | "Do you need the 3 numbers on the back too? They're 731." in the chat | Removed by the rule (`They're [CVV removed].`); the PII model didn't tag it | Three digits look like nothing to a number rule |
@@ -335,14 +360,14 @@ came out `summary_checked`:
 | A promise made | The agent's note: "told her she'll have the refund within five working days" | Listed under what the bank told the customer, quoting the note (M3) | That's the line the next agent most needs |
 | Amount the case doesn't support | A stand-in reply (selfcheck only) that gives 98.99 for the Quillon payment | `needs_review`: "the card system has Quillon Electronics only for 8.99 GBP, 89.99 GBP", and the open dispute isn't listed | The summary is checked against the card system, not trusted |
 
-One of these came out differently from the plan. The dispute reference stayed readable where it was
-written, but the model didn't put it in the summary, so the agent finds it in the case note the
-summary links to. "Names stay" counts as expected: it holds for the masking (nothing took a name
+One of these came out differently from what we wanted. The dispute reference stayed readable where
+it was written, but the model didn't put it in the summary, so the agent finds it in the case note
+the summary links to. "Names stay" counts as expected: it holds for the masking (nothing took a name
 out), and the model chose which names to repeat: it wrote "the customer" for most lines, even with
 the prompt telling it to name people as the messages do, and the landlord didn't make the cut. No
 check looks for either, so neither changed the status.
 
-One thing the plan left open: the card system already shows the cafe dispute as withdrawn. That's
+One thing we had to decide: the card system already shows the cafe dispute as withdrawn. That's
 how we built the seed, on the reading that the agent who processed the fifth message closed it
 there. If your card system lags the messages, the stale-status check would send this case to
 review instead, which is what you'd want.

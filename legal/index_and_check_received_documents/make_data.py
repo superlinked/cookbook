@@ -16,8 +16,8 @@ The matter system's seeds stand in for what the receiving firm already has on fi
     matter_natives.csv       the custodian of each native file the cover letter lists
     matter_counsel.csv       the lawyers on the matter and the party each acts for
 
-Every page carries a Bates stamp and a custodian legend in its footer. Two stamping mistakes
-are planted in emails.pdf: TFL0000006 is used twice and TFL0000008 is skipped. The PDFs carry
+Every page carries a Bates stamp and a custodian legend in its footer. We added two stamping
+mistakes to emails.pdf: TFL0000006 is used twice and TFL0000008 is skipped. The PDFs carry
 no document metadata (no producer, title or dates).
 
     uv run make_data.py
@@ -236,7 +236,7 @@ EMAILS = (
         ),
     ),
     Page(
-        "TFL0000006",  # planted: the same number stamped on a second page
+        "TFL0000006",  # on purpose: the same number stamped on a second page
         "Tom Okoye",
         (
             "From: Tom Okoye <tokoye@tollerby-freight.example>",
@@ -271,7 +271,7 @@ EMAILS = (
         ),
     ),
     Page(
-        "TFL0000009",  # planted: TFL0000008 is skipped
+        "TFL0000009",  # on purpose: TFL0000008 is skipped
         "Dana Whitfield",
         (
             "From: Dana Whitfield <dwhitfield@tollerby-freight.example>",
@@ -288,7 +288,7 @@ EMAILS = (
         ),
     ),
     Page(
-        "TFL0000013",  # planted: the privileged paragraph only reaches the second window
+        "TFL0000013",  # on purpose: the privileged paragraph only reaches the second window
         "Ravi Mendes",
         (
             "From: Marcus Bell <mbell@tollerby-freight.example>",
@@ -325,7 +325,7 @@ EMAILS = (
 
 LETTER = (
     Page(
-        "TFL0000011",  # planted: no page numbers, so nothing says page 2 continues page 1
+        "TFL0000011",  # on purpose: no page numbers, so nothing says page 2 continues page 1
         "Marcus Bell",
         (
             "April 2, 2025",

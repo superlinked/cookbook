@@ -276,8 +276,8 @@ def check_lookups() -> None:
 
 def check_committed_data() -> None:
     email = BY_ID["D3"].text
-    for planted in (ACCOUNT, CARD, SSN, "HO-448120. Is that still right?", "Wendell Okafor"):
-        assert planted in email, planted
+    for piece in (ACCOUNT, CARD, SSN, "HO-448120. Is that still right?", "Wendell Okafor"):
+        assert piece in email, piece
     assert not recipe.luhn_valid(recipe.digits(CARD))
     assert recipe.luhn_valid(recipe.digits(VALID_CARD))
     assert sum(a != b for a, b in zip(CARD, VALID_CARD, strict=True)) == 1
@@ -405,7 +405,7 @@ def check_good_summary() -> None:
 
 
 def check_money() -> None:
-    # The planted selfcheck case: the dwelling reserve given wrong.
+    # The selfcheck's own case: the dwelling reserve given wrong.
     wrong = changed(
         "paid_and_reserved",
         2,

@@ -584,7 +584,7 @@ def check_committed_data() -> None:
         # The drafts carry no document properties (author, company, dates).
         names = __import__("zipfile").ZipFile(recipe.DATA_DIR / record.draft_file).namelist()
         assert not any(name.startswith("docProps/") for name in names), names
-    print("committed data: 6 drafts, intake matches, planted cases with a stand-in extractor ok")
+    print("committed data: 6 drafts, intake matches, expected cases with a stand-in extractor ok")
 
 
 def check_intake_and_conversion() -> None:

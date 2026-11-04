@@ -104,15 +104,15 @@ Here are three of the listings in `data/`, and what should happen to each.
   text wins and the old tag is shown next to the new one.
 - **Expected outcome:** material faux leather, `from_text`, `changed` from Leather.
 
-**3. "Leather" that isn't leather.** P18
-- **Input:** "...Ravenna Home Chic Vegan Leather Storage Ottoman, 50"W, Black", empty material
-  field; bullet 3 says "...stylish vegan leather upholstery...".
-- **What should happen:** the word "leather" is in the text, but the quote check reads it where
-  it stands, so it has to map to faux leather, never leather.
-- **Expected outcome:** faux leather or `not_found`, never leather.
+**3. Cotton only the text can tell you.** P17
+- **Input:** "...Rivet Global Inspired Geometric Throw Blanket, Soft and Stylish, 50" x 60", Navy
+  and Natural", empty material field; bullet 3 says "100% Cotton".
+- **What should happen:** a photo can't tell you it's cotton, so the tag should come from the text,
+  with the quote, and fill the empty field.
+- **Expected outcome:** material cotton, `from_text`, `filled`.
 
-On the live run, 11 of 14 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 11 of 14 listings came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -225,7 +225,7 @@ failed or came back unusable, the run stops too.
 
 [`selfcheck.py`](./selfcheck.py) checks the word matching, the quote check, the current fields,
 every source and routing rule, the strict reply parsing, the prompt's line about printed text,
-the outputs, the planted listings, that the photos carry no metadata, and the SIE error rule,
+the outputs, the example listings, that the photos carry no metadata, and the SIE error rule,
 offline, with hand-written strings and stand-in model replies.
 [`make_data.py`](./make_data.py) rebuilds `data/` from ABO.
 
@@ -260,7 +260,7 @@ listing's order) and the 18 main photos in [`data/photos/`](./data/photos).
 > below). ABO has a description field, but none of these 18 listings fills it, so the recipe
 > reads titles and bullet points here.
 
-Two listings were planted for two checks. For "cotton in the bullets" we used P17, a Rivet throw
+We picked two listings for two checks. For "cotton in the bullets" we used P17, a Rivet throw
 blanket whose third bullet point is just "100% Cotton", with no material field and no cotton in
 the title. For the negated material, ABO has no listing that says "leather-free" among the ones
 we searched; the closest real one is P18, a Ravenna Home storage ottoman whose title and third
@@ -270,20 +270,42 @@ On our live run on 4 Nov 2026 (UTC), 13 listings came back `checks_passed` and 5
 
 ### The three examples
 
-- **P01:** `checks_passed`, every tag `same` and `text_and_photo`. As expected.
-- **P11:** material faux leather, `from_text`, `changed` from Leather; the photo said `unclear`.
-  As expected.
-- **P18:** faux leather, `from_text`, `filled`, quote "vegan leather"; the photo said `unclear`.
-  As expected.
+**1. A listing that's already right.** P01
+- **Expected outcome:** `checks_passed`, every tag `same`.
+- **What came back:** `checks_passed`, every tag `same` and `text_and_photo`.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A material tag that's wrong.** P11
+- **Expected outcome:** material faux leather, `from_text`, `changed` from Leather.
+- **What came back:** material faux leather, `from_text`, `changed` from Leather; the photo said
+  `unclear`.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026, 11 of 14 planted cases came out as expected (counting each of the
-four clear listings on its own). P12 came out `checks_passed` with color black instead of a photo
-color for review. P17 and P04 got the tag we wanted, but as `text_and_photo` rather than
-`from_text`, and both listings went to `review` for their color.
+**3. Cotton only the text can tell you.** P17
+- **Expected outcome:** material cotton, `from_text`, `filled`.
+- **What came back:** cotton, `filled`, quote "100% Cotton" from bullet 3, but `text_and_photo`: the
+  photo reading also said cotton. The listing went to `review` for its color.
+- **Verdict:** Miss. The tag and the quote are right, but the source isn't, since a photo can't tell
+  you it's cotton. And the specialist still has to open the listing, because the model's color quote
+  didn't hold up (see below).
 
-| Case | What we planted | Should come out | What came out | Why |
+### Every example
+
+On the live run on 4 Nov 2026, 11 of 14 listings came out as expected (counting each of the
+four clear listings on its own).
+
+**Where it works:** listings that are already right pass and take no one's time (P01, P03, P07, P09).
+The text beats a wrong tag and shows the change (P11), settles what a photo can't (P05, P18), and an
+empty color gets filled from the photo for a person to confirm (P14). When nothing on the list fits,
+nothing gets picked (P15).
+
+**Where it fails:** P12 came out `checks_passed` with color black instead of a photo color for review.
+P17 and P04 got the tag we wanted, but as `text_and_photo` rather than `from_text`, and both
+listings went to `review` for their color. Worry about P17 and P04: the model's text reading of the
+color was dropped on both, so a tag that's right still costs the specialist a look. P12 worries us
+less, since text, photo and catalog all agree on black.
+
+| Case | What's in it | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
 | Clear listings | P01 backpack, P03 leather sofa, P07 ceramic planter, P09 suede sandal | `checks_passed`, every tag `same` | As planned: all four `checks_passed`, every tag `same` and `text_and_photo` | Most listings are fine, and those should take no one's time |
 | Cotton in the bullets | P17 throw blanket, empty material field, "100% Cotton" in bullet 3 | material cotton, `from_text`, `filled` | cotton, `filled`, quote "100% Cotton" from bullet 3, but `text_and_photo`: the photo reading also said cotton. The listing went to `review` for its color, see below | The answer was in the listing all along; a photo could never have told you |
@@ -324,7 +346,7 @@ A few things worth noticing:
 - **P08 is a real conflict.** Bullet 3 says "brown and tan hues", the photo read beige, and the
   catalog says Beige. The recipe doesn't pick a winner: the color is `conflict`, no tag, review.
   Natural jute sits between the two, and a person settles it in a second.
-- **P12 didn't come out as planned, and we left it.** We planted it as "only the photo can say
+- **P12 didn't come out as planned, and we left it.** We picked it as "only the photo can say
   what color it is", because its color field says "Glass". But its standardized color is Black,
   its title ends in "Black", the first bullet says "black iron frame", and the model read the
   frame as black. Text, photo and catalog agree, so `checks_passed` is the honest answer. The
@@ -341,7 +363,7 @@ A few things worth noticing:
   quoting "vegan leather"). If it had said leather and quoted just "Leather" from the title, the
   quote would be in the text, and a plain substring check would pass it. Read where it stands,
   it's part of "Vegan Leather", so the check says it means faux leather and the listing goes to
-  review. `selfcheck.py` plants that reply.
+  review. `selfcheck.py` tries that reply.
 - **Photo-only material is noisy on purpose.** P14's boots have "Outer: 100% Leather" in the
   material field but nothing about material in the title or bullets, so the only reading is the
   photo's. It agrees with the field (`same`) and still goes to review, because a photo of a boot

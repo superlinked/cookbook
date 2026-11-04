@@ -18,7 +18,7 @@ How the photos were picked: where two listings show the very same main photo of 
 one of them uses another photo from its own ABO listing. L35 re-lists the L34 sofa with the
 listing's second photo. L40 pairs the amazon.com/go tea title with a photo from the amazon.com
 listing of the same item (the go listing's own photos show a different tea). L43 is left as ABO
-has it: its title is a Lightning cable and its photo an HDMI cable. Two records are planted on
+has it: its title is a Lightning cable and its photo an HDMI cable. We added two records on
 top of ABO: L44 copies L12's title and photo with another model number, and L45 is a white
 6-foot cable with no pack count, shown with the L06 2-pack photo.
 

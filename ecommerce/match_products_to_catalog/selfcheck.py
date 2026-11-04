@@ -122,7 +122,7 @@ def check_data() -> None:
     for record in FEED.values():
         assert record.brand, record
         assert not record.gtin, record
-    # The planted records are what the README says they are.
+    # The records we added are what the README says they are.
     assert FEED["L44"].title == PRODUCTS["L12"].title
     assert FEED["L44"].box != PRODUCTS["L12"].box
     assert FEED["L44"].model_number != PRODUCTS["L12"].model_number
@@ -313,7 +313,7 @@ def check_classify() -> None:
     # ... but not when the titles name a different attribute: the photos may differ for that.
     found = classify(feed_record(title="Acme Test Cable, 6-Foot, White"), product(), 0.60, 0.96)
     assert found.status == recipe.DIFFERENT, found
-    # The planted pairs from the committed data, at made-up similarities in the judge band.
+    # The example pairs from the committed data, at made-up similarities in the judge band.
     assert classify(FEED["L13"], PRODUCTS["L14"], 0.9, 0.9).status == recipe.REVIEW  # plug
     assert classify(FEED["L45"], PRODUCTS["L06"], 0.99, 0.99).status == recipe.REVIEW  # pack
     assert classify(FEED["L03"], PRODUCTS["L02"], 0.99, 0.99).status == recipe.LIKELY_VARIANT

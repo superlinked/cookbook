@@ -8,7 +8,7 @@ intake record for each request (see clm.py).
 
     uv run make_data.py
 
-Planted cases:
+The six NDAs:
     nda-brackenridge-analytics.docx  ours, mutual     compliant
     nda-lowfield-ridge-capital.docx  theirs, one-way  five-year confidentiality period
     nda-quillfeather-logistics.docx  theirs, mutual   non-solicit and residuals clauses

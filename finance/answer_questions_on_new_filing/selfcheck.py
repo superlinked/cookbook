@@ -103,7 +103,7 @@ def check_data() -> None:
     # Target's fiscal 2025 ends on January 31, 2026.
     assert TGT_ENDS["2026-01-31"] == 2025
     assert TGT_ENDS["2025-02-01"] == 2024
-    # The planted passages are where the spec says.
+    # The passages the examples use are where the spec says.
     assert "manufacturing purchase obligations of $56.2 billion" in PASSAGES["P06"].text
     assert "other purchase obligations of $14.8 billion" in PASSAGES["P07"].text
     assert "22.3 percent compared with 22.2 percent in 2024" in PASSAGES["P28"].text
@@ -185,7 +185,7 @@ P28_QUOTE = "Our 2025 effective income tax rate was 22.3 percent compared with 2
 
 
 def check_answer_checks() -> None:
-    # The planted right answer stands.
+    # The right answer stands.
     good = "Apple had $56.2 billion of manufacturing purchase obligations, $55.4 billion of it due within 12 months, at fiscal 2025 year end."  # noqa: E501
     assert problems("AAPL-1", good, ("P06", P06_QUOTE)) == []
     # The wrong scale is not the figure: "$56.2 million" against "$56.2 billion".

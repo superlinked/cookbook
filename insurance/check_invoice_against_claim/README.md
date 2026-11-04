@@ -85,32 +85,32 @@ recipe doesn't decide coverage, set reserves or judge whether a repair price is 
 
 Here are three of the inputs in `data/`, and what should happen to each.
 
-**1. A clean roofing invoice.**
+**1. A clean roofing invoice.** `clm-01`.
 - **Input:** page 1 of `repair-invoices.pdf`, a Brightwater Roofing & Gutters Ltd invoice for
-  claim `CLM-26-104817,open,HO-2026-004817,Homeowners,Dana Whitcombe,2026-10-04,"41 Fernhollow
-  Lane, Ashby Vale, CO 80911"`, with an authorized estimate of 3650.00.
-- **What should happen:** every check runs and passes: the claim match, the vendor, the line
-  arithmetic, the date and the total against the authorized amount.
+  claim `CLM-26-104817`: Dana Whitcombe's homeowners claim on policy HO-2026-004817, loss on
+  2026-10-04 at 41 Fernhollow Lane, Ashby Vale, CO 80911, with an authorized estimate of 3650.00.
+- **What should happen:** every check runs and passes: right claim, right vendor, the lines add
+  up, the date fits and the total is inside the authorized amount.
 - **Expected outcome:** `checks_passed`, ready for the payment queue.
 
-**2. A total over what was authorized.**
-- **Input:** page 7 of `repair-invoices.pdf`, a Ridgeway Restoration Services invoice for
-  `CLM-26-612077` with a total of 6,800.00; `authorizations.csv` has
-  `CLM-26-612077,estimate,6262.48,2026-10-11` and no supplement.
-- **What should happen:** the invoice belongs to the claim and adds up, but the amount check
-  fails and shows the difference.
-- **Expected outcome:** `review`, `authorized_amount`, over by 537.52.
-
-**3. A near miss: right shop, right amount, wrong customer.**
+**2. A near miss: right shop, right amount, wrong customer.** `clm-09`.
 - **Input:** page 9 of `repair-invoices.pdf`, from Brightwater Roofing & Gutters Ltd (the vendor on
   `CLM-26-118206`), with the same total as the claim's 2033.08 estimate, but billed to Margit
   Allanby at a different address and with no claim number.
-- **What should happen:** the claim match runs first and fails, so the vendor and amount checks,
-  which would both pass, never get the chance.
-- **Expected outcome:** `review`, `claim_match`.
+- **What should happen:** we check first that the invoice belongs to the claim. It doesn't, so it
+  goes to review before anyone compares the shop and the amount, which would both pass.
+- **Expected outcome:** `review`, `claim_match` (the invoice doesn't match this claim).
 
-On the live run, 9 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+**3. A blank tax line.** `clm-08`.
+- **Input:** page 8 of `repair-invoices.pdf`, a Northgate Plumbing Co. invoice for `CLM-26-709315`.
+  The page prints "Sales tax (6%)" with nothing next to it, and the total includes tax.
+- **What should happen:** a blank tax line isn't a zero tax line, so the arithmetic can't be checked
+  and the invoice should go to review. On the live run the model reading the page filled in the
+  blank, so this one missed.
+- **Expected outcome:** `review`, `invoice_math` (the tax wasn't read).
+
+On the live run, 9 of 10 invoices came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -232,7 +232,7 @@ reads top to bottom in the same order as the flow.
 | Outputs | `write_outputs`, `payment_row`, `csv_safe` | none | `invoices/<document>.json`, `invoices.csv`, `payment-queue.csv` and `exceptions-queue.csv`. Any cell a spreadsheet would run as a formula gets a leading `'` |
 
 [`selfcheck.py`](./selfcheck.py) checks all of this offline with hand-written OCR pages and
-stand-in model replies: all ten planted cases on faithful pages; the tax line (blank, the rate
+stand-in model replies: all ten invoices on faithful pages; the tax line (blank, the rate
 alone, "exempt", a printed 0.00); near misses (a shorter vendor name, a claim number belonging
 to another claim, two claim numbers in one cell, "D. Whitcombe", a neighbouring house number,
 the right street in another ZIP, a VIN one character off, a vehicle line with two VINs); a
@@ -269,18 +269,39 @@ Cloud starts the OCR and extraction models. On 2026-11-04 (UTC) a run that waite
 
 ### The three examples
 
-- **`clm-01`, the clean invoice:** `checks_passed`, in the payment queue as
-  `clm-01,CLM-26-104817,Dana Whitcombe,Brightwater Roofing & Gutters Ltd,BRG-10442,2026-10-12,3394.00,203.64,3597.64,3650.00`.
-  As expected.
-- **`clm-07`, over the authorized amount:** `review`, `authorized_amount`, by 537.52. As
-  expected.
-- **`clm-09`, the wrong customer:** `review`, `claim_match`, with "no claim number read on the
-  invoice; billed to 'Margit Allanby', not the insured". As expected.
+**1. A clean roofing invoice.** `clm-01`.
+- **Expected outcome:** `checks_passed`, ready for the payment queue.
+- **What came back:** `checks_passed`, in the payment queue with invoice BRG-10442, dated
+  2026-10-12, subtotal 3394.00, tax 203.64, total 3597.64, against 3650.00 authorized.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A near miss: right shop, right amount, wrong customer.** `clm-09`.
+- **Expected outcome:** `review`, `claim_match` (the invoice doesn't match this claim).
+- **What came back:** `review`, `claim_match`, with "no claim number read on the invoice; billed to
+  'Margit Allanby', not the insured".
+- **Verdict:** Pass.
 
-On the live runs on 2026-11-04 (UTC), 9 of 10 planted cases came out as expected. The one that
+**3. A blank tax line.** `clm-08`.
+- **Expected outcome:** `review`, `invoice_math` (the tax wasn't read).
+- **What came back:** `checks_passed`, in the payment queue with tax 76.20 and total 1346.20.
+- **Verdict:** Miss. The OCR model wrote "Sales tax (6%): $76.20" where the page has no amount, and
+  the arithmetic check then agreed with itself. The handler still approves each payment, but the
+  row looks like any other.
+
+### Every example
+
+On the live runs on 2026-11-04 (UTC), 9 of 10 invoices came out as expected. The one that
 didn't is `clm-08`, covered below.
+
+**Where it works:** when the page is read faithfully: the early date, the mistyped claim number, the wrong
+subtotal, the other shop, the total over the limit and the wrong customer (`clm-03` to `clm-07`,
+`clm-09`) all went to review, and a shop name written two ways and an approved supplement (`clm-02`,
+`clm-10`) didn't trip anything.
+
+**Where it fails:** when the reader fills in what the page doesn't say.
+`clm-08` is the one to worry about: every check passed on the text it was given, and the invoice is
+in the payment queue with a tax the shop never printed. Checks that only see a model's output can't
+catch that.
 
 The input is ten invoices waiting on ten open claims, in [`data/`](./data):
 
@@ -299,7 +320,7 @@ The input is ten invoices waiting on ten open claims, in [`data/`](./data):
 > the insureds, the shops, the addresses, the vehicles and every number are invented, and every
 > page says so in its footer. Every VIN carries a Q, a letter real VINs never use.
 
-| Case | What we planted | Should come out | What came out | Why |
+| Case | What's in it | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
 | `clm-01` | A roofing invoice that matches its claim in every field | `checks_passed` | `checks_passed` | The clean case, so you can see what a pass looks like |
 | `clm-02` | Near miss: the claim says "Kestrel Auto Body & Paint", the invoice says "Kestrel Auto Body and Paint, Inc."; the total equals the authorized amount to the cent | `checks_passed` | `checks_passed` | The same shop written two ways, and a total right on the limit, should not trip anything |

@@ -170,9 +170,9 @@ def raised(call: Callable[[], object]) -> BaseException:
     raise AssertionError("nothing was raised")
 
 
-# --- The planted inbox, end to end with stand-in replies -------------------------------------
+# --- The sample inbox, end to end with stand-in replies --------------------------------------
 
-PLANTED: dict[str, dict[str, Any]] = {
+STAND_IN_REPLIES: dict[str, dict[str, Any]] = {
     "msg-01": {"type": probs("schedule"), "fields": {"what": "parent-teacher conference"}},
     "msg-02": {
         "type": probs("schedule"),
@@ -216,8 +216,8 @@ PLANTED: dict[str, dict[str, Any]] = {
 }
 
 
-def check_planted() -> None:
-    result, client = sweep(recipe.load_inbox(), PLANTED)
+def check_examples() -> None:
+    result, client = sweep(recipe.load_inbox(), STAND_IN_REPLIES)
     found = by_message(result)
     status = {m: p.status for m, p in found.items()}
     assert status["msg-01"] == recipe.MATCHES_EXISTING
@@ -265,9 +265,9 @@ def check_planted() -> None:
     # msg-09 has the phone's transcript, so only msg-06 is sent to speech to text.
     assert [m for model, m in client.calls if model == MODELS["transcribe"]] == ["msg-06"]
     # Sent-time order, not file order: the reversed export gives the same result.
-    again, _ = sweep(list(reversed(recipe.load_inbox())), PLANTED)
+    again, _ = sweep(list(reversed(recipe.load_inbox())), STAND_IN_REPLIES)
     assert [p.as_json() for p in again.proposals] == [p.as_json() for p in result.proposals]
-    print("planted: every case as the README says, in any file order ok")
+    print("examples: every case as the README says, in any file order ok")
 
 
 # --- Lookups ------------------------------------------------------------------------------------
@@ -596,7 +596,7 @@ def check_review_fixes() -> None:
 
 
 def check_coverage() -> None:
-    """Rules the planted inbox doesn't reach, one hand-written case each."""
+    """Rules the sample inbox doesn't reach, one hand-written case each."""
     # Doubt from the score alone, and from the margin alone.
     for p in (probs("todo", 0.45, "reply", 0.10), probs("todo", 0.55, "reply", 0.45)):
         result, _ = sweep([msg("m", "Pick up x?")], {"m": {"type": p, "fields": {"what": "x"}}})
@@ -780,7 +780,7 @@ def check_outputs() -> None:
     assert recipe.STATUSES == ("checks_passed", "question", "matches_existing", "no_action")
     for old in ("proposed", "approved", "ready"):
         assert old not in recipe.STATUSES
-    result, _ = sweep(recipe.load_inbox(), PLANTED)
+    result, _ = sweep(recipe.load_inbox(), STAND_IN_REPLIES)
     folder = Path(tempfile.mkdtemp())
     recipe.write_outputs(folder, result, RULES)
     todo = (folder / "todo.md").read_text(encoding="utf-8")
@@ -794,7 +794,7 @@ def check_outputs() -> None:
 
 
 if __name__ == "__main__":
-    check_planted()
+    check_examples()
     check_lookups()
     check_reading()
     check_dates()

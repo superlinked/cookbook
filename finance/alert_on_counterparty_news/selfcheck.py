@@ -164,7 +164,7 @@ def check_data() -> None:
     articles = recipe.load_articles()
     assert [a.id for a in articles] == [f"N-{n:02d}" for n in range(1, 11)], articles
     assert len(CPS.all()) == 9
-    # The planted shapes hold in the committed data.
+    # The shapes the examples rely on hold in the committed data.
     northwind = CPS.find_by_alias("Northwind")
     assert [cp.id for cp in northwind] == ["CP-1004", "CP-1005"], northwind
     assert [cp.id for cp in CPS.find_by_parent_ticker("NWEG", "NYSE")] == ["CP-1005"]
@@ -193,7 +193,7 @@ def check_data() -> None:
     print("data: 10 articles, 9 counterparties, shared alias, parent ticker, near names ok")
 
 
-def check_planted() -> None:
+def check_examples() -> None:
     """The committed articles end to end, with stand-in tags like the live run's and stand-in
     event replies: an edit to the data that changes which borrowers reach the event model, or
     how an article comes out, fails here."""
@@ -234,7 +234,7 @@ def check_planted() -> None:
     ferncastle = client.read[-1]
     assert ferncastle.startswith("Ferncastle Dairy Ltd, which competes"), ferncastle
     assert "administration" not in ferncastle, ferncastle
-    print("planted: the 10 committed articles give the README's statuses ok")
+    print("examples: the 10 committed articles give the README's statuses ok")
 
 
 def check_sentences() -> None:
@@ -615,7 +615,7 @@ def check_outputs() -> None:
 
 if __name__ == "__main__":
     check_data()
-    check_planted()
+    check_examples()
     check_sentences()
     check_linking()
     check_spans()

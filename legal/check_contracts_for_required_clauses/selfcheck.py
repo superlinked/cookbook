@@ -476,7 +476,7 @@ def check_register() -> None:
     print("register: contracts, packages and exact lookups ok")
 
 
-def check_planted_cases() -> None:
+def check_examples() -> None:
     """The committed data through the real pipeline, with stand-in replies."""
     results, calls, _ = run()
     got = by_id(results)
@@ -514,7 +514,7 @@ def check_planted_cases() -> None:
     assert calls.count[RULES["models"]["verdict"]] == 40
     assert calls.count[RULES["models"]["document"]] == 9
     assert calls.count[RULES["models"]["ocr"]] == 7
-    print("planted cases: as in the README, with stand-in replies")
+    print("examples: as in the README, with stand-in replies")
 
 
 TRANSIENT: list[SIEError] = [
@@ -785,7 +785,7 @@ if __name__ == "__main__":
     check_held_back()
     check_pages()
     check_register()
-    check_planted_cases()
+    check_examples()
     check_sie_failure()
     check_scores_and_file_names()
     check_missing_file()

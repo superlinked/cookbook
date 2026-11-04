@@ -197,7 +197,7 @@ def edited(short: str, number: int, old: str, new: str) -> dict[str, str]:
 # --- Checks -----------------------------------------------------------------------------------
 
 
-def check_planted_cases() -> None:
+def check_examples() -> None:
     got = run(list(PACKETS))
     expected = {
         "brightwater-family-medicine": ("checks_passed", "routine", []),
@@ -261,7 +261,7 @@ def check_planted_cases() -> None:
     assert len(queue) == 8
     assert [q["requested_priority"] for q in queue[:3]] == ["urgent", "time_bound", "routine"]
     assert queue[0]["packet"] == PACKETS["fenwick-street-clinic"].filename
-    print("planted cases: 8 packets, statuses, sources, callback list and queue order ok")
+    print("examples: 8 packets, statuses, sources, callback list and queue order ok")
 
 
 def check_statuses() -> None:
@@ -772,7 +772,7 @@ if __name__ == "__main__":
     check_page_count()
     check_adversarial()
     check_review_fixes()
-    check_planted_cases()
+    check_examples()
     check_sie_failure()
     check_csv_safe()
     print("all checks passed")

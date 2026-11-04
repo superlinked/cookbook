@@ -109,19 +109,23 @@ Here are three of the documents in `data/TFL-VOL001/`, and what should happen to
   "Page 2 of 2": "You asked whether we can serve notice of termination on Kestrel Supply Co. now ...
   My advice is that we should not serve notice yet." Signed "Owen Achterberg, General Counsel,
   Tollerby Freight Ltd."
-- **What should happen:** The page numbering joins the two pages into one document, and the lawyer
-  list catches Owen Achterberg whatever the score says.
+- **What should happen:** The page numbering joins the two pages into one document. Owen Achterberg
+  is on our list of the other side's lawyers, so it goes to a lawyer whatever the score says.
 - **Expected outcome:** `possible_privilege`, naming Owen Achterberg.
 
-**3. "Legal" that isn't legal advice, under a duplicate stamp.**
-- **Input:** `emails.pdf` page 3, stamped TFL0000006, the same number as page 2: "the legal entity
-  name on the invoice should read "Kestrel Supply Co.", not "Kestrel Supplies"."
-- **What should happen:** No lawyer is named and the word "legal" shouldn't move the score much, but
-  the Bates check should flag the stamp used twice.
-- **Expected outcome:** `qc_exception` for the duplicate stamp, with a low privilege score.
+**3. A letter from outside counsel with no page numbers.**
+- **Input:** `letter.pdf`, two scanned pages stamped TFL0000011 and TFL0000012, neither one
+  numbered. Page 1 goes through the delivery logs: "The logs show 14 scheduled runs to Brayford Park
+  in February." Only page 2 says who wrote it, signed by Imogen Sallis, Associate, Wenlow & Croft
+  LLP: "We will then advise you on how to answer the claim."
+- **What should happen:** Nothing on the pages says page 2 continues page 1, so the recipe can't
+  join them. It should treat them as two documents, say it had to guess where they start and
+  end, and still send page 2 to a lawyer because it names one of the other side's lawyers.
+- **Expected outcome:** page 1 `qc_exception` for the guessed boundary; page 2 `possible_privilege`,
+  naming Imogen Sallis, with its own boundary note.
 
-On the live run, 12 of 12 planted documents came out as expected; [What came out](#what-came-out)
-has each one.
+On the live run, 12 of 12 documents came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -304,18 +308,42 @@ the models already warm, took 23 s.
 
 ### The three examples
 
-1. **TFL0000001, the memo:** `no_exception`, privilege score 0.045. As expected.
-2. **TFL0000002-0003, the General Counsel's letter:** one document, `possible_privilege`, names Owen
-   Achterberg, scored 0.766 (page 1, the advice; page 2 scored 0.456). As expected.
-3. **TFL0000006 (emails.pdf p3), the near miss:** `qc_exception` for the duplicate, score 0.090. The
-   Bates check says "TFL0000006 is stamped on 2 pages: emails.pdf p2, emails.pdf p3". As expected.
+**1. A plain business memo.**
+- **Expected outcome:** `no_exception`.
+- **What came back:** `no_exception`, privilege score 0.045.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. The other side's General Counsel, sent by mistake.**
+- **Expected outcome:** `possible_privilege`, naming Owen Achterberg.
+- **What came back:** TFL0000002-0003 as one document, `possible_privilege`, names Owen Achterberg,
+  scored 0.766 (page 1, the advice; page 2 scored 0.456).
+- **Verdict:** Pass.
 
-On the live run on 2026-11-04 (UTC), 12 of 12 planted documents came out as expected (the
-unnumbered letter TFL0000011-0012 counts as the two documents the recipe is planted to split it
-into). TFL0000013 also picked up QC reasons we didn't plant (a date it couldn't read, windows
+**3. A letter from outside counsel with no page numbers.**
+- **Expected outcome:** page 1 `qc_exception` for the guessed boundary; page 2 `possible_privilege`,
+  naming Imogen Sallis, with its own boundary note.
+- **What came back:** page 1 `qc_exception` (boundary note, score 0.090); page 2
+  `possible_privilege` (names Imogen Sallis, 0.489, unsure) with its own boundary note.
+- **Verdict:** Pass. This is the limit. The recipe can't see that the pages belong together, so
+  a person has to put the letter back together. Only page 2 goes to the lawyer; page 1, on its own,
+  goes to litigation support.
+
+### Every example
+
+On the live run on 2026-11-04 (UTC), 12 of 12 documents came out as expected (the
+unnumbered letter TFL0000011-0012 counts as the two documents the recipe was meant to split it
+into). TFL0000013 also picked up QC reasons we didn't write in (a date it couldn't read, windows
 disagreeing on author and type); they only add to a row already going to the lawyer.
+
+**Where it works:** the other side's lawyers get caught by name (TFL0000002-0003, TFL0000005 and the
+cc'd TFL0000006), advice that names no one on the list gets caught by the score (TFL0000007,
+TFL0000013), "legal" in a sentence doesn't fool the score (TFL0000006 on emails.pdf p3, 0.090), and
+the Bates check finds the duplicate TFL0000006 and the missing TFL0000008.
+
+**Where it fails:** it can't join the unnumbered letter (TFL0000011-0012), and on TFL0000013 gliner2's
+windows disagreed on author and type, so those are left blank for a person. The one to worry about
+wasn't in this volume: emails and their attachments aren't linked, so a routine covering email with
+a privileged attachment would be indexed as two unrelated documents.
 
 The input is one volume, `TFL-VOL001`, in [`data/TFL-VOL001/`](./data/TFL-VOL001), received by
 Kestrel Supply Co.'s counsel from Tollerby Freight Ltd. in a fictional dispute:
@@ -335,7 +363,7 @@ Custodian: <name>` legend in its footer.
 > PDFs carry no document metadata (no producer, title or dates). The matter, both companies,
 > every person, address and email domain (`.example`) is invented.
 
-| Case | What we planted | Came out | Why |
+| Case | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | TFL0000001 | Scanned operations memo | `no_exception` (score 0.045) | The plain case |
 | TFL0000002-0003 | Two-page scanned letter of advice from Tollerby's General Counsel, "Page 1 of 2" and "Page 2 of 2" | One document, `possible_privilege`: names Owen Achterberg, scored 0.766 | The classic mistaken disclosure; the list catches it whatever the score says |
@@ -431,7 +459,7 @@ index into the review platform.
   gets a QC exception.
 - **Families.** Emails and their attachments aren't linked. A routine covering email with a
   privileged attachment would be indexed as two unrelated documents; reading attachment names
-  from the email and linking them to the next pages is the next thing to plant.
+  from the email and linking them to the next pages is the next thing to add.
 - **Quoted threads.** A forwarded thread carries several messages' dates and participants. The
   recipe flags windows that disagree instead of picking one; splitting the thread into
   messages would let it index each.

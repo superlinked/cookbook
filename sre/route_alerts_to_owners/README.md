@@ -102,15 +102,17 @@ Here are three of the alerts in `data/alerts.json`, and what should happen to ea
   consumer is down, not the broker, so the owner should be loyalty, not the streaming team.
 - **Expected outcome:** `team_suggested`, loyalty.
 
-**3. A certificate that reads like two teams' (AL-05).**
-- **Input:** `"namespace": "edge"` (not in the records), "TLS certificate for shop.larkspur.example
-  expires in 6 days".
-- **What should happen:** the namespace isn't in the records, and the model should split between
-  platform and storefront closely enough to miss the margin limit.
-- **Expected outcome:** `no_clear_owner`.
+**3. An alert that names nothing (AL-06).**
+- **Input:** an alert called `SyntheticCheckFailed` with no service, app, job, instance or namespace
+  label, the summary "Synthetic check 'smoke-7' failed 3 times in a row" and the description "Step 4
+  returned an unexpected result."
+- **What should happen:** there's nothing to look up, so only the model's read of the text is left.
+  It can score one team high anyway, so the row has to say plainly that the alert names no system,
+  and the responder checks it.
+- **Expected outcome:** `team_suggested`, with "the alert names no system" in the reason.
 
-On the live run, 11 of 11 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 11 of 11 alerts came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -245,14 +247,36 @@ the records can't place, and takes about 2 seconds.
 
 ### The three examples
 
-- **AL-02:** `owner_in_catalog`, storefront. As expected.
-- **AL-04:** `team_suggested`, loyalty at 0.83, streaming the runner-up at 0.15. As expected.
-- **AL-05:** `no_clear_owner`, platform 0.54 vs storefront 0.38, margin 0.16 under 0.20 (the row is
-  quoted below). As expected.
+**1. A label the route didn't know (AL-02).**
+- **Expected outcome:** `owner_in_catalog`, storefront.
+- **What came back:** `owner_in_catalog`, storefront.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. Kafka in the text, but not a Kafka problem (AL-04).**
+- **Expected outcome:** `team_suggested`, loyalty.
+- **What came back:** `team_suggested`, loyalty at 0.83, streaming the runner-up at 0.15.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026, 11 of 11 planted cases came out as expected.
+**3. An alert that names nothing (AL-06).**
+- **Expected outcome:** `team_suggested`, with "the alert names no system" in the reason.
+- **What came back:** `team_suggested`, storefront at 0.57, margin 0.47 over loyalty, with that
+  wording in the reason (the row is quoted below).
+- **Verdict:** Pass. But storefront is a guess. The alert says nothing about who owns it, so the
+  responder has to check before reassigning.
+
+### Every example
+
+On the live run on 4 Nov 2026, 11 of 11 alerts came out as expected.
+
+**Where it works:** six of the eleven settle from the records with no model at all (AL-01, AL-02,
+AL-03, AL-07, AL-08, AL-10). When the model does read the text, it told a stalled consumer from a
+broker problem (AL-04, AL-11) and placed a renamed service (AL-09), and a close split stays with the
+responder (AL-05).
+
+**Where it fails:** a confident score on an alert that names nothing (AL-06), and that's the one to
+worry about, since raising the limits wouldn't help and a wrong guess pages the wrong team. This run
+also doesn't tell you how often the model's suggestion is the right team: eleven alerts only show
+the rules fire.
 
 The input is [`data/alerts.json`](./data/alerts.json): 11 alerts shaped like the alerts in an
 Alertmanager webhook (labels plus `summary` and `description`), the ones no route matched. The
@@ -262,7 +286,7 @@ namespaces.
 The catalog, the inventory, the alerts and the shop (Larkspur Supply) are synthetic, written for
 this recipe.
 
-| Case | What we planted | Came out | Why |
+| Case | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | AL-01 | `service=payments-api` | `owner_in_catalog`: payments | The plain case: the label is in the catalog |
 | AL-02 | `app=Frontend`: another label key, an alias, different case | `owner_in_catalog`: storefront | Why it fell through: the route wanted `service=web-frontend` |
@@ -383,7 +407,7 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 - `selfcheck.py`: plain asserts on the lookups, the ownership rules, the model checks and the SIE
   failure rule, no SIE call (`uv run selfcheck.py`)
 - `rules.yaml`: model ID, owner labels, hidden labels, question, limits
-- `data/alerts.json`: the 11 planted alerts
+- `data/alerts.json`: the 11 sample alerts
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
 See the SIE [classify](https://superlinked.com/classify?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=sre-route-alerts-to-owners) task page.

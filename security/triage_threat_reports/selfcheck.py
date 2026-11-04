@@ -159,7 +159,7 @@ def check_config() -> None:
     print("config: label keys checked at load; formula cells quoted ok")
 
 
-def check_planted() -> None:
+def check_examples() -> None:
     reports = {r.id: r.text for r in recipe.load_reports()}
     assert iocs(reports["R-06"]) == [
         ("url", "hxxps://login-portal[.]example[.]com/owa/"),
@@ -168,7 +168,7 @@ def check_planted() -> None:
     ]
     assert live(reports["R-06"]) == [True, True, False]
     assert iocs(reports["R-07"]) == [("domain", "cdn-sync[.]example[.]org")]
-    print("planted: R-06 two live URLs and a short hash; R-07 one domain ok")
+    print("examples: R-06 two live URLs and a short hash; R-07 one domain ok")
 
 
 class StandIn:
@@ -716,7 +716,7 @@ def check_short_reply() -> None:
     print("short reply: one result fewer than sent is a failed call, not a crash ok")
 
 
-def check_planted_status() -> None:
+def check_example_status() -> None:
     reports = recipe.load_reports()
     client = cast(SIEClient, StandIn([{"entities": []} for _ in reports]))
     techniques = recipe.load_techniques()
@@ -738,7 +738,7 @@ def check_planted_status() -> None:
         "R-11": "review",
     }, status
     print(
-        "planted status, no model spans: R-01 affects_us, R-02/R-05/R-07 hunt, "
+        "example status, no model spans: R-01 affects_us, R-02/R-05/R-07 hunt, "
         "R-03/R-06/R-11 review ok"
     )
 
@@ -757,11 +757,11 @@ if __name__ == "__main__":
     check_sie_failure()
     check_technique_cues()
     check_held_reason()
-    check_planted()
+    check_examples()
     check_lookups()
     check_product_names()
     check_relevance()
     check_outputs()
     check_missing_entities()
     check_short_reply()
-    check_planted_status()
+    check_example_status()

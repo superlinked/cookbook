@@ -89,8 +89,8 @@ Here are three of the questions in `data/questions.jsonl`, and what should happe
 
 **1. An answer that's only on a drawing.** Q2, unit CH-03, revision C.
 - **Input:** "Which valve do I open to drain the coolant reservoir?"
-- **What should happen:** the page search finds the piping diagram, the reader names the valve
-  tag, and Python finds the quote printed on that page.
+- **What should happen:** a search over the manual's pages finds the piping diagram, a model reads
+  it and names the valve tag, and Python confirms the quote is printed on that page.
 - **Expected outcome:** `quote_checked`, page 4, valve V3.
 
 **2. A question the manual doesn't answer.** Q8, unit CH-03, revision C.
@@ -101,12 +101,13 @@ Here are three of the questions in `data/questions.jsonl`, and what should happe
 
 **3. The same question, two manual revisions.** Q6, unit CH-03, revision C.
 - **Input:** "What torque do the strainer cover bolts need?"
-- **What should happen:** the revision B strainer page gives another torque; the revision filter
-  must drop it before the shortlist, so only the revision C page is read.
+- **What should happen:** the revision B strainer page gives another torque. This unit runs on
+  revision C, so that page has to be dropped before we pick which pages to read, and only the
+  revision C page gets read.
 - **Expected outcome:** `quote_checked`, page 8 revision C, 20 N m.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 10 of 10 questions came out as expected. [What came out](#what-came-out) has
+every one.
 
 ## How we'll solve it
 
@@ -258,19 +259,41 @@ embedding and answer models.
 
 From the live run on 2026-11-03 14:31 UTC (`runs/20261103T143143Z`):
 
-- **Q2:** `quote_checked`, page 4: "Open valve V3 to drain the coolant reservoir." The contents
-  page scored a hair higher and was read first; the reader said it doesn't answer, so the recipe
-  read the piping diagram next. As expected.
-- **Q8:** `no_reliable_match`. The best revision C page scored 0.496, under the 0.50 threshold.
-  As expected.
-- **Q6:** `quote_checked`, page 8 revision C, 20 N m. The revision B strainer page scored 0.664
-  and was never read. As expected.
+**1. An answer that's only on a drawing.** Q2, unit CH-03, revision C.
+- **Expected outcome:** `quote_checked`, page 4, valve V3.
+- **What came back:** `quote_checked`, page 4: "Open valve V3 to drain the coolant reservoir."
+- **Verdict:** Pass. The contents page scored a hair higher and was read first; the model reading
+  it said it doesn't answer, so the recipe read the piping diagram next.
 
-### Every planted case
+**2. A question the manual doesn't answer.** Q8, unit CH-03, revision C.
+- **Expected outcome:** `no_reliable_match`.
+- **What came back:** `no_reliable_match`. The best revision C page scored 0.496, under the 0.50
+  threshold.
+- **Verdict:** Pass. It was close, though, and a low score is a hint, not proof. The recipe isn't
+  saying the manual doesn't cover this, and the technician still pages through the manual or calls
+  engineering.
 
-On the live run on 3 Nov 2026, 10 of 10 planted cases came out as expected.
+**3. The same question, two manual revisions.** Q6, unit CH-03, revision C.
+- **Expected outcome:** `quote_checked`, page 8 revision C, 20 N m.
+- **What came back:** `quote_checked`, page 8 revision C, 20 N m.
+- **Verdict:** Pass. The revision B strainer page scored 0.664 and was never read.
 
-| Question | Unit (revision) | Planted | Planned | Came out | Why |
+### Every example
+
+On the live run on 3 Nov 2026, 10 of 10 questions came out as expected.
+
+**Where it works:** It found answers in a table, a schedule row and on drawings (Q1 to Q5, Q7), read
+only the right revision's page (Q6, Q10), and came back with no answer when no page scored high
+enough (Q8) or no page it read answered (Q9).
+
+**Where it fails:** This run didn't test the hard cases: it's one synthetic manual, with no degraded
+scan or look-alike tags. The limit to worry about is that a checked quote doesn't make the answer
+right or complete. An answer like "open V3" doesn't bring along the cool-down warning on page 1, and
+a quote stitched from two labels can still pass (see Potential improvements), so the technician
+reads the cited page before acting. Q8's 0.496 against the 0.50 threshold also shows how little
+room that threshold had here.
+
+| Question | Unit (revision) | What it tests | Planned | Came out | Why |
 | --- | --- | --- | --- | --- | --- |
 | Q1 | CH-03 (C) | Fault code E07, in a table | `quote_checked`, p. 6 | `quote_checked`, p. 6 | A plain table row |
 | Q2 | CH-03 (C) | Drain valve: the answer is only the V3 tag on the piping diagram | `quote_checked`, p. 4 | `quote_checked`, p. 4 (second page read) | The reason the recipe exists: the answer is a diagram label |
@@ -287,7 +310,7 @@ In all: 8 `quote_checked`, 1 `review` and 1 `no_reliable_match`, every one as pl
 after one fix: in the run before it, Q6 and Q10 went to `review`, and the first bullet below says
 why.
 
-The planted cases show the wiring works; they don't measure accuracy. Ten questions about one
+These results show the wiring works; they don't measure accuracy. Ten questions about one
 synthetic manual can't tell you how this does on yours.
 
 **What we saw.**
@@ -317,7 +340,7 @@ synthetic manual can't tell you how this does on yours.
                            "title": "Strainer basket replacement", "score": 0.6774}]}
 ```
 
-- **The revision filter matters beyond the planted pair.** For Q8 the revision B strainer page
+- **The revision filter matters beyond Q6 and Q10.** For Q8 the revision B strainer page
   scored 0.501, just over the 0.50 threshold, while the best revision C page scored 0.496. Without
   the filter the LLM would have read the old revision's page for a revision C unit.
 - **The contents page still outranks the answer.** For Q2 the contents page scored 0.6245 against

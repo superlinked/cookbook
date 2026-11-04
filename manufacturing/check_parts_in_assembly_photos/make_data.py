@@ -1,7 +1,7 @@
 """Draw the synthetic inspection photos for the check_parts_in_assembly_photos recipe.
 
 Writes data/inspection-photos.jpg (one sprite sheet, one tile per photo) and data/photos.csv
-(photo id, work order, assembly, tile box, what was planted). Every photo is drawn with Pillow
+(photo id, work order, assembly, tile box, what was drawn). Every photo is drawn with Pillow
 and numpy from a fixed seed, so the same code always writes the same files. Pillow saves the
 JPEG with no EXIF or XMP block, so there is no camera, GPS or author metadata to strip.
 
@@ -32,7 +32,7 @@ class Photo:
     photo_id: str
     work_order: str
     assembly: str
-    planted: str
+    drawn: str
     missing: tuple[int, ...] = ()  # bolt positions left empty (0 = first position)
     loose_bolt: bool = False  # a spare bolt lying on the bench, outside the part
     blur: float = 0.0  # Gaussian blur radius: an out-of-focus photo
@@ -358,7 +358,7 @@ def main() -> None:
                 "y": y,
                 "width": TILE,
                 "height": TILE,
-                "planted": photo.planted,
+                "drawn": photo.drawn,
             }
         )
     sprite.save(SPRITE_PATH, quality=92, optimize=True)

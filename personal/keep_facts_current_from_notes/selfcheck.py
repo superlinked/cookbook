@@ -284,14 +284,14 @@ def check_committed_data() -> None:
         "notes.md",
     ], names
     notes = (DATA / "notes.md").read_text(encoding="utf-8")
-    for planted in (
+    for line in (
         "16x25x1, MERV 11",
         "October 22 at 9:30 am",
         "password copper-kettle-42",
         "The wifi password is now juniper-lantern-77",
         "Car registration renewal is due by November 30",
     ):
-        assert planted in notes, planted
+        assert line in notes, line
     for absent in ("blood", "plumber", "ELLERY-HOME", "dentist", "$420"):
         assert absent.casefold() not in notes.casefold(), absent
     with Image.open(DATA / "boarding-pass-2026-10-20.png") as image:
@@ -301,7 +301,7 @@ def check_committed_data() -> None:
     for marker in (b"/Author", b"Exif", b"xmpmeta", b"/Font"):  # no text layer, no metadata
         assert marker not in raw, marker
     assert len(FACTS) == 10, FACTS
-    print("committed data: six sources, planted lines, no metadata, ten facts ok")
+    print("committed data: six sources, the expected note lines, no metadata, ten facts ok")
 
 
 def check_lookups() -> None:
@@ -357,7 +357,7 @@ def check_parsing() -> None:
     print("parsing: OCR tables flattened; glued numbers, times and days read ok")
 
 
-def check_planted_cases() -> None:
+def check_examples() -> None:
     index, lines, calls, _ = run()
     got = {fact: line["status"] for fact, line in lines.items()}
     assert got == {
@@ -386,7 +386,7 @@ def check_planted_cases() -> None:
     assert calls.count[RULES["models"]["transcribe"]] == 2, calls.count
     assert calls.count[RULES["models"]["answer"]] == 8, calls.count  # blood and plumber: none
     assert lines["denver_seat"]["note"].startswith("As printed on the paper pass")
-    print("planted cases: the ten facts come out as the README says ok")
+    print("examples: the ten facts come out as the README says ok")
 
 
 def check_value_supported() -> None:
@@ -927,7 +927,7 @@ def main() -> None:
     check_committed_data()
     check_lookups()
     check_parsing()
-    check_planted_cases()
+    check_examples()
     check_value_supported()
     check_kinds()
     check_updates()

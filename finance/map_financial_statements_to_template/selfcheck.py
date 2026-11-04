@@ -905,7 +905,7 @@ def check_committed_data() -> None:
         document = pdfium.PdfDocument(pdf)
         assert len(document) == 2, pdf
         document.close()
-    # The planted subtotal: Northfield prints 7,598 for lines that add up to 7,538.
+    # The wrong subtotal: Northfield prints 7,598 for lines that add up to 7,538.
     text = pdfium.PdfDocument(recipe.STATEMENTS_DIR / "BRW-18820.pdf")[1]
     layer = text.get_textpage().get_text_range()
     assert all(n in layer for n in ("3,412", "1,876", "2,250", "7,598")), layer

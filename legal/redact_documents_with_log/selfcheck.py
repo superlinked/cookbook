@@ -512,7 +512,7 @@ def check_set_and_outputs() -> None:
     rows = recipe.flag_rows(recipe.Result([doc], 1), RULES)
     assert "666-52-1187" not in rows[0]["paragraph"]
     assert "[REDACTED: SSN]" in rows[0]["paragraph"]
-    print("set and outputs: planted statuses with stand-in replies, no values written ok")
+    print("set and outputs: expected statuses with stand-in replies, no values written ok")
 
 
 TRANSIENT: list[SIEError] = [

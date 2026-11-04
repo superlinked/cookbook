@@ -75,30 +75,31 @@ anything.
 
 Here are three of the reports in `data/reports.jsonl`, and what should happen to each.
 
-**1. A patch summary (R-08).**
-- **Input:** "The IT team applied the March updates to 412 laptops and retired two legacy file
-  servers. No incidents were attributed to any threat group this quarter..."
-- **What should happen:** no CVE, no product we run, no indicator and nothing to review, so nobody
-  gets pinged.
-- **Expected outcome:** `filed`.
-
-**2. A CVE that's open on our VPN gateway (R-01).**
+**1. A CVE that's open on our VPN gateway (R-01).**
 - **Input:** "Ashen Heron gained access to a Fenwick Freight file server through CVE-2099-41077 in
   the Corvane VPN gateway."
 - **What should happen:** "Corvane VPN gateway" matches an inventory alias, and the scanner shows
   the CVE open on `vpn-gw-02` and patched on `vpn-gw-01`.
 - **Expected outcome:** `affects_us`, one ticket to the `network` team for `vpn-gw-02`.
 
-**3. A product with almost our name (R-11).**
+**2. A product with almost our name (R-11).**
 - **Input:** "Ashen Heron is exploiting CVE-2099-61840 in the Corvane VPN Concentrator, a separate
   hardware appliance line."
 - **What should happen:** it shares a vendor and the words "Corvane VPN" with what we run, but it
-  isn't the same product. The near-miss rule should send it to a person instead of the hunt list,
-  and no ticket goes out.
+  isn't the same product. A name that close to one of ours should go to a person instead of the hunt
+  list, and no ticket goes out.
 - **Expected outcome:** `review`, not `affects_us`.
 
-On the live run, 10 of 11 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+**3. A CVE the scanner says is patched (R-05).**
+- **Input:** "Copper Moth operators tunnelled RDP traffic out of the network through Chisel and kept
+  a QuillRAT backdoor on two hosts. Initial access came through CVE-2099-50213 in an unpatched
+  Corvane VPN gateway. The Chisel server listened on 203.0.113[.]58."
+- **What should happen:** it names the gateway we run, but the scanner shows this CVE patched on
+  both of ours, so nobody gets a ticket. Its IP should go to the SOC to search for.
+- **Expected outcome:** `hunt`, no ticket.
+
+On the live run, 10 of 11 reports came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -245,7 +246,7 @@ the technique cues, both lookups, every product-name near miss (a longer name, a
 however it's written, a bare vendor, a name inside an indicator), a second CVE the scanner never
 checked, the "not affected" cue, an open CVE on an unowned host,
 an alias two products share, that tickets never carry a live link and that only `hunt.csv` does,
-the status of the planted reports, and which SIE errors send reports to review and which stop the
+the status of the committed reports, and which SIE errors send reports to review and which stop the
 run. It runs offline with hand-written strings and stand-in model replies, so you can change
 `rules.yaml` or a seed and know right away if you broke something.
 
@@ -292,19 +293,42 @@ CVE-2099-50213 patched on both. Our live run was on 4 Nov 2026 (UTC).
 
 ### The three examples
 
-- **R-08:** `filed`. As expected.
-- **R-01:** `affects_us`, one ticket to `network` for `vpn-gw-02`, with `vpn-gw-01` noted as patched
-  (the ticket is quoted below). As expected.
-- **R-11:** `review`, no ticket, with the reason "close to the inventory's Corvane VPN Gateway but
-  not the same name". As expected.
+**1. A CVE that's open on our VPN gateway (R-01).**
+- **Expected outcome:** `affects_us`, one ticket to the `network` team for `vpn-gw-02`.
+- **What came back:** `affects_us`, one ticket to `network` for `vpn-gw-02`, with `vpn-gw-01` noted
+  as patched (the ticket is quoted below).
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A product with almost our name (R-11).**
+- **Expected outcome:** `review`, not `affects_us`.
+- **What came back:** `review`, no ticket, with the reason "close to the inventory's Corvane VPN
+  Gateway but not the same name".
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026, 10 of 11 planted cases came out as expected. R-05 is the one that
+**3. A CVE the scanner says is patched (R-05).**
+- **Expected outcome:** `hunt`, no ticket.
+- **What came back:** `review`, no ticket, with "patched on vpn-gw-01, vpn-gw-02" noted. The report
+  names Chisel, which has no ATT&CK mapping, and NuNER Zero tagged "RDP" as a tool at 0.55.
+- **Verdict:** Miss. The gateway part worked, but tagging review reasons come before `hunt`, so its
+  IP stays off the hunt list until the analyst clears the report.
+
+### Every example
+
+On the live run on 4 Nov 2026, 10 of 11 reports came out as expected. R-05 is the one that
 didn't: it came out `review` instead of `hunt`, for tagging reasons explained below. R-10 counts as
 expected with one unplanned extra review reason, "mail gateway" tagged as a tool.
 
-| Report | What we planted | Should come out | Result on our live run | Why |
+**Where it works:** an open CVE gets one ticket to the team that owns the host (R-01), and a patched
+one gets none (R-05). Indicators go on the hunt list (R-02, R-07), and a product with a close name
+goes to a person (R-11).
+
+**Where it fails:** R-05 should have reached the hunt list and went to review, because any tagging
+review reason comes first, including a tool nobody mapped or a word the model mistook for a tool. So
+7 of the 11 reports wait for an analyst, and that's the cost. The one to worry about is R-11's CVE:
+the scanner has no result for it, which could mean you don't run it or that the scanner doesn't
+check for it, and the recipe can't tell those apart.
+
+| Report | What's in it | Should come out | Result on our live run | Why |
 | --- | --- | --- | --- | --- |
 | R-01 | CVE-2099-41077 in the Corvane VPN gateway; the scanner shows it open on vpn-gw-02 | `affects_us`, ticket to the network team | `affects_us`, one ticket to `network` for `vpn-gw-02` | The case the recipe exists for. `vpn-gw-01` is a note: patched |
 | R-05 | CVE-2099-50213 in the same gateway; the scanner shows it patched | `hunt` for its indicators, no ticket | **`review`**, no ticket | The lookups came out as planned (no ticket, "patched on vpn-gw-01, vpn-gw-02" noted), but the report also names `Chisel`, a tool with no ATT&CK mapping, and NuNER Zero tagged "RDP" as a tool. Both are tagging review reasons, and they come before `hunt` |
@@ -318,7 +342,7 @@ expected with one unplanned extra review reason, "mail gateway" tagged as a tool
 | R-09 | Administrators used `rclone` to back up a file server | `review` | `review` | rclone tagged, its candidate T1567.002 held: the sentence says "back up" |
 | R-10 | "No Mimikatz execution was observed" | `review` | `review` | T1003.001 held: the sentence says "no". NuNER Zero also tagged "mail gateway" as a tool (0.91), a second reason |
 
-That's 1 `affects_us`, 2 `hunt`, 1 `filed` and 7 `review`. Treat the planted cases as a demo that
+That's 1 `affects_us`, 2 `hunt`, 1 `filed` and 7 `review`. Treat these reports as a demo that
 the wiring works. They say nothing about accuracy: eleven reports tell you the lookups and rules
 fire where they should, not how often they're wrong.
 
@@ -344,7 +368,7 @@ A few things worth noticing:
   > Ashen Heron gained access to a Fenwick Freight file server through CVE-2099-41077 in the Corvane VPN gateway.
   ```
 
-- **R-05 didn't come out as planted, and we left it.** The gateway part worked: no ticket,
+- **R-05 didn't come out the way we wrote it, and we left it.** The gateway part worked: no ticket,
   and `tags.json` records why. But the report names Chisel, which has no ATT&CK mapping in
   `rules.yaml`, and on this run NuNER Zero tagged "RDP" as a tool at 0.55. Both are tagging
   review reasons, and `review` comes before `hunt`. We could have mapped Chisel to T1572
@@ -459,7 +483,7 @@ Everything below lives in `rules.yaml` or a seed unless it says otherwise.
 - **Idea: the scanner's dates.** A `patched` finding from a scan older than the report is weaker
   evidence than one from yesterday. Carrying the scanner's last-seen date would let the recipe
   send stale results to review.
-- **Idea: measure it.** Eleven planted reports prove the wiring. Before you trust it, run it on a
+- **Idea: measure it.** Eleven sample reports prove the wiring. Before you trust it, run it on a
   month of your own reports and look at what lands in review and what an analyst would have
   routed differently.
 

@@ -70,30 +70,29 @@ is, and those matter for what to build first.
 
 Here are three of the sentences in `data/reports.jsonl`, and what should happen to each.
 
-**1. A tool you already have a rule for.**
-- **Input:** "Gorse Moth, the group other vendors call Velvet Gorse, deployed Thornpipe against a
-  freight broker in July." (R-02, Dunmore Intel)
-- **What should happen:** "Gorse Moth" merges into Velvet Gorse, the sentence makes it a group
-  targeting freight, and the catalog's DR-0101 covers "Thornpipe implant", an alias of Thornpipe.
-- **Expected outcome:** Thornpipe is `rule_exists`, with Velvet Gorse on the row.
-
-**2. A tool nobody wrote a rule for.**
+**1. A tool nobody wrote a rule for.**
 - **Input:** "Saltmarsh Kettle used the Quillstep loader to gain a foothold on harbour networks.
   Saltmarsh Kettle targeted port operators along the northern coast." (R-03, Northfold CERT)
 - **What should happen:** a clear use by a group that targets port operators, and nothing in the
   catalog covers Quillstep.
 - **Expected outcome:** Quillstep is `no_rule`, with Saltmarsh Kettle on the row.
 
-**3. A denial.**
+**2. A denial.**
 - **Input:** "We found no evidence that Saltmarsh Kettle used Thornpipe." (R-04, Northfold CERT)
-- **What should happen:** the model may well read this as a use, but the negation word holds it
-  back, so it never becomes an edge.
+- **What should happen:** the model may well read this as a use. We check the sentence for words of
+  doubt like "no evidence", and this one holds it back, so it never becomes an edge.
 - **Expected outcome:** no edge; Saltmarsh Kettle is not one of Thornpipe's groups, and the sentence
   is listed in the backlog's held-back column, the sentences the recipe kept out of the graph for an
   analyst to read.
 
-On the live run, 6 of 6 planted cases came out as expected; [What came out](#what-came-out) has each
-one.
+**3. A hedged claim, which needs a person.**
+- **Input:** "Based on code overlap and shared infrastructure, Murkbell is possibly attributable to
+  Saltmarsh Kettle." (R-03, Northfold CERT)
+- **What should happen:** "possibly" isn't enough to put Murkbell on the backlog, and the recipe
+  doesn't decide that on its own. The sentence is held back and the CTI analyst checks it.
+- **Expected outcome:** Murkbell is `needs_review`, with the sentence in the held-back column.
+
+On the live run, 6 of 6 cases came out as expected. [What came out](#what-came-out) has every one.
 
 ## How we'll solve it
 
@@ -253,19 +252,43 @@ We ran it live on 4 Nov 2026 (UTC).
 
 ### The three examples
 
-- **Thornpipe:** `rule_exists`, Velvet Gorse, matched to DR-0101 through the alias table. As
-  expected.
-- **Quillstep:** `no_rule`, Saltmarsh Kettle, with Dunmore Intel and Northfold CERT as publishers
-  (the row is quoted below). As expected.
-- **The denial:** the model returned it at 0.92 anyway, and the recipe held it back: no edge, and
-  the line "R-04: Saltmarsh Kettle uses Thornpipe: a negation or hedging word in its sentence" under
-  Thornpipe. As expected.
+**1. A tool nobody wrote a rule for.**
+- **Expected outcome:** Quillstep is `no_rule`, with Saltmarsh Kettle on the row.
+- **What came back:** `no_rule`, Saltmarsh Kettle, with Dunmore Intel and Northfold CERT as
+  publishers (the row is quoted below).
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A denial.**
+- **Expected outcome:** no edge; Saltmarsh Kettle is not one of Thornpipe's groups, and the sentence
+  is listed in the backlog's held-back column.
+- **What came back:** the model returned it at 0.92 anyway, and the recipe held it back: no edge,
+  and the line "R-04: Saltmarsh Kettle uses Thornpipe: a negation or hedging word in its sentence"
+  under Thornpipe.
+- **Verdict:** Pass. The model alone would have got this one wrong; the check on the sentence's
+  words is what kept it out.
 
-On the live run on 4 Nov 2026, 6 of 6 planted cases came out as expected:
+**3. A hedged claim, which needs a person.**
+- **Expected outcome:** Murkbell is `needs_review`, with the sentence in the held-back column.
+- **What came back:** `needs_review`, Saltmarsh Kettle, port operators, with the sentence in
+  `held_back` (the row is quoted below).
+- **Verdict:** Pass. The cost is the CTI analyst's time: the recipe stops at "go and read this" and
+  leaves the call to them.
 
-| Item | What we planted | Result on our live run | Why |
+### Every example
+
+On the live run on 4 Nov 2026, 6 of 6 cases came out as expected.
+
+**Where it works:** it finds tools with a clear use and no rule (Quillstep, Larchwick), matches a
+rule written under another name (Thornpipe), and doesn't let a close name count as a rule
+(Larchwood). It also keeps a denial the model read as a use off the backlog (R-04), and sends a
+hedge to a person (Murkbell).
+
+**Where it fails:** this run didn't test the wording the doubt words miss. A denial or hedge without
+one of them ("stopped using", "retracted", "we assess with moderate confidence") stays a claim, and
+that's the one to worry about, since it can put the wrong tool on the backlog. It also doesn't join
+a group to a sector across two sentences, so a chain written that way is left out.
+
+| Item | What's in the data | Result on our live run | Why |
 | --- | --- | --- | --- |
 | Quillstep | Saltmarsh Kettle uses it (two Northfold reports) and targets port operators; no rule | **`no_rule`**, Saltmarsh Kettle | The case the recipe exists for |
 | Thornpipe | Velvet Gorse used it against a freight broker; DR-0101 covers "Thornpipe implant" | **`rule_exists`**, Velvet Gorse | Already handled. The rule names an alias, and the alias table makes it a match |
@@ -275,7 +298,7 @@ On the live run on 4 Nov 2026, 6 of 6 planted cases came out as expected:
 | Larchwood (near miss) | DR-0103 covers "Larchwood stealer", which scores 0.82 against "Larchwick stealer" (difflib), above the 0.8 `near_name_ratio` | Larchwick stays **`no_rule`**, with a note naming DR-0103 | A close name is a different tool until someone says otherwise |
 
 The run gave 4 backlog rows (2 `no_rule`, 1 `needs_review`, 1 `rule_exists`), and a graph of 17
-nodes, 15 edges, 16 review items and 4 dropped relations. Treat the planted cases as a demo of
+nodes, 15 edges, 16 review items and 4 dropped relations. Treat these cases as a demo of
 how the recipe behaves: they tell you the wiring is right, and nothing about accuracy.
 
 A few things worth noticing:

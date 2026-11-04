@@ -97,27 +97,27 @@ Here are three of the outside notes in `data/`, and what should happen to each.
 **1. A clean follow-up.** `note-01.txt`, filed in Marisol Quenby's chart.
 - **Input:** "Medications: - Metformin 500 mg PO twice daily - Lisinopril 10 mg PO once daily ...
   1. Type 2 diabetes mellitus without complications. ... 2. Essential hypertension, controlled."
-- **What should happen:** both doses are read after their own drug and match the intake form,
-  and both problems get a clear code.
+- **What should happen:** each dose goes with its own drug and matches the intake form, and
+  both problems get a clear code.
 - **Expected outcome:** `checks_passed`, both medications `matches_chart`, E11.9 and I10 suggested.
 
 **2. An allergy the note contradicts.** `note-04.txt`, filed in Caius Wendell-Moore's chart.
 - **Input:** "Allergies: Penicillin (hives). ... 1. Streptococcal pharyngitis. Start amoxicillin
   500 mg PO three times daily for 10 days."
-- **What should happen:** amoxicillin is active and in the penicillin class, so the allergy check
-  fires.
+- **What should happen:** amoxicillin is being started and it's in the penicillin class, so this
+  goes to a clinician.
 - **Expected outcome:** `clinical_review` for an allergy class conflict; J02.0 suggested.
 
-**3. A stop that comes after the list.** `note-09.txt`, filed in Tobias Renfrew's chart.
-- **Input:** "Medications: - Lisinopril 10 mg daily ... Stop lisinopril because of a dry cough.
-  Start losartan 50 mg daily."
-- **What should happen:** the last mention decides, so lisinopril is discontinued even though the
-  medication list has it, and losartan is compared with the intake form, which already lists it.
-- **Expected outcome:** `checks_passed`, lisinopril discontinued, losartan active and
-  `matches_chart`.
+**3. A note with no allergy statement.** `note-08.txt`, filed in Odile Fairbanks's chart.
+- **Input:** "Medications: - Nitrofurantoin 100 mg PO twice daily for 5 days ... Vitals: BP 116/72,
+  HR 88, Temp 100.9 F, RR 16, SpO2 99%." The note has no allergy line anywhere, and the chart has
+  none on file either.
+- **What should happen:** no statement at all isn't the same as "no allergies", so this goes to a
+  clinician.
+- **Expected outcome:** `clinical_review`: allergy status not documented anywhere; N30.00 suggested.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 10 of 10 notes came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -180,7 +180,7 @@ for "dose of amoxicillin with its unit", so the dose comes back tied to the drug
 `Ihor/gliner-biomed-large-v1.0` looks like the obvious pick for clinical text, but it's a span
 tagger: it takes labels, not an `output_schema`, so it can't ask for the dose *of amoxicillin* or
 keep a dose with its drug. gliner2-large-v1 reads about 512 tokens at a time, so the recipe cuts
-notes into windows of 180 words (every planted note fits in one). It has a habit worth knowing:
+notes into windows of 180 words (every sample note fits in one). It has a habit worth knowing:
 asked for the lists and the vitals in one schema, it read the heart rate from "regular rate and
 rhythm", which is why the recipe asks for them separately. It still reads a heart rate from the
 wrong number now and then (see note-08 below), which is why Python checks the label.
@@ -260,7 +260,7 @@ SIE Cloud's way of saying it found nothing: for a list window that goes to the c
 a drug's details it leaves the dose missing, which goes to the clinician anyway.
 
 [`selfcheck.py`](./selfcheck.py) runs all ten notes through the real decision functions with
-hand-written stand-in model replies and checks that each comes out as planted. It also checks the
+hand-written stand-in model replies and checks that each comes out as expected. It also checks the
 stop-and-start reading (held drugs and negated starts too), doses that belong to the wrong drug,
 family history and negation ("no change in" doesn't negate), the chart comparison, allergy
 classes and an unread allergy line, label-bound vitals (Celsius, pounds, an impossible blood
@@ -302,24 +302,43 @@ visit. The code set is [`data/icd10cm-subset.tsv`](./data/icd10cm-subset.tsv), 7
 
 ### The three examples
 
-- **note-01** came out `checks_passed`, metformin and lisinopril both `matches_chart`, E11.9 and
-  I10 suggested. As expected.
-- **note-04** came out `clinical_review` with the allergy class conflict, and J02.0 suggested.
-  As expected.
-- **note-09** came out `checks_passed`: lisinopril discontinued, losartan active and
-  `matches_chart` (the intake form already has it). As expected; the later "stop" won.
+**1. A clean follow-up.** `note-01.txt`, filed in Marisol Quenby's chart.
+- **Expected outcome:** `checks_passed`, both medications `matches_chart`, E11.9 and I10 suggested.
+- **What came back:** `checks_passed`, metformin and lisinopril both `matches_chart`, E11.9 and I10
+  suggested.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. An allergy the note contradicts.** `note-04.txt`, filed in Caius Wendell-Moore's chart.
+- **Expected outcome:** `clinical_review` for an allergy class conflict; J02.0 suggested.
+- **What came back:** `clinical_review` with the allergy class conflict, and J02.0 suggested.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026 (UTC), 10 of 10 planted cases came out as expected. note-08 also got
-one review item we didn't plant (a heart rate it couldn't trust, below); that only adds to a review
-it was getting anyway.
+**3. A note with no allergy statement.** `note-08.txt`, filed in Odile Fairbanks's chart.
+- **Expected outcome:** `clinical_review`: allergy status not documented anywhere; N30.00 suggested.
+- **What came back:** `clinical_review`: allergy status not documented anywhere; N30.00 suggested.
+  Plus one more review item: the model read the heart rate as `72`, and the draft has no heart rate.
+- **Verdict:** Pass. The status is right, but the note says "HR 88" and that number isn't in the
+  draft, so the clinician has to read it off the note.
+
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 10 of 10 notes came out as expected.
+
+**Where it works:** the checks caught the typos (note-02, note-03), the allergy conflict (note-04), the
+stopped drugs (note-05, note-09), the missing dose (note-06) and the missing allergy statement
+(note-08). Family history stayed off the problem list (note-10), and a problem with no good code
+went to the coder (note-07).
+
+**Where it fails:** the extraction model still misreads things. note-08 also got one review item we
+didn't expect (a heart rate it couldn't trust, below); that only adds to a review it was getting
+anyway, and it's the one to look at. Some details came back partial (note-01, note-03, note-07). A
+"hold" reads as stopped, and none of these notes covers several visits in one note.
 
 > **The notes and charts are synthetic.** [`make_data.py`](./make_data.py) writes them; every
 > patient, clinician and clinic (Larkspur Family Practice, Harrow Creek Medical Group, Bellwether
 > Internal Medicine) is invented. No real patient data.
 
-| Case | What we planted | Came out | Why |
+| Case | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | note-01 | Diabetes and hypertension follow-up; chart lists the same metformin and lisinopril doses | `checks_passed`: both medications `matches_chart`; E11.9 and I10 suggested | The clean case: a draft the clinician only has to confirm |
 | note-02 | "Levothyroxine 50 mg"; the intake form says 50 mcg | `clinical_review`: dosed in mcg, and `differs_from_chart`; hypothyroidism `matches_chart` | A unit slip a person retyping would copy |
@@ -399,7 +418,7 @@ Nothing goes into the chart's structured lists without that reconciliation.
 - **A note from several visits.** The checks assume one visit per note; two readings of one vital
   already go to review, but a note with an old and a new medication list would need the visit
   dates read first.
-- **Measure it.** Ten planted notes prove the wiring. Before you trust it, run it on a few weeks
+- **Measure it.** Ten sample notes prove the wiring. Before you trust it, run it on a few weeks
   of your own outside records and compare the drafts with what your staff abstracted by hand.
 
 **Known SIE Cloud issue.** When gliner2-large-v1 finds no field in an item, SIE Cloud currently
@@ -453,7 +472,7 @@ file [`2027-code-descriptions-tabular-order.zip`](https://www.cms.gov/files/zip/
 November 2026; the 73 descriptions in the subset read the same as in
 FY2026. ICD-10-CM is maintained by CDC's National Center for Health Statistics and published by
 CMS; it is in the public domain in the US. Plantar fasciitis (`M67.A01`, `M67.A02`, `M67.A09`)
-is left out on purpose so one planted problem has no right answer.
+is left out on purpose so one problem in the notes has no right answer.
 
 ## Files
 

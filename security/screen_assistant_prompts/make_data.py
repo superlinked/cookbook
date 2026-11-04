@@ -1,4 +1,4 @@
-"""Draw the synthetic screenshots in data/screenshots/ that three of the planted prompts attach.
+"""Draw the synthetic screenshots in data/screenshots/ that three of the prompts attach.
 
 Analysts paste screenshots as evidence: a cloud console page someone changed by hand
 (ClickOps), or a reported email that arrived only as a picture. These three are drawn from

@@ -81,29 +81,29 @@ Here are three of the returns in `data/returns.jsonl`, and what should happen to
 
 **1. A clean return.** R-02.
 - **Input:** two photos of the HP S500 Wireless Mouse box (`opf_1944412406274_1.jpg`, front, and
-  `opf_1944412406274_5.jpg`, barcode side), against the sale `"upc": "1944412406274", "product":
-  "HP S500 Wireless Mouse", "brand": "HP", "model": "7YA11PA"`.
+  `opf_1944412406274_5.jpg`, barcode side), against the sale line for that same mouse: UPC
+  1944412406274, model 7YA11PA.
 - **What should happen:** OCR reads the digits under the barcode, they match the sale's UPC, and
   the condition questions raise nothing that matters.
 - **Expected outcome:** `accept`, UPC matches, inside the 30-day window.
 
-**2. A near miss.** R-04.
+**2. A near miss: the box is a different toaster model.** R-04.
 - **Input:** one photo of a Black+Decker TR1250WD toaster box (`opf_0050875827974_1.jpg`), against
-  the sale `"product": "Black+Decker 2-Slice Toaster", "brand": "Black+Decker", "model":
-  "TR1300WD"`.
+  the sale line for a Black+Decker 2-Slice Toaster, model TR1300WD.
 - **What should happen:** no barcode is in the photo, so the model number decides. Brand and name
   words match, but the box shows a model number close to the sale's and not the same.
-- **Expected outcome:** `refer`, product check `mismatch` on the model number.
+- **Expected outcome:** `refer`, product check `mismatch` (the box isn't what was sold) on the
+  model number.
 
-**3. Damaged, nothing to read.** R-06.
-- **Input:** one photo of a Samsung Galaxy S2 with a shattered screen and no box
-  (`Samsung_Galaxy_S2_shattered_screen.jpg`), against the sale `"product": "Samsung Galaxy S2
-  Smartphone, Refurbished"`.
-- **What should happen:** the product check can't confirm anything, and the condition model should
-  call the cracked screen major product damage.
-- **Expected outcome:** `refer`, product damage `major`.
+**3. A crumpled carton that says nothing about what's inside.** R-07.
+- **Input:** one photo of a crumpled shipping carton with a FRAGILE sticker
+  (`Damaged_fragile_parcel_delivered_to_doorstep.jpg`), against the online order for a Larkfield
+  Stoneware Dinner Set, 16 Piece.
+- **What should happen:** nothing on the carton identifies the product, so the product check can't
+  confirm it, and the condition model should call the carton damaged.
+- **Expected outcome:** `inspect`, with the carton called damaged.
 
-On the live run, 5 of 7 planted cases came out as expected; [What came out](#what-came-out) has each
+On the live run, 5 of 7 returns came out as expected. [What came out](#what-came-out) has every
 one.
 
 ## How we'll solve it
@@ -160,7 +160,7 @@ The condition model is `Qwen/Qwen3.8-27B-FP8`, a vision-language model, through 
 this cookbook use to read page images and answer in JSON. Here it gets a JSON schema with an
 allowed list for each question (`response_format` with `strict: true`) and temperature 0. It
 was good at the obvious things: a shattered screen is `major` product damage, a bag lying next
-to an open box is `incomplete` contents. It was more forgiving than we planted on packaging: the
+to an open box is `incomplete` contents. It was more forgiving on packaging than we expected: the
 crumpled shipping carton came back as `minor` damage, and the shrink-wrapped diskette box as
 `closed`, not `sealed`. That's why a scuffed or creased box doesn't change the guidance in
 `rules.yaml`; only `major` packaging damage does.
@@ -260,22 +260,45 @@ All 7 returns came back on 30 Oct 2026; the days since the sale are counted from
 
 ### The three examples
 
-- **R-02, the clean return:** `accept`. UPC 1944412406274 read and matched; packaging damage
-  `minor` changed nothing; 10 of 30 days. As expected.
-- **R-04, the near miss:** `refer`. "The packaging shows model TR12501WD, close to but not the
-  sale's TR1300WD." GLM-OCR misread the box's TR1250WD, but the misread was still close enough to
-  count as a different model. As expected.
-- **R-06, the damaged phone:** `refer`. The product check said `inspect` (nothing on the
-  packaging identifies the product), and the condition model's `major` product damage won. As
-  expected.
+**1. A clean return.** R-02.
+- **Expected outcome:** `accept`, UPC matches, inside the 30-day window.
+- **What came back:** `accept`. UPC 1944412406274 read and matched; packaging damage `minor` changed
+  nothing; 10 of 30 days.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A near miss: the box is a different toaster model.** R-04.
+- **Expected outcome:** `refer`, product check `mismatch` (the box isn't what was sold) on the
+  model number.
+- **What came back:** `refer`. "The packaging shows model TR12501WD, close to but not the sale's
+  TR1300WD."
+- **Verdict:** Pass. GLM-OCR misread the box's TR1250WD, but the misread was still close enough to
+  count as a different model.
 
-On the live run on 2 Nov 2026, 5 of 7 planted cases came out as expected. All 7 got their
-planted guidance level, but two planted details came out differently: R-07's crumpled carton was
+**3. A crumpled carton that says nothing about what's inside.** R-07.
+- **Expected outcome:** `inspect`, with the carton called damaged.
+- **What came back:** `inspect`, from the product check (nothing on the carton identifies the
+  product), with packaging damage `minor`.
+- **Verdict:** Miss. The level is right, but `minor` packaging damage changes nothing in
+  `rules.yaml`, so the crumpled carton itself raised nothing. The `inspect` comes from the product
+  check alone.
+
+### Every example
+
+On the live run on 2 Nov 2026, 5 of 7 returns came out as expected. All 7 got the guidance level
+we expected, but two details came out differently: R-07's crumpled carton was
 called `minor` packaging damage, and R-01's shrink-wrapped pack was called `closed`, not `sealed`.
 
-| Return | What we planted | Guidance | Why |
+**Where it works:** comparing the box with the sale. A matching UPC gives `accept` (R-01, R-02), and
+the wrong item (R-03) and the near-miss model number (R-04) both go to a manager. The condition
+model also catches the obvious things: the shattered screen (R-06) and the part in its bag next to
+an open box (R-05).
+
+**Where it fails:** the condition model is too forgiving on packaging. R-01's `closed` changes
+nothing at a desk where sealed and closed lead to the same place. R-07 is the one to worry about:
+the carton's damage raised nothing, and it only got to `inspect` because nothing on the carton
+identifies the product.
+
+| Return | What's on the counter | Guidance | Why |
 | --- | --- | --- | --- |
 | R-01 | A pack of Universal 3.5" diskettes in its shrink wrap, against the sale for that pack | accept | UPC 087547003503 read and matches; condition answers raised nothing; 28 of 90 days |
 | R-02 | The HP S500 Wireless Mouse box, front and barcode side, against the sale for it | accept | UPC 1944412406274 read and matches; packaging damage `minor` changes nothing; 10 of 30 days |
@@ -288,7 +311,7 @@ called `minor` packaging damage, and R-01's shrink-wrapped pack was called `clos
 On our live run on 2 Nov 2026 (UTC) all 7 got their planned guidance level, with the settings as
 first written: the same 7 guidance levels as our runs before the two-barcode, other-model-number and
 opened-and-not-seen checks were added. Those checks added a reason to R-05 and R-06 and changed no
-level. Two planted details came out differently, and we left them that way. We planted R-07 as
+level. Two details came out differently, and we left them that way. We picked the R-07 photo as
 damaged packaging, and the condition model called it `minor` damage, so the `inspect` comes from the
 product check alone. And the condition model called R-01's shrink-wrapped box `closed`, not
 `sealed`; at a desk where sealed and closed lead to the same place, that changes nothing. Treat all
@@ -372,7 +395,7 @@ not the code.
   the sale's isn't read, and `cant_confirm` next to it, even if it's an inner pack or a multipack
   code for the right product. A store with such packaging
   would want a list of the GTINs that belong to each SKU.
-- **Measure it.** Seven planted returns prove the wiring. Before you trust the levels, run it on
+- **Measure it.** Seven sample returns prove the wiring. Before you trust the levels, run it on
   a few weeks of your own return photos and see how often `inspect` and `refer` were right.
 
 ## Try another model
@@ -436,7 +459,7 @@ doesn't care, but your associates' photos will look different.
   rules and SIE failure rule, no SIE call (`uv run selfcheck.py`)
 - `rules.yaml`: models, photo sizes, product check thresholds, condition findings, store policy
   and guidance levels
-- `data/returns.jsonl`: the 7 planted returns
+- `data/returns.jsonl`: the 7 sample returns
 - `data/photos/`: the 8 photos, metadata removed
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 

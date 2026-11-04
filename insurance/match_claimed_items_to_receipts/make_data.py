@@ -65,7 +65,7 @@ class Receipt:
     items: tuple[Line, ...]
     discounts: tuple[Line, ...] = ()
     tax_rate: str = "0.08"
-    total_offset: str = "0.00"  # plant a printed total that differs from the lines
+    total_offset: str = "0.00"  # print a total that differs from the lines
     angle: float = -1.0  # degrees the photo is tilted
     unreadable: bool = False  # out of focus and underexposed
 

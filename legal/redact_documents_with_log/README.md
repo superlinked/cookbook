@@ -129,12 +129,11 @@ Here are three of the documents in `data/text/`, and what should happen to each.
 - **Input:** `PMS0000003.txt`, a wire confirmation: "Credit account: 4471900321" and, four lines
   down, "Memo: cargo claim 404-18-2210".
 - **What should happen:** The account number has its label and comes out down to the last four
-  digits. The claim reference has no SSN label, so nothing redacts it, but the sweep sees an SSN
-  shape still readable and hands it to a person.
+  digits. The claim reference has no SSN label, so nothing redacts it, but a last check over the
+  redacted text sees something shaped like an SSN still readable and hands it to a person.
 - **Expected outcome:** `needs_review` for line 10, with the account shown as "account ending 0321".
 
-On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has each
-one.
+On the live run, 8 of 8 cases came out as expected. [What came out](#what-came-out) has every one.
 
 ## How we'll solve it
 
@@ -284,16 +283,39 @@ starts the PII model. A warm run makes 6 SIE calls, one per document, and takes 
 
 ### The three examples
 
-1. **PMS0000002:** `redactions_checked`; the date of birth, SSN and home address redacted, one log
-   line each (lines 8, 11, 12), "Tomas Reyna" and "12 June 2026" readable. As expected.
-2. **PMS0000004:** `privilege_flag` on lines 6 to 8 only, reason "in a message to or from Priya
-   Okonjo"; the forwarded email from Kittering readable. As expected.
-3. **PMS0000003:** `needs_review`: "line 10: an SSN-shaped number is still readable", and the
-   account masked as "account ending 0321". As expected.
+**1. A crew member's personal data in an insurance email.**
+- **Expected outcome:** `redactions_checked`, three log lines.
+- **What came back:** `redactions_checked`; the date of birth, SSN and home address redacted, one
+  log line each (lines 8, 11, 12), "Tomas Reyna" and "12 June 2026" readable.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. The client asks the firm's lawyer for advice.**
+- **Expected outcome:** `privilege_flag` on Osric's paragraph only.
+- **What came back:** `privilege_flag` on lines 6 to 8 only, reason "in a message to or from Priya
+  Okonjo"; the forwarded email from Kittering readable.
+- **Verdict:** Pass. It stays unredacted until the associate decides.
 
-On the live run on 4 Nov 2026 (UTC), 8 of 8 planted cases came out as expected.
+**3. A claim number shaped like an SSN.**
+- **Expected outcome:** `needs_review` for line 10, with the account shown as "account ending 0321".
+- **What came back:** `needs_review`: "line 10: an SSN-shaped number is still readable", and the
+  account masked as "account ending 0321".
+- **Verdict:** Pass. This is the limit. The recipe can't tell a claim reference from an SSN, so
+  it leaves the number readable and a person decides.
+
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 8 of 8 cases came out as expected.
+
+**Where it works:** only what the protocol lists comes out, each with its log line (PMS0000002), one
+account gets caught in two spellings (PMS0000003 and PMS0000005), names and a delivery date right
+next to a date of birth stay readable, the privilege flag lands on one paragraph of a chain
+(PMS0000004), and opposing counsel's words don't get flagged (PMS0000005).
+
+**Where it fails:** it sends work to a person when it can't tell, as with the claim reference in
+PMS0000003, and it doesn't decide privilege at all. The one to worry about is what this run doesn't
+measure, which is how often the model misses a value. A value the model misses with its label on
+another line, like a date of birth in a table, isn't caught by the sweep. A paragraph that says only
+"Priya" isn't flagged unless it's in a message to or from her.
 
 The input is one fictional matter, Pellham Marine Supply LLC v. Kittering Marine Holdings, with
 Hollis & Crane LLP for Pellham:
@@ -310,7 +332,7 @@ Hollis & Crane LLP for Pellham:
 
 Case by case:
 
-| Case | What we planted | Came out | Why |
+| Case | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | PMS0000001 shipment email | Osric Pellham, his operations manager and Kittering's operations director by name, dates and amounts | `redactions_checked`, no redactions, every name readable | The other side is entitled to who said what |
 | PMS0000002 crew insurance email | A crew member's SSN, date of birth and home address | `redactions_checked`; all three redacted, one log line each (lines 8, 11, 12); "Tomas Reyna" readable | The plain case: exactly what the protocol lists |

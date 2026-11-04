@@ -50,7 +50,8 @@ LOGS = LogPlatform(recipe.LOGS_SEED)
 RUNBOOKS = WIKI.runbooks()
 EMBED, RERANK, NOTE = (RULES["models"][key] for key in ("embed", "rerank", "note"))
 
-# The planted causes, by a word only that cause's alerts use, and the runbook that covers each.
+# The five causes in the storm, by a word only that cause's alerts use, and the runbook that
+# covers each.
 CAUSES = [
     ("payment", "RB-01"),
     ("ad", "RB-02"),
@@ -67,11 +68,11 @@ def cause_of(text: str) -> int:
     ):
         if re.search(word, lowered):
             return 4 - number
-    raise AssertionError(f"no planted cause for {text!r}")
+    raise AssertionError(f"no cause for {text!r}")
 
 
 class StandIn:
-    """Stands in for SIEClient. Embeddings are one-hot by planted cause, so each cause's alerts
+    """Stands in for SIEClient. Embeddings are one-hot by cause, so each cause's alerts
     group together; the reranker scores a group's runbook 0.99 and every other 0.01 (the Kafka
     group scores 0.001 everywhere); the note cites the group's first alert and the runbook.
     `errors` maps a model to the errors its next calls raise; `replies` maps a model to a raw
@@ -428,7 +429,7 @@ def check_committed_data() -> None:
     )
 
 
-def check_planted_flow() -> None:
+def check_whole_flow() -> None:
     groups, warnings, calls = run()
     got = by_status(groups)
     assert got == [
@@ -463,7 +464,7 @@ def check_planted_flow() -> None:
         ], gaps
         md = (Path(name) / "triage.md").read_text(encoding="utf-8")
         assert "Each group is a guess at one problem" in md
-    print("planted flow: 7 groups as planned with stand-in replies, 12 calls ok")
+    print("whole flow: 7 groups as planned with stand-in replies, 12 calls ok")
 
 
 def check_rejected_note_hidden() -> None:
@@ -684,7 +685,7 @@ if __name__ == "__main__":
     check_note_rules()
     check_prompt()
     check_committed_data()
-    check_planted_flow()
+    check_whole_flow()
     check_rejected_note_hidden()
     check_close_call_flow()
     check_sie_failure()

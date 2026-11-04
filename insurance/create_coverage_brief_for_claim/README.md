@@ -58,7 +58,7 @@ nobody has established yet. Nothing in it is a coverage decision.
 
 A keyword search doesn't do this. "Water" hits half the form, and "dripping for months" doesn't
 contain the words "seepage" or "14 or more days". And the intake code doesn't help much either:
-six of the ten planted claims are `WATER`, from the burst hose to the flooded basement. One
+six of the ten sample claims are `WATER`, from the burst hose to the flooded basement. One
 LLM call with the whole policy and the question "is this covered?" gives you a verdict that
 sounds sure of itself, quotes you can't trust without checking, and a habit of filling missing
 facts with assumptions. So a reranker picks the candidate clauses, an LLM drafts a reading of
@@ -97,24 +97,17 @@ says covered either.
 
 Here are three of the claims in `data/claims.csv`, and what should happen to each.
 
-**1. A sudden leak.**
+**1. A sudden leak.** CLM-01.
 - **Input:** CLM-01, `WATER`: "On Sunday morning the braided supply hose to our dishwasher split
   while it was running. Water sprayed across the kitchen for about twenty minutes before we shut
   the valve..."
-- **What should happen:** the reranker shortlists the water clauses, the LLM reads the sudden
+- **What should happen:** a model shortlists the water clauses, the LLM reads the sudden
   discharge coverage as applying and the 14-day seepage exclusion as not, and every quote is
   found.
-- **Expected outcome:** `quotes_checked`; COV-05 `applies`, EXC-03 `does_not_apply`.
+- **Expected outcome:** `quotes_checked`; COV-05 (the discharge coverage) `applies`, EXC-03 (the
+  seepage exclusion) `does_not_apply`.
 
-**2. The same room, the opposite answer.**
-- **Input:** CLM-03, `WATER`: "...the contractor found that the drain pipe under the sink has
-  been dripping for what looks like many months. The subfloor underneath is rotten and there is
-  black mold..."
-- **What should happen:** the same intake code as CLM-01, but the months of dripping should put
-  the seepage exclusion in front of the adjuster, not the coverage.
-- **Expected outcome:** `quotes_checked`; EXC-03 `applies`, COV-05 `does_not_apply`.
-
-**3. A near miss nobody can settle from the description.**
+**2. A leak nobody can date from the description.** CLM-10.
 - **Input:** CLM-10, `WATER`: "...We noticed a stain on the hallway floor about two weeks ago and
   thought it was spilled detergent..."
 - **What should happen:** "about two weeks" sits on the exclusion's 14-day line, so the reading
@@ -122,8 +115,18 @@ Here are three of the claims in `data/claims.csv`, and what should happen to eac
 - **Expected outcome:** `quotes_checked`; EXC-03 `unclear`, with a fact to establish about the
   14 days.
 
-On the live run, 8 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+**3. A backed-up drain, and an endorsement that changes the answer.** CLM-09.
+- **Input:** CLM-09, `WATER`: "Heavy rain overnight and by morning the floor drain in our finished
+  basement had backed up..." This policy carries a water backup endorsement, WB-01, which replaces
+  the backup exclusion, EXC-02.
+- **What should happen:** the adjuster should see the two side by side: the exclusion read as
+  printed, which says no on its own, and the endorsement, which gives the cover back. The prompt
+  asks the LLM to read it that way, and this is where it didn't.
+- **Expected outcome:** `quotes_checked`; EXC-02 read as printed and WB-01 `applies`, shown
+  together.
+
+On the live run, 8 of 10 claims came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -271,19 +274,42 @@ and 9 `chat_completions` calls, since CLM-08 never reaches the LLM) and took abo
 
 ### The three examples
 
-- **CLM-01, the sudden leak:** `quotes_checked`; COV-05 `applies`, EXC-03 `does_not_apply`. As
-  expected.
-- **CLM-03, months of dripping:** `quotes_checked`; EXC-03 `applies` (EXC-04 too), COV-05
-  `does_not_apply`. As expected.
-- **CLM-10, about two weeks:** `quotes_checked`; EXC-03 `unclear`, with "Was the water leaking
-  continuously or repeatedly for at least 14 days prior to the date of loss?" to establish. As
-  expected.
+**1. A sudden leak.** CLM-01.
+- **Expected outcome:** `quotes_checked`; COV-05 (the discharge coverage) `applies`, EXC-03 (the
+  seepage exclusion) `does_not_apply`.
+- **What came back:** `quotes_checked`; COV-05 `applies`, EXC-03 `does_not_apply`.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A leak nobody can date from the description.** CLM-10.
+- **Expected outcome:** `quotes_checked`; EXC-03 `unclear`, with a fact to establish about the
+  14 days.
+- **What came back:** `quotes_checked`; EXC-03 `unclear`, with "Was the water leaking continuously
+  or repeatedly for at least 14 days prior to the date of loss?" to establish.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026 (UTC), 8 of 10 planted cases came out as expected. CLM-06 and CLM-09
-got the status and the clauses we planted, but not the detail: CLM-06 asked only half the question
-we expected, and CLM-09 didn't read EXC-02 as printed. Both are explained below the table.
+**3. A backed-up drain, and an endorsement that changes the answer.** CLM-09.
+- **Expected outcome:** `quotes_checked`; EXC-02 read as printed and WB-01 `applies`, shown
+  together.
+- **What came back:** `quotes_checked`; EXC-02 and WB-01 shown together, WB-01 `applies`, but EXC-02
+  `does_not_apply`, "deleted and replaced by endorsement WB-01".
+- **Verdict:** Miss. The status and the clauses are right, and the side by side is what the adjuster
+  needs. But the model didn't read EXC-02 as printed, so the "read on its own, the exclusion says
+  no" line isn't in the briefing, and nothing in the status tells you that.
+
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 8 of 10 claims came out as expected. CLM-06 and CLM-09
+got the status and the clauses we wrote them to get, but not the detail: CLM-06 asked only half the
+question we expected, and CLM-09 didn't read EXC-02 as printed. Both are explained below the table.
+
+**Where it works:** when the description holds the fact that decides it: CLM-01 and CLM-03 get opposite answers
+from the same room, CLM-02, CLM-04, CLM-05 and CLM-07 find their clauses, CLM-08 says the search
+found nothing instead of "not covered", and CLM-10 turns "about two weeks" into a question for the
+insured.
+
+**Where it fails:** on the finer detail: CLM-06 asked only half the question, and CLM-09, the one to
+worry about, got `quotes_checked` on a reading that isn't the one the prompt asks for. A found quote
+means the words are in the text, not that the reading is right.
 
 The inputs are in [`data/`](./data):
 
@@ -304,7 +330,7 @@ The inputs are in [`data/`](./data):
 
 Our live run on 4 Nov 2026 (UTC), with the settings as committed:
 
-| Case | What we planted | Came out | Why |
+| Case | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | CLM-01 | Dishwasher hose splits; water across the kitchen for 20 minutes | `quotes_checked`; COV-05 `applies`, EXC-03 `does_not_apply` | The sudden leak the policy is written to cover; twenty minutes is not 14 days |
 | CLM-02 | Wind blows a tree through the roof; rain comes in through the hole | `quotes_checked`; COV-04 and COV-07 `applies` | Two perils in one loss, both worth citing |
@@ -317,14 +343,15 @@ Our live run on 4 Nov 2026 (UTC), with the settings as committed:
 | CLM-09 | Near miss: a floor drain backs up into the basement; this policy carries a water backup endorsement | `quotes_checked`; EXC-02 and WB-01 shown together, WB-01 `applies` | Read on its own, the exclusion says no. The endorsement gives it back |
 | CLM-10 | Near miss: a leak behind the washing machine; the insured "noticed a stain about two weeks ago" | `quotes_checked`; EXC-03 `unclear`, with "Was the water leaking continuously or repeatedly for at least 14 days prior to the date of loss?" to establish | The exclusion starts at 14 days, and "about two weeks" doesn't settle it |
 
-Every claim got the status we planted, but two missed the detail they were planted for. On CLM-06 we
-expected the question "was heat maintained or the water shut off?". The model asked only the second
-half; the insured had already said they turned the heating off. And on CLM-09 the model didn't read
-EXC-02 as printed, as the prompt asks: it read it as `does_not_apply`, "deleted and replaced by
-endorsement WB-01". The briefing still puts the two side by side, which is what the adjuster needs,
-but if you wanted the "read on its own, the exclusion says no" line in the briefing, you won't get
-it from this model. Treat all of this as a demo that the wiring works, not as a measure of accuracy:
-ten planted claims tell you the pipeline does what it says, not how often the readings are right.
+Every claim got the status we wrote it to get, but two missed the detail they were written for. On
+CLM-06 we expected the question "was heat maintained or the water shut off?". The model asked only
+the second half; the insured had already said they turned the heating off. And on CLM-09 the model
+didn't read EXC-02 as printed, as the prompt asks: it read it as `does_not_apply`, "deleted and
+replaced by endorsement WB-01". The briefing still puts the two side by side, which is what the
+adjuster needs, but if you wanted the "read on its own, the exclusion says no" line in the briefing,
+you won't get it from this model. Treat all of this as a demo that the wiring works, not as a
+measure of accuracy: ten claims tell you the pipeline does what it says, not how often the readings
+are right.
 
 A few things worth noticing:
 
@@ -409,7 +436,7 @@ at a time, changed nothing else, and ran the recipe on SIE Cloud.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `rerank` | `Qwen/Qwen3-Reranker-0.6B` | Its scores bunch near 1: Neglect (EXC-07) scored 0.98 to 0.998 on nine claims and 0.69 on CLM-08, so the caterer's deposit cleared 0.30 and went to the LLM (`quotes_checked`, every clause read as `does_not_apply`) instead of `no_clause_retrieved`. Shortlists ran longer (up to 9 clauses above 0.30 per claim, against 2 to 5 with the default) and the ranked-not-read lists filled up. CLM-02 and CLM-03 came out `quote_not_found` (a claim quote with "...", and readings with no claim quote). Apart from CLM-08, every planted reading held, CLM-10's EXC-03 `unclear` included. `min_score: 0.30` separates much less on this scale. |
+| `rerank` | `Qwen/Qwen3-Reranker-0.6B` | Its scores bunch near 1: Neglect (EXC-07) scored 0.98 to 0.998 on nine claims and 0.69 on CLM-08, so the caterer's deposit cleared 0.30 and went to the LLM (`quotes_checked`, every clause read as `does_not_apply`) instead of `no_clause_retrieved`. Shortlists ran longer (up to 9 clauses above 0.30 per claim, against 2 to 5 with the default) and the ranked-not-read lists filled up. CLM-02 and CLM-03 came out `quote_not_found` (a claim quote with "...", and readings with no claim quote). Apart from CLM-08, every reading we expected held, CLM-10's EXC-03 `unclear` included. `min_score: 0.30` separates much less on this scale. |
 | `judge` | `Qwen/Qwen3.5-4B` | Same shortlists. Only 4 of 10 claims came out `quotes_checked`: on six it left claim quotes out of `does_not_apply` readings or shortened them with "...", and the check marked them. It also read CLM-04's flood exclusion (EXC-01) as `does_not_apply` while its own reason says the creek overflow "is a surface water exclusion", and that claim still came out `quotes_checked`. A found quote doesn't make a reading right; this is the case that shows it. CLM-10's EXC-03 was `unclear`, as with the 27B model. |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
@@ -444,7 +471,7 @@ KBM-WB-1. No public dataset is used. It ships under this repository's license.
 - `selfcheck.py`: plain asserts on the lookups, splitting, shortlist, quote check, statuses and
   SIE failure rule, no SIE call (`uv run selfcheck.py`)
 - `rules.yaml`: models, clause patterns and thresholds
-- `data/claims.csv`: the 10 planted claims
+- `data/claims.csv`: the 10 sample claims
 - `data/policy_terms.csv`: the 12 policy terms
 - `data/forms/KBM-HO-3.md`, `data/forms/KBM-WB-1.md`: the fictional policy form and endorsement
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies

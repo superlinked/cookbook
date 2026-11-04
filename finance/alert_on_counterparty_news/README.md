@@ -89,8 +89,8 @@ Here are three of the articles in `data/news.jsonl`, and what should happen to e
 
 - **Input:** N-01: "Pellridge Foods Ltd missed a scheduled interest payment on its term loan at
   the end of October, according to a notice sent to its lenders..."
-- **What should happen:** the full legal name links to the counterparty list, and the event
-  model reads the sentences that name it as a missed payment.
+- **What should happen:** the full legal name is on the counterparty list, and a model reads the
+  sentences that name Pellridge and labels the event a missed payment.
 - **Expected outcome:** `alert` to the borrower's credit officer, Saoirse Mallin, for a missed
   payment.
 
@@ -98,21 +98,21 @@ Here are three of the articles in `data/news.jsonl`, and what should happen to e
 
 - **Input:** N-04: "Northwind has lost its largest customer, a national parcel carrier that
   accounted for about a third of its revenue..."
-- **What should happen:** "Northwind" is an alias of two counterparties and nothing else in the
-  article settles which one, so the link step refuses to guess.
-- **Expected outcome:** `review`, listing both CP-1004 and CP-1005.
+- **What should happen:** two borrowers both go by "Northwind" and nothing else in the article
+  settles which one, so we don't guess.
+- **Expected outcome:** `review`, listing both borrowers, CP-1004 and CP-1005.
 
 **3. A warning about the borrower's competitor.**
 
 - **Input:** N-09: "Elmstead Creameries, a cheese and butter maker, entered administration on
   Wednesday... Ferncastle Dairy Ltd, which competes with Elmstead in the regional cheese market,
   said its own supply contracts and finances were unaffected..."
-- **What should happen:** only Ferncastle is a borrower, and the event model reads only the
-  sentences about Ferncastle, so Elmstead's administration doesn't land on it.
+- **What should happen:** only Ferncastle is a borrower, and the model reads only the sentences
+  about Ferncastle, so Elmstead's administration doesn't count against it.
 - **Expected outcome:** Ferncastle `filed`, no alert.
 
-On the live run, 10 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 10 of 10 articles came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -256,14 +256,41 @@ articles' windows, six GLiNER2.5-Decide calls, one per linked borrower) and take
 
 ### The three examples
 
-- **N-01** came out `alert` to Saoirse Mallin: missed payment 0.85. As expected.
-- **N-04** came out `review` with CP-1004 and CP-1005 both listed. As expected.
-- **N-09** came out Ferncastle `filed`: none 0.93, no alert. As expected; given the whole article
-  instead of Ferncastle's sentences, the event model said insolvency 0.84 (more on that below).
+**1. A borrower misses a payment.**
 
-### Every planted case
+- **Expected outcome:** `alert` to the borrower's credit officer, Saoirse Mallin, for a missed
+  payment.
+- **What came back:** `alert` to Saoirse Mallin, missed payment at 0.85.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026 (UTC), 10 of 10 planted cases came out as expected.
+**2. A name two borrowers share.**
+
+- **Expected outcome:** `review`, listing both borrowers, CP-1004 and CP-1005.
+- **What came back:** `review`, with CP-1004 and CP-1005 both listed.
+- **Verdict:** Pass. It costs a person a look: the recipe won't pick, so the credit analyst settles
+  which Northwind this is. A guess would alert the wrong credit officer.
+
+**3. A warning about the borrower's competitor.**
+
+- **Expected outcome:** Ferncastle `filed`, no alert.
+- **What came back:** Ferncastle `filed`, no warning (`none`) at 0.93, no alert.
+- **Verdict:** Pass. Given the whole article instead of Ferncastle's sentences, the event model
+  said insolvency 0.84 (more on that below).
+
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 10 of 10 articles came out as expected.
+
+**Where it works:** a borrower named in full (N-01), by a name people write (N-03) or with its
+parent's ticker (N-05), and an article that shouldn't ping anyone, because no company is named
+(N-08) or the trouble is someone else's (N-09). When two borrowers share a name (N-04), or
+a name and a ticker disagree (N-07), it won't guess and a person decides.
+
+**Where it fails:** this run didn't test a denial. "Pellridge denies it missed a payment" is left
+to the event model, and nothing in Python checks for it. The ones to watch are N-10, where a model
+tagging "Halden" as a location is the only thing keeping a flood warning out of Saoirse Mallin's
+inbox, and N-06, where management change came in at 0.19, under the 0.25 that would have sent it
+to review.
 
 The input is [`data/news.jsonl`](./data/news.jsonl): ten short articles as the news queue holds
 them (source, URL, time, headline, body), and
@@ -273,7 +300,7 @@ alias "Northwind", one with a parent listed as `NYSE:NWEG` and one as `LSE:TLPK`
 The news, the people, the companies, the counterparty list and the URLs (all on `.example`
 domains) are synthetic, written for this recipe. No real company or person is named.
 
-| Article | What we planted | Came out | Why |
+| Article | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | N-01 | Pellridge Foods misses an interest payment, named in full | `alert` to Saoirse Mallin: missed payment 0.85 | The case this exists for |
 | N-02 | Sallowmere opens a new distribution warehouse | `filed`: none 0.80, top warning 0.04 | Good news about a borrower is still worth keeping, not worth a ping |
@@ -367,7 +394,7 @@ unclear name means.
   `ticker_pair_max_gap_chars`, `batch_size`, `context_sentences_after`, `min_event_score`,
   `min_none_score` and `max_warning_when_filed` are starting points.
 - **Negation.** "Pellridge denies it missed a payment" is left to the event model to read; nothing
-  in Python checks for it. A planted denial in your own data is worth a look before you trust
+  in Python checks for it. A denial you add to your own data is worth a look before you trust
   `filed` on it.
 - **Registration numbers in the text.** Insolvency notices often print the company number. The
   list already has it; matching it in the text would give a link as firm as a ticker.
@@ -414,7 +441,7 @@ URLs use `.example` domains, which never resolve.
 - `selfcheck.py`: plain asserts on the lookups, the linking rules, the event limits and the SIE
   failure rule, no SIE call (`uv run selfcheck.py`)
 - `rules.yaml`: model IDs, labels, exchanges, legal suffixes, the question and events, thresholds
-- `data/news.jsonl`: the ten planted articles
+- `data/news.jsonl`: the ten sample articles
 - `data/counterparties.csv`: the nine borrowers
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 

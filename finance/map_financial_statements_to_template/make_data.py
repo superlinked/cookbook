@@ -82,7 +82,7 @@ class Borrower:
     prior_factor: tuple[int, int] | None = None  # prior year = value * a / b (exact)
     scanned: bool = False
     mappings: tuple[tuple[str, str, str, str], ...] = ()  # statement, heading, label, item
-    planted: str = ""
+    about: str = ""
 
 
 def line(key: str, label: str, value: int, **kw: object) -> Row:
@@ -112,7 +112,7 @@ HARBOUR_LANE = Borrower(
     period_due="2026-03-31",
     headers=("2026 £", "2025 £"),
     prior_factor=(9, 10),
-    planted="UK labels mapped last year; a new 'Bank loans' due within one year",
+    about="UK labels mapped last year; a new 'Bank loans' due within one year",
     pages=(
         Page(
             "Profit and loss account",
@@ -203,7 +203,7 @@ MESA_VERDE = Borrower(
     headers=("2025",),
     negative="minus",
     sign="$",
-    planted="US small business; 'Other income' shown negative in an expense list; draws -96,500",
+    about="US small business; 'Other income' shown negative in an expense list; draws -96,500",
     pages=(
         Page(
             "Statement of Income",
@@ -275,7 +275,7 @@ NORTHFIELD = Borrower(
     currency="USD",
     period_due="2025-12-31",
     headers=("2025",),
-    planted="'in thousands'; total current liabilities printed as 7,598, its lines add to 7,538",
+    about="'in thousands'; total current liabilities printed as 7,598, its lines add to 7,538",
     pages=(
         Page(
             "Statement of Operations",
@@ -315,7 +315,7 @@ NORTHFIELD = Borrower(
                 line("ap", "Accounts payable", 3_412, indent=True),
                 line("accrued", "Accrued liabilities", 1_876, indent=True),
                 line("cpltd", "Current portion of long-term debt", 2_250, indent=True),
-                # The planted subtotal: the lines add up to 7,538.
+                # The wrong subtotal: the lines add up to 7,538.
                 total("cl", "Total current liabilities", "ap", "accrued", "cpltd", printed=7_598),
                 line("ltd", "Long-term debt, net of current portion", 18_600),
                 line("dtl", "Deferred income taxes", 1_904),
@@ -340,7 +340,7 @@ KESTREL_VALLEY = Borrower(
     headers=("2026",),
     sign="$",
     scanned=True,
-    planted="scanned, no text layer; statements for the year ended June 30, 2026",
+    about="scanned, no text layer; statements for the year ended June 30, 2026",
     pages=(
         Page(
             "Statement of Operations",
@@ -613,7 +613,7 @@ def main() -> None:
             write_scan_pdf(path, scans)
         else:
             write_text_pdf(path, layouts)
-        print(f"{path.relative_to(ROOT)}: {borrower.name} ({borrower.planted})")
+        print(f"{path.relative_to(ROOT)}: {borrower.name} ({borrower.about})")
 
 
 if __name__ == "__main__":

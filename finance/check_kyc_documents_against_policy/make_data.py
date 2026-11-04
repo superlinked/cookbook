@@ -4,7 +4,7 @@ Everything is invented and every document page is stamped SPECIMEN. The identity
 issued by "Utopia" (code UTO), the fictional state ICAO Doc 9303 uses for its own specimens;
 every person, utility, phone company, address and number is made up. The MRZ lines follow ICAO
 9303 (TD1 for the ID cards, TD3 for the passport) with real check digits, except where a case
-plants a bad one.
+is written with a bad one.
 
     uv run make_data.py
 
@@ -96,7 +96,7 @@ class Case:
     passport: bool = False
     # The date of birth the customer typed on the form, when it isn't the one on the ID.
     form_dob: date | None = None
-    bad_dob_check_digit: bool = False  # plant a wrong MRZ check digit
+    bad_dob_check_digit: bool = False  # write a wrong MRZ check digit
     # Documents the customer gave as proof of address, when it's the ID card itself.
     id_as_address: bool = False
 
@@ -462,8 +462,8 @@ def mrz_lines(case: Case) -> list[str]:
             + "<" * 14 + "<"
         )  # fmt: skip
         return [line1, line2 + check_digit(line2[0:10] + line2[13:20] + line2[21:43])]
-    # TD1: three lines of 30. The composite is computed over the planted digits, so only the
-    # planted field's own check digit fails.
+    # TD1: three lines of 30. The composite is computed over the digits as written, so only the
+    # wrong field's own check digit fails.
     line1 = "I<" + STATE + number + number_cd + "<" * 15
     line2 = dob + dob_cd + person.sex + expiry + expiry_cd + STATE + "<" * 11
     line2 += check_digit(line1[5:30] + line2[0:7] + line2[8:15] + line2[18:29])

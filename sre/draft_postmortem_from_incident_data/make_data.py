@@ -16,7 +16,7 @@ would:
     data/flag_audit.csv       flag_audit.py      feature-flag flips and runtime config changes
 
 Alerts and changes aren't tagged with an incident; the recipe asks for them by service and time,
-so the seeds also hold events for unrelated services. The planted cases are in the README.
+so the seeds also hold events for unrelated services. The cases they test are in the README.
 
     uv run make_data.py
 """
@@ -83,7 +83,7 @@ INCIDENTS = [
     ),
 ]
 
-# incident -> [(time, user, text)]; the planted case is in the comment above each one.
+# incident -> [(time, user, text)]; the case it tests is in the comment above each one.
 MESSAGES: dict[str, list[tuple[str, str, str]]] = {
     # Clean: a deploy shrinks a connection pool; rollback fixes it. A clock time is on the
     # incident's date; a full "date time" is a message on another day.

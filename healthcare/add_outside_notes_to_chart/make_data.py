@@ -3,7 +3,7 @@
 Every patient, clinician and clinic is invented. Ten new patients registered at the fictional
 Larkspur Family Practice in October 2026; the practice requested their records, and their old
 clinics (the fictional Harrow Creek Medical Group and Bellwether Internal Medicine) sent the last
-visit note as printed text. The notes plant the cases listed in the README.
+visit note as printed text. The notes hold the cases listed in the README.
 
     data/outside_notes/note-NN.txt   the outside notes, as filed in each patient's chart
     data/ehr_documents.csv           the EHR's document index: which chart each note is filed in
@@ -17,7 +17,7 @@ visit note as printed text. The notes plant the cases listed in the README.
 The subset is cut from the CMS FY2027 ICD-10-CM code descriptions file
 (https://www.cms.gov/files/zip/2027-code-descriptions-tabular-order.zip, icd10cm_codes_2027.txt).
 It is only rewritten when that file is passed. Plantar fasciitis (M67.A0-) is left out on
-purpose, so one planted problem has no right answer in the subset.
+purpose, so one problem in the notes has no right answer in the subset.
 
     uv run make_data.py
     uv run make_data.py --cms-codes path/to/icd10cm_codes_2027.txt

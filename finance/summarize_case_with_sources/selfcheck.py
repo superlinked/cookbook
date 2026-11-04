@@ -396,7 +396,7 @@ def check_good_summary() -> None:
 
 
 def check_amounts_and_payments() -> None:
-    # The planted selfcheck case: an amount the card system doesn't have.
+    # The wrong amount from the README's table: an amount the card system doesn't have.
     wrong = changed(
         "disputed_payments",
         0,

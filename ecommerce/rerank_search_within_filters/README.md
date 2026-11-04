@@ -96,14 +96,15 @@ Here are three of the searches in `data/queries.json`, and what should happen to
   held, never shown, and go on the data gap list for the catalog owner.
 - **Expected outcome:** `ranked`, both boots on the data gap list.
 
-**3. The only match is past hit 20.** Q-08
-- **Input:** "black running shoes", filters black, size women 8.5, in stock.
-- **What should happen:** the first 30 keyword hits fail the filters or are held, so the filter
-  has to keep walking the hits instead of cutting at 20 first.
-- **Expected outcome:** `ranked`, with that later hit.
+**3. Shoes in stock that the model won't call a match.** Q-01
+- **Input:** "women s black tennis shoes size 8", filters black, size women 8, in stock. Two
+  sneakers that fit are sold out in that size, and a third is an 8.5.
+- **What should happen:** the filters drop those three, and the black size 8 shoes still in stock
+  come back ranked for the shopper.
+- **Expected outcome:** `ranked`, with the sold-out sneakers and the 8.5 dropped.
 
-On the live run, 8 of 10 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 8 of 10 cases came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## Where this runs, and what the output is for
 
@@ -277,26 +278,50 @@ The input is three seeds in [`data/`](./data):
   points). This is real public product text from the Amazon Shopping Queries dataset (ESCI),
   every US product with an English title that ESCI lists for seven of its shopper queries.
 - `inventory.csv`: a **made-up** variant stock feed. Each listing is one variant, the size its
-  title names in the PIM color, in stock, except the planted rows. ESCI has no stock data.
+  title names in the PIM color, in stock, except the rows we changed for these
+  examples. ESCI has no stock data.
 - `queries.json`: 8 queries with the filters each shopper picked. Q-01 to Q-07 are ESCI's query
-  text; Q-08 is written for this recipe. The filters are planted, following the query's words.
+  text; Q-08 is written for this recipe. We wrote the filters, following the query's words.
 
 > **The product text is real, the stock and filters are not.** They say nothing about any real
 > seller's stock.
 
 ### The three examples
 
-- **Q-02:** `ranked`, the Wantdo jacket first at 0.982. As expected.
-- **Q-04:** `ranked`; the boots scored 0.9071 and 0.8149, both would rank 4, and both are on the
-  data gap list for the catalog owner. As expected.
-- **Q-08:** `ranked`, the 8.5 sneaker from keyword hit 31 at 0.6544. As expected.
+**1. A wordy query.** Q-02
+- **Expected outcome:** `ranked`, the waterproof hooded jacket first.
+- **What came back:** `ranked`, the Wantdo jacket first at 0.982.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. Products with no color in the catalog.** Q-04
+- **Expected outcome:** `ranked`, both boots on the data gap list.
+- **What came back:** `ranked`; the boots scored 0.9071 and 0.8149, both would rank 4, and both are
+  on the data gap list for the catalog owner.
+- **Verdict:** Pass.
 
-On the live run on 4 Nov 2026, 8 of 10 planted cases came out as expected; Q-01 came out
+**3. Shoes in stock that the model won't call a match.** Q-01
+- **Expected outcome:** `ranked`, with the sold-out sneakers and the 8.5 dropped.
+- **What came back:** `no_good_match`. The sold-out sneakers and the 8.5 were dropped. What's left
+  is a New Balance sneaker at 0.1275 and a ballet flat at 0.0228, shown as related items.
+- **Verdict:** Miss. The filters did their job, but the reranker didn't call either shoe a match for
+  "tennis shoes size 8".
+
+### Every example
+
+On the live run on 4 Nov 2026, 8 of 10 cases came out as expected; Q-01 came out
 `no_good_match` instead of `ranked`, and so did Q-06.
 
-| Case | What we planted | Should come out | What came out | Why |
+**Where it works:** the filters held in every case. Q-01 dropped the sold-out shoes and the 8.5, Q-07
+said `no_results` when nothing was stocked in 12W, and Q-08 found the one shoe that fits at keyword
+hit 31. The reranker fixed the wordy Q-02, Q-05 said no good match instead of calling a T-shirt
+cropped, and the shoppers in Q-03 and Q-04 got their page while the products with missing data went
+on the data gap list.
+
+**Where it fails:** Q-01 and Q-06 both have shoes that pass the filters, and the reranker scored them
+below `min_score` (0.1275 and 0.1857 at best), so the shopper sees related items, not matches. Q-06
+is a typo, kept as typed. Q-01 is the one to worry about: it's a search with no typo in it.
+
+| Case | What's in it | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
 | Sold out in the size | Q-01 "women s black tennis shoes size 8": two sneakers that fit, one sold out in 8, one in every size | `ranked`; both dropped | Both dropped. The status was `no_good_match`, not `ranked` | A filter is a fact; the model never sees them as options |
 | Half size | Q-01, a size-8.5 sneaker (B01ESD61JI) | dropped by the size filter | Dropped: "no variant in size women 8" | Its title says 8.5, and so does the feed |
@@ -309,7 +334,7 @@ On the live run on 4 Nov 2026, 8 of 10 planted cases came out as expected; Q-01 
 | Other color in stock | Black size 8 sold out, white size 8 and black size 9 in stock, for one shoe (B071LF8XSF) | the black shoe dropped for a black size 8 query | Dropped in Q-01: "sold out in black, size women 8" | Stock belongs to the variant, not the product |
 | Match past hit 20 | Q-08 "black running shoes", women 8.5: the first 30 keyword hits fail the filters or are held | `ranked` with that hit | `ranked`, the 8.5 sneaker from keyword hit 31 at 0.6544 | Filtering after the cut-off would report `no_results` |
 
-Two planted cases came out differently from the plan, and we left them that way. Q-01 was meant
+Two cases came out differently from the plan, and we left them that way. Q-01 was meant
 to be `ranked`. The only black women's size 8 shoes in stock are a New Balance sneaker (0.1275)
 and a ballet flat (0.0228), and the reranker didn't call either a match for "tennis shoes size
 8". Q-06 was meant to be `ranked` too; its three toddler size 9 sneakers scored 0.1857 at best.
@@ -445,7 +470,7 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 - `selfcheck.py`: plain asserts on the filters, the walk, the ordering and gap rules, reply
   parsing, outputs and the SIE failure rule, no SIE call (`uv run selfcheck.py`)
 - `rules.yaml`: model, keyword search settings, color words, thresholds and gap owners
-- `make_data.py`: builds `data/` from ESCI plus the planted feed and filters
+- `make_data.py`: builds `data/` from ESCI plus the made-up feed and filters
 - `data/`: the PIM seed, the variant stock feed and the sample queries
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 

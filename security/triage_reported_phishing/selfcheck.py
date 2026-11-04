@@ -395,7 +395,7 @@ def run(replies: dict[str, Any], reports: list[Report], drop: bool = False) -> l
 IOC_COUNT, OBSERVABLE_COUNT = 37, 13
 
 
-def check_planted() -> None:
+def check_examples() -> None:
     reports = recipe.load_reports(RULES)
     results = run(REPLIES, reports)
     outcome = [(result.row["verdict"], result.row["route"]) for result in results]
@@ -423,7 +423,7 @@ def check_planted() -> None:
     assert {row["source"] for row in found} <= {"header", "body", "html link", "model"}, found
     assert list(found[0]) == list(recipe.OBSERVABLE_FIELDS), found[0]
     print(
-        f"planted data: 7 verdicts and routes, {IOC_COUNT} IOCs, {OBSERVABLE_COUNT} observables, "
+        f"committed data: 7 verdicts and routes, {IOC_COUNT} IOCs, {OBSERVABLE_COUNT} observables, "
         "invented span dropped, bulletin to an analyst"
     )
 
@@ -653,7 +653,7 @@ if __name__ == "__main__":
     check_headers()
     check_defang()
     check_rules()
-    check_planted()
+    check_examples()
     check_routing()
     check_transport_failure()
     check_fatal_error()

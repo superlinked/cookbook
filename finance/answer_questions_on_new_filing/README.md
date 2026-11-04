@@ -96,10 +96,11 @@ meet, and what should happen to each.
 
 **1. Apple's manufacturing purchase obligations (AAPL-1).**
 
-- **Input:** P06 in the FY2025 10-K: "As of September 27, 2025, the Company had manufacturing
-  purchase obligations of $56.2 billion, with $55.4 billion payable within 12 months." Next to
-  it, P07 gives "other purchase obligations of $14.8 billion" in the same shape of sentence.
-- **What should happen:** the reranker puts both near the top, the answer model cites P06, and
+- **Input:** passage P06 in the FY2025 10-K: "As of September 27, 2025, the Company had
+  manufacturing purchase obligations of $56.2 billion, with $55.4 billion payable within 12
+  months." Next to it, P07 gives "other purchase obligations of $14.8 billion" in the same shape
+  of sentence.
+- **What should happen:** both rank near the top, a model answers from P06 and not P07, and
   Python checks the quote is in P06 and both figures are in it as billions for 2025.
 - **Expected outcome:** `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months.
 
@@ -108,20 +109,20 @@ meet, and what should happen to each.
 - **Input:** the question "How much revenue did Apple Vision Pro generate in fiscal 2025?" The
   passages that mention Vision Pro, such as P12 in Item 1, describe the product and give no
   figure.
-- **What should happen:** no passage scores high enough to answer, so the answer model has
-  nothing to guess from.
+- **What should happen:** no passage ranks high enough to answer, so no model gets asked and
+  there's nothing to guess from.
 - **Expected outcome:** `no_answer_found` in both years, compared as `neither_year`.
 
 **3. Target's tax rate, with two years in one sentence (TGT-2).**
 
-- **Input:** P28: "Our 2025 effective income tax rate was 22.3 percent compared with 22.2 percent
-  in 2024."
-- **What should happen:** the year check has to tie 22.3 to 2025 and 22.2 to 2024, so an answer
-  calling 22.2 percent the 2025 rate fails.
+- **Input:** passage P28: "Our 2025 effective income tax rate was 22.3 percent compared with 22.2
+  percent in 2024."
+- **What should happen:** we check the year next to each number: 22.3 goes with 2025 and 22.2
+  with 2024, so an answer calling 22.2 percent the 2025 rate fails.
 - **Expected outcome:** `draft_answer` from P28, 22.3 percent.
 
-On the live run, 8 of 8 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 8 of 8 questions came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -271,18 +272,41 @@ EDGAR asks every client to identify itself) and run `uv run fetch_data.py`.
 
 ### The three examples
 
-- **AAPL-1** came out `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months, and
-  last year's P33 gave $53.0 billion with $52.9 billion (`both_years`). P07 scored 0.9961 against
-  P06's 0.9998 and the answer model still cited P06. As expected.
-- **AAPL-4** came out `no_answer_found` in both years (best P12 at 0.16, P39 at 0.14),
-  `neither_year`. As expected.
-- **TGT-2** came out `draft_answer` from P28, 22.3 percent, with last year's P52 at 22.2 percent
-  (`both_years`). The model wrote "22.3 percent, up from 22.2 percent in fiscal 2024" and the year
-  check agreed on both figures. As expected.
+**1. Apple's manufacturing purchase obligations (AAPL-1).**
 
-### Every planted case
+- **Expected outcome:** `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months.
+- **What came back:** `draft_answer` from P06, $56.2 billion with $55.4 billion in 12 months. Last
+  year's P33 gave $53.0 billion with $52.9 billion (`both_years`).
+- **Verdict:** Pass. P07 scored 0.9961 against P06's 0.9998, so the ranking barely separated them
+  and the answer model is what picked P06. Had it cited P07, the row would be `needs_review`.
 
-On the live run on 4 Nov 2026 (UTC), 8 of 8 planted cases came out as expected.
+**2. Vision Pro revenue (AAPL-4).**
+
+- **Expected outcome:** `no_answer_found` in both years, compared as `neither_year`.
+- **What came back:** `no_answer_found` in both years (best P12 at 0.16, P39 at 0.14),
+  `neither_year`.
+- **Verdict:** Pass. That means "not in the passages read", not "not disclosed", so the analyst
+  still has to check the source.
+
+**3. Target's tax rate, with two years in one sentence (TGT-2).**
+
+- **Expected outcome:** `draft_answer` from P28, 22.3 percent.
+- **What came back:** `draft_answer` from P28, 22.3 percent, with last year's P52 at 22.2 percent
+  (`both_years`). The model wrote "22.3 percent, up from 22.2 percent in fiscal 2024".
+- **Verdict:** Pass. The year check agreed on both figures.
+
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 8 of 8 questions came out as expected.
+
+**Where it works:** finding the one paragraph that answers among others that look like it (AAPL-1,
+AAPL-2, TGT-1), keeping two years in one sentence apart (TGT-2), and saying there's no answer
+instead of guessing (AAPL-4, TGT-4).
+
+**Where it fails:** this run never tested what the analyst reads first: no row came out
+`new_this_year` or `missing_this_year`. An answer with the wrong scale or the wrong year only
+shows up in `selfcheck.py`, as a hand-written stand-in reply. The one to watch is AAPL-1, where the
+ranking barely separated the right paragraph from the wrong one and the answer step had to choose.
 
 The input is two companies' standing questions in [`data/questions.yaml`](./data/questions.yaml)
 (four each) and 56 passages from four 10-K filings: Apple FY2025 (16) and FY2024 (14), Target
@@ -295,7 +319,7 @@ mentions inventory. Each filing's every passage is scored for every question.
 
 Here's our live run on 4 Nov 2026 (UTC), with the settings as written:
 
-| Question | What we planted | This year (FY2025) | Last year (FY2024) | Comparison | Why |
+| Question | What it tests | This year (FY2025) | Last year (FY2024) | Comparison | Why |
 | --- | --- | --- | --- | --- | --- |
 | AAPL-1 manufacturing purchase obligations, and how much is due in 12 months | Near misses: other purchase obligations (P07), leases (P05), notes (P04), all on topic | `draft_answer`: P06, $56.2 billion with $55.4 billion in 12 months | `draft_answer`: P33, $53.0 billion with $52.9 billion | `both_years` | Same shape of sentence, different obligation; P07 scored 0.9961 and the answer model still cited P06 |
 | AAPL-2 why the tax rate moved from the prior year | The paragraph comparing with the statutory rate (P10, P37) | `draft_answer`: P11, the $10.7 billion State Aid decrease | `draft_answer`: P38, the $10.2 billion one-time charge | `both_years` | Two explanations of the same rate; the model cited the one against the prior year both times |
@@ -308,7 +332,7 @@ Here's our live run on 4 Nov 2026 (UTC), with the settings as written:
 
 No row came out `new_this_year` or `missing_this_year`:
 Apple and Target answered the same standing questions in both years, which is what you'd hope
-from two consecutive 10-Ks and also why we couldn't plant one from real filings. The near miss
+from two consecutive 10-Ks and also why we couldn't show one from real filings. The near miss
 the data can't hold, an answer that quotes the right sentence but says "$56.2 million", is in
 `selfcheck.py` as a hand-written stand-in reply, along with an answer that calls 22.2 percent
 Target's 2025 rate; both go to `needs_review`. Treat all of this as a demo that the wiring works,

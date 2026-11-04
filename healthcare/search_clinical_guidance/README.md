@@ -85,25 +85,27 @@ Here are three of the searches in `data/searches.json`, and what should happen t
 **1. A question the guidance answers.** Q-01, adult.
 - **Input:** "An adult's office blood pressure reads 142/88 and they have no symptoms. What does our
   guidance say to do next?"
-- **What should happen:** three hypertension passages share its words; the reranker should put
+- **What should happen:** three hypertension passages share its words; a model should put
   G01, "repeat the measurement after five minutes of seated rest", first.
 - **Expected outcome:** `results`, G01 first.
 
 **2. A retired edition that matches better.** Q-02, adult.
 - **Input:** "How soon after a positive FIT should the diagnostic colonoscopy take place?"
 - **What should happen:** the retired 2021 edition G05 ("within 90 days") uses the question's own
-  words; the filter keeps it off the page and the notice rule says it was replaced by G04 ("within
-  60 days").
+  words. It's retired, so it stays off the page, and a notice says G04 ("within 60 days") replaced
+  it.
 - **Expected outcome:** `results` with G04, and a replaced notice for G05.
 
-**3. Near the topic, but no answer.** Q-04, adult.
-- **Input:** "Does our guidance recommend hypnotherapy to help patients stop smoking?"
-- **What should happen:** the tobacco passages never mention hypnotherapy, so none should clear
-  `min_score`, and the search goes to the gap log.
-- **Expected outcome:** `no_good_match`, logged.
+**3. A question about a withdrawn protocol.** Q-06, adult.
+- **Input:** "How often should a patient doing home INR self-testing check their INR?"
+- **What should happen:** the clinic retired its home INR protocol, G13, and nothing replaced it, so
+  it stays off the page and a notice says it was withdrawn. The current clinic INR passage, G14, can
+  only show as the current alternative, and the search goes to the gap log.
+- **Expected outcome:** withdrawn notice for G13; G14 below `min_score` or shown as the current
+  alternative; logged.
 
-On the live run, 9 of 9 planted searches came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 9 of 9 searches came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -219,7 +221,7 @@ name SIE doesn't know) stops the run with SIE's full message and writes no outpu
 failed, the run stops too. The one-search command follows the same rule.
 
 [`selfcheck.py`](./selfcheck.py) checks the filters (drafts, odd casing, a retired document for
-another population), each planted case's page with hand-written scores, ties and near ties
+another population), each search's page with hand-written scores, ties and near ties
 between a retired and a current edition, replacement chains (two hops, a missing ID, a loop, a
 replacement written for another population), sentence splitting ("6.0 mmol/L" and "38.0 C" stay
 whole) and the pick, the fallback, malformed replies, the outputs and the SIE error rule, with
@@ -261,17 +263,41 @@ The input is three files in [`data/`](./data):
 
 ### The three examples
 
-- **Q-01** came out `results`: G01 (0.9998), then G02 (0.9968); G03 at 0.0571 stayed off. As
-  expected.
-- **Q-02** came out `results`: G04 (0.9997), with a replaced notice for G05 (0.9999). As expected,
-  even though G05 scored a hair higher; keyword search put G05 first.
-- **Q-04** came out `no_good_match`, closest G15 at 0.1687, logged. As expected.
+**1. A question the guidance answers.** Q-01, adult.
+- **Expected outcome:** `results`, G01 first.
+- **What came back:** `results`: G01 (0.9998), then G02 (0.9968); G03 at 0.0571 stayed off.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A retired edition that matches better.** Q-02, adult.
+- **Expected outcome:** `results` with G04, and a replaced notice for G05.
+- **What came back:** `results`: G04 (0.9997), with a replaced notice for G05 (0.9999).
+- **Verdict:** Pass. G05 scored a hair higher, and keyword search put G05 first.
 
-On the live run on 4 Nov 2026 (UTC), 9 of 9 planted cases came out as expected.
+**3. A question about a withdrawn protocol.** Q-06, adult.
+- **Expected outcome:** withdrawn notice for G13; G14 below `min_score` or shown as the current
+  alternative; logged.
+- **What came back:** `results`: G14 (0.7876) as the current alternative; withdrawn notice for G13
+  (0.9999); logged.
+- **Verdict:** Pass. G14 is about clinic visits, not home testing, and its best sentence scored
+  0.4944, under the bar a passage needs. The page still shows it as a plain result, so the notice is
+  what tells the nurse the clinic stopped doing this.
 
-| Search | What we planted | Should come out | What came out | Why |
+### Every example
+
+On the live run on 4 Nov 2026 (UTC), 9 of 9 searches came out as expected.
+
+**Where it works:** the model put the passage that answers first when several share the topic (Q-01,
+Q-08) and picked the right sentence inside a passage (Q-09). Python kept retired documents off the
+page (Q-02, Q-06) and the wrong population off it or below a line (Q-03, Q-07), including where
+keyword search put them first (Q-02, Q-06, Q-07). When nothing answered, the page said so (Q-04,
+Q-05).
+
+**Where it fails:** Q-06 is the one to worry about, because a passage that doesn't answer the question
+still shows as a plain result. The filter also stops at population: Q-07 mixes adult and child with
+type 1 and type 2 diabetes, and it only catches the first. And nothing checks for two current
+documents that disagree; these nine searches don't include that.
+
+| Search | What the guidance has | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
 | Q-01 adult BP 142/88, no symptoms | The repeat-measurement passage, the same-day evaluation one and home monitoring | `results`: G01 first | `results`: G01 (0.9998), then G02 (0.9968); G03 at 0.0571 | The closest words ("high", "blood pressure") are in all three; only one answers |
 | Q-02 colonoscopy after a positive FIT | The current protocol G04 and its retired 2021 edition G05 | `results`: G04; replaced notice for G05 | `results`: G04 (0.9997); replaced notice for G05 (0.9999). Keyword search put G05 first | The case keyword search gets wrong |
@@ -283,7 +309,7 @@ On the live run on 4 Nov 2026 (UTC), 9 of 9 planted cases came out as expected.
 | Q-08 potassium 6.4, how fast | Critical G20 and non-urgent G21 lab passages | `results`: G20 first, sentence on the phone call picked out | `results`: G20 (0.9999), then G21 (0.8948); the phone-call sentence picked (0.9983) | Two lab passages, one urgent |
 | Q-09 HbA1c when stable at target | G10, whose one passage gives two intervals | `results`: G10, with the sentence for stable patients picked out | `results`: G10 (0.9999); the six-month sentence picked (0.9997) | The sentence pick shows the right interval, not the first one |
 
-Four searches (Q-04, Q-05, Q-06, Q-07) went to the gap log. Two things in the planted guidance were
+Four searches (Q-04, Q-05, Q-06, Q-07) went to the gap log. Two things in the sample guidance were
 worded for the demo, and no rule or threshold was fitted to this data:
 
 - G04 and G05 were worded the way real editions tend to be. Current editions don't copy the

@@ -109,8 +109,8 @@ Here are three of the inputs in `data/`, and what should happen to each.
 
 **1. A version number that looks like an IP.**
 - **Input:** `build=4.18.302.7 host=10.0.4.17 msg="service started"` (checkout log).
-- **What should happen:** `4.18.302.7` fails the octet check, and `10.0.4.17` is your own host, so
-  both stay readable for the vendor.
+- **What should happen:** `4.18.302.7` can't be an IP (302 is too big for any part of one), and
+  `10.0.4.17` is your own host, so both stay readable for the vendor.
 - **Expected outcome:** kept as is. (The checkout log as a whole still goes to `review`, for the
   bearer token elsewhere in it.)
 
@@ -118,21 +118,22 @@ Here are three of the inputs in `data/`, and what should happen to each.
 - **Input:**
   `payload={"amount": 4210, "currency": "USD", "card": "4111 1111 1111 1111", "exp": "09/29", "name": "Delphine Marchetti", ...`
   (payment worker log).
-- **What should happen:** the `card` field rule masks the card, the customer's name is found from
-  the support ticket's requester fields, and the amount, currency and field names stay so the vendor
-  sees the request's shape.
+- **What should happen:** a rule on the `card` field masks the card, the customer's name is found
+  from the support ticket's requester fields, and the amount, currency and field names stay so the
+  vendor sees the request's shape.
 - **Expected outcome:** `review`: the card is masked to `XXXX XXXX XXXX 1111`, and the logging has
   to be fixed at the source.
 
-**3. A bare UUID in a stack trace.**
-- **Input:** `PaymentTimeout: charge 5b9d2c14-8e3f-4a71-b0d6-2c7e9f1a4b38 exceeded 4.5 s` (on-call
-  notes).
-- **What should happen:** no rule names it, and nobody can tell by shape whether it's cardvault's
-  charge ID or a customer's ID, so the sweep stops the file.
-- **Expected outcome:** `blocked`, for the notes file.
+**3. A password-reset link with an email and a token in it.**
+- **Input:** `link=https://shop.corvane.example/account/reset?email=t.okonkwo@fernmail.example&token=Rk7pQ2vX9mL4sT8wZ1cB6nH3`
+  (checkout log).
+- **What should happen:** nothing in the link should stay readable. We wrote this one expecting the
+  model to tag the whole URL as one piece and the email rule to cut through it, with the token still
+  taken out where the two overlap.
+- **Expected outcome:** nothing readable, with the whole URL tagged as one piece.
 
-On the live run, 12 of 13 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 12 of 13 cases came out as expected. [What came out](#what-came-out) has every
+one.
 
 ## How we'll solve it
 
@@ -294,20 +295,46 @@ The run on 2026-11-04 (UTC) made 3 SIE calls.
 
 ### The three examples
 
-- **`build=4.18.302.7`:** kept, and the checkout log went to `review` with 16 redactions for its
-  token. As expected.
-- **The card payload:** the payment worker log went to `review` with 5 redactions, the line reading
-  `"card": "XXXX XXXX XXXX 1111", "exp": "09/29", "name": "[PERSON_1]"` (quoted below). As expected.
-- **The bare UUID:** the notes file came out `blocked`, with `line 8: a UUID no rule names` in
-  `report.csv`. As expected.
+**1. A version number that looks like an IP.**
+- **Expected outcome:** kept as is. (The checkout log as a whole still goes to `review`, for the
+  bearer token elsewhere in it.)
+- **What came back:** kept. The checkout log went to `review` for its token, with 16 redactions in
+  all.
+- **Verdict:** Pass.
 
-### Every planted case
+**2. A card number in a debug payload.**
+- **Expected outcome:** `review`: the card is masked to `XXXX XXXX XXXX 1111`, and the logging has
+  to be fixed at the source.
+- **What came back:** the payment worker log went to `review` with 5 redactions, the line reading
+  `"card": "XXXX XXXX XXXX 1111", "exp": "09/29", "name": "[PERSON_1]"` (quoted below).
+- **Verdict:** Pass.
 
-On the live run on 2026-11-04, 12 of 13 planted cases came out as expected. The reset URL is the
-one that didn't: nothing in it stayed readable, but not for the reason we planted it (more below).
+**3. A password-reset link with an email and a token in it.**
+- **Expected outcome:** nothing readable, with the whole URL tagged as one piece.
+- **What came back:** `link=[URL_1]=[EMAIL_2]&token=[TOKEN_3]`: nothing readable but `=` and
+  `&token=`. The model returned three spans instead of one.
+- **Verdict:** Miss. Nothing leaked, but the rule for overlapping spans never ran on this run, so
+  this link says nothing about it. `selfcheck.py` covers that rule with stand-in replies.
+
+### Every example
+
+On the live run on 2026-11-04, 12 of 13 cases came out as expected. The reset URL is the
+one that didn't: nothing in it stayed readable, but not for the reason we expected (more below).
+
+**Where it works:** the rules do most of the work (18 of the 25 redactions). What the vendor needs
+stays readable (the build number, the order ID, the status page IP, the vendor endpoint), one
+customer keeps one placeholder across files, and a bare UUID stops the notes file until a person
+decides.
+
+**Where it fails:** the reset URL came out clean by a different route than we meant, and the model
+over-redacted the words "password reset". The one to worry about is what the run didn't test: shapes
+the rules miss pass both the rules and the sweep (a double-encoded email, a card with three or more
+characters between digit groups), and a name the model didn't tag and no rule describes stays
+readable. That's why a person still looks before anything is attached.
+
 Here's the full list:
 
-| Case | What we planted | Came out | Why |
+| Case | What's in it | Came out | Why |
 | --- | --- | --- | --- |
 | Checkout log | User IDs, client IPs, emails, request IDs, internal hosts, latencies, a bearer token in a debug header | `review`, 16 redactions: token taken out, rotate it; IDs, hosts and latencies kept | The vendor needs the timings; a live token in a log is a finding, not only a redaction |
 | Same customer, three files | Email, user ID, IP and name across both logs and the notes | `[USER_ID_1]` in both logs, `[IP_1]` in the checkout log and the notes, `[PERSON_1]` in the worker log and the notes, `[EMAIL_1]` in the checkout log | The vendor can follow one customer's failed requests through two services |
@@ -323,7 +350,7 @@ Here's the full list:
 | Connection string | `DATABASE_URL=postgres://payments:<password>@ledger-db:5432/ledger` in a worker startup line | `postgres://payments:[PASSWORD_1]@ledger-db:5432/ledger`, and a review reason to rotate it | The vendor may need to know which database; nobody outside needs its password |
 | Session cookie | `Cookie: session_id=...` in a debug header | `"Cookie": "session_id=[SESSION_1]; lang=en"` | A session ID is as good as a login for as long as it lives |
 
-The planted cases show the wiring works; they don't measure accuracy. Thirteen hand-planted
+These cases show the wiring works; they don't measure accuracy. Thirteen hand-written
 cases in three files tell you each path through the flow does what it says, not how often a
 real bundle slips past it.
 
@@ -335,7 +362,7 @@ A few things worth noticing:
   model's own guesses on the labelled fields (request IDs as usernames, `host=` IPs as customer
   IPs) were all overruled by the field rules. It also tagged our own path `/v2/checkout` as a
   URL; that path is on the allowlist as one of Corvane's endpoints, so it stays.
-- **The reset URL came out fine, but not for the reason we planted it.** We expected the model
+- **The reset URL came out fine, but not for the reason we expected.** We expected the model
   to tag the whole URL as one span, so that the email rule would cut through it and the overlap
   rule would keep the token redacted. Instead the model returned three spans: the URL up to
   `?email`, the email, and the token on its own (as an "api key"). So the overlap rule never

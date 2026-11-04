@@ -517,7 +517,7 @@ def check_data() -> None:
     assert buffer.getvalue() == feed_text, "inventory.csv is not what make_data.py writes"
     queries_text = (recipe.ROOT / "data" / "queries.json").read_text(encoding="utf-8")
     assert make_data.queries_json() == queries_text, "queries.json is not what make_data.py writes"
-    # Every PIM product is in the feed except the one planted missing; 8 sample queries.
+    # Every PIM product is in the feed except the one we left out; 8 sample queries.
     in_feed = {row["product_id"] for row in csv.DictReader(io.StringIO(feed_text))}
     assert set(pim_rows) - in_feed == {"B077ZJXCTH"}, set(pim_rows) - in_feed
     assert sorted(QUERIES) == [f"Q-0{n}" for n in range(1, 9)], sorted(QUERIES)

@@ -84,8 +84,9 @@ Here are three of the inputs in `data/`, and what should happen to each.
   loans 120,000", new this year; "Creditors: amounts falling due after more than one year" lists
   "Bank loans 480,000", mapped by the analyst last year.
 - **What should happen:** the 480,000 takes last year's confirmed row with no model call. The
-  120,000 is a new label under its heading, so the reranker suggests a row, and a check that the row
-  is in the group the heading names keeps it out of long-term debt.
+  120,000 is a new label under its heading, so the reranker suggests a row. The heading says it's
+  due within one year, so only a current liabilities row is allowed, and that keeps it out of
+  long-term debt.
 - **Expected outcome:** `current_portion_long_term_debt` 120,000, long-term debt 480,000, spread
   `checks_passed`.
 
@@ -95,19 +96,18 @@ Here are three of the inputs in `data/`, and what should happen to each.
   debt 2,250 / Total current liabilities 7,598", in thousands of U.S. dollars.
 - **What should happen:** Python adds the lines (7,538), compares with the printed total, and
   writes an exception instead of trusting the statement.
-- **Expected outcome:** spread `review`, with a `subtotal` exception and a broken tie-out.
+- **Expected outcome:** spread `review`, with a `subtotal` exception and the current liabilities
+  total off by 60.
 
 **3. A sign the wrong way round (Mesa Verde, `BRW-31186.pdf`).**
 
 - **Input:** "Other (income) expense: / Interest expense 22,400 / Other income -8,700 / Total
   other (income) expense 13,700".
-- **What should happen:** the line is placed as filed, never flipped quietly, so the tie-out
-  breaks by twice the amount and the exception names the line.
-- **Expected outcome:** spread `review`, `other_income_expense` -8,700, net income breaking by
-  17,400.
+- **What should happen:** the line goes in as filed, never flipped quietly, so net income stops
+  adding up, off by twice the amount, and the exception names the line.
+- **Expected outcome:** spread `review`, `other_income_expense` -8,700, net income off by 17,400.
 
-On the live run, 7 of 7 planted cases came out as expected; [What came out](#what-came-out) has
-each one.
+On the live run, 7 of 7 cases came out as expected. [What came out](#what-came-out) has every one.
 
 ## How we'll solve it
 
@@ -272,21 +272,45 @@ docling and the reranker.
 
 ### The three examples
 
-- **Harbour Lane** came out `checks_passed` with 0 exceptions: `current_portion_long_term_debt`
-  120,000 (score 0.97, margin 4.41), long-term debt 480,000 from last year's mapping. As
-  expected.
-- **Northfield** came out `review`, with the `subtotal` exception "add up to 7538; the statement
-  prints 7598" and `current_liabilities` breaking by 60. As expected; it also had two exceptions
-  we didn't plant, from "Other assets" (below).
-- **Mesa Verde** came out `review`, with `other_income_expense` -8,700 and `net_income` breaking
-  by 17,400: "The difference is twice 'Other income' (-8700)". As expected; it also had six
-  exceptions from labels the reranker couldn't place (below).
+**1. A new current loan for a returning borrower (Harbour Lane, `BRW-20417.pdf`).**
 
-### Every planted case
+- **Expected outcome:** `current_portion_long_term_debt` 120,000, long-term debt 480,000, spread
+  `checks_passed`.
+- **What came back:** `current_portion_long_term_debt` 120,000 (score 0.97, margin 4.41), long-term
+  debt 480,000 from last year's mapping, spread `checks_passed` with 0 exceptions.
+- **Verdict:** Pass.
 
-On the live run on 2026-11-04 (UTC), 7 of 7 planted cases came out as expected. Northfield and
-Mesa Verde also had exceptions we didn't plant, from labels the reranker couldn't place; each
+**2. A subtotal that doesn't add up (Northfield, `BRW-18820.pdf`).**
+
+- **Expected outcome:** spread `review`, with a `subtotal` exception and the current liabilities
+  total off by 60.
+- **What came back:** spread `review`, with the `subtotal` exception "add up to 7538; the statement
+  prints 7598" and `current_liabilities` breaking by 60.
+- **Verdict:** Pass. It also had two exceptions we didn't write in, from "Other assets" (below).
+
+**3. A sign the wrong way round (Mesa Verde, `BRW-31186.pdf`).**
+
+- **Expected outcome:** spread `review`, `other_income_expense` -8,700, net income off by 17,400.
+- **What came back:** spread `review`, `other_income_expense` -8,700 and `net_income` breaking by
+  17,400: "The difference is twice 'Other income' (-8700)".
+- **Verdict:** Pass. It also shows the limit on a first-time borrower: six more exceptions came from
+  labels the reranker couldn't place (below), and the analyst has to place them.
+
+### Every example
+
+On the live run on 2026-11-04 (UTC), 7 of 7 cases came out as expected. Northfield and
+Mesa Verde also had exceptions we didn't write in, from labels the reranker couldn't place; each
 only adds to a spread already in `review` (see below).
+
+**Where it works:** the numbers. It reuses last year's mappings (Harbour Lane), and it catches a
+subtotal that doesn't add up (Northfield), a sign the wrong way round (Mesa Verde) and statements
+for the wrong year (Kestrel).
+
+**Where it fails:** placing labels it hasn't seen. "Rent", "Vehicle and equipment expenses" and
+"Owner's capital" on Mesa Verde and "Other assets" on Northfield all came back as exceptions for the
+analyst, and "Owner's capital" scored the wrong row highest. The one to worry about is the one this
+run didn't test: two lines of the same kind swapped on the same side add up just as well, so no
+tie-out can see it, and that spread would still say `checks_passed`.
 
 The input is four borrowers in [`data/`](./data):
 
@@ -303,7 +327,7 @@ The input is four borrowers in [`data/`](./data):
 > The borrowers, their figures and their loan records are invented, and every page says so in
 > its footer.
 
-| Borrower | What we planted | Should come out | What came out | Why |
+| Borrower | What's in it | Should come out | What came out | Why |
 | --- | --- | --- | --- | --- |
 | Harbour Lane Joinery Ltd (`BRW-20417`), UK labels, GBP | A returning borrower: 22 labels confirmed last year, including "Bank loans" under "Creditors: amounts falling due after more than one year" and "Directors' loan account" (the analyst put it in other current liabilities, not debt) | Known labels placed with no model call | 22 lines placed from last year; 2 score calls for the whole borrower | Last year's decisions are the bank's, so they're reused, not re-guessed |
 | Harbour Lane | New this year: "Bank loans" under "Creditors: amounts falling due within one year" | Current portion of long-term debt, never long-term debt | `current_portion_long_term_debt`, 120,000 (score 0.97, margin 4.41); long-term debt stays 480,000 | The mapping is keyed on the heading too, so last year's "Bank loans" doesn't apply; the group check would have caught a wrong row |
@@ -341,17 +365,18 @@ A few things worth noticing:
   Check net_income breaks by 17400: net_income is 168200, computed 150800 from net_income = pretax_income - income_tax; no value, counted as 0: income_tax. The difference is twice 'Other income' (-8700): the statement may show that line with the opposite sign to the template's other_income_expense.
   ```
 
-- **Mesa Verde's other six exceptions come from the reranker, not a plant.** "Rent" (best row `sga`,
-  0.47) and "Vehicle and equipment expenses" (`other_operating_expenses`, 0.47) fell just under
-  `min_score` 0.5, so the operating expense and operating income tie-outs break by 109,300, the
-  two lines' total. "Owner's capital" came back as `other_equity` 0.72 against `share_capital`
+- **Mesa Verde's other six exceptions come from the reranker, not from anything we wrote in.**
+  "Rent" (best row `sga`, 0.47) and "Vehicle and equipment expenses" (`other_operating_expenses`,
+  0.47) fell just under `min_score` 0.5, so the operating expense and operating income tie-outs
+  break by 109,300, the two lines' total. "Owner's capital" came back as `other_equity` 0.72
+  against `share_capital`
   0.54, which is the wrong way round; the margin (0.79) was under 1.0, so it was escalated, and
   the equity tie-out breaks by its 150,000. Three lines, each a short label, each one a question
   the analyst answers once. "Salaries and wages" scraped in at 0.50, which is less reassuring
   than it sounds.
 - **Northfield's "Other assets" is genuinely ambiguous.** It sits under "ASSETS" after the
   current assets have closed, and the reranker scored current (0.84) and non-current (0.82)
-  almost the same. Escalated, so `total_assets` breaks by its 412. The planted subtotal is the
+  almost the same. Escalated, so `total_assets` breaks by its 412. The subtotal we wrote in is the
   other two exceptions.
 - **The scan read cleanly enough.** docling's OCR profile read all 26 of Kestrel's lines, with a
   couple of spacing slips in labels, and every tie-out held. The only thing wrong with Kestrel's
@@ -387,7 +412,7 @@ the same kind swapped on the same side, which no tie-out can see.
 - **Prior years.** The recipe spreads the first amount column (the current year). For the
   comparatives, read the other columns in `add_table`; the period check already refuses a first
   column headed with another year.
-- **More planted cases worth adding:** a borrower whose name on the statements differs from the
+- **More cases worth adding:** a borrower whose name on the statements differs from the
   loan system's, a statement in a currency the loan system doesn't expect, and two receivables
   lines swapped on the same side, which no tie-out can catch.
 - **Pro-tip:** add your borrowers' section headings to `section_groups` before you trust the

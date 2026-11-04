@@ -54,7 +54,7 @@ HP Product:7YA11PA#ACJ
 Made in China"""
 
 
-# Hand-written stand-ins for the planted good boxes' other text: the diskette box's bottom and
+# Hand-written stand-ins for the good boxes' other text: the diskette box's bottom and
 # the HP box's front, with the model-like tokens such boxes print (S500, DPI1000, 4GHZ).
 DISK_BOTTOM = """Universal
 office products
@@ -160,7 +160,7 @@ def check_product() -> None:
     assert found[0] == "cant_confirm", found
     assert "1944412406274" in found[1], found
     assert "087547003503" in found[1], found
-    # The planted good boxes still match, on their own UPC, with every token they print.
+    # The good boxes still match, on their own UPC, with every token they print.
     for return_id, text in (("R-01", DISK_BOTTOM), ("R-02", HP_SIDE + "\n" + HP_FRONT)):
         found = status(RETURNS[return_id].sale, text)
         assert found[0] == "match", (return_id, found)
@@ -474,7 +474,7 @@ def check_sie_failure() -> None:
 
 
 def check_data() -> None:
-    # Every planted return loads, every photo exists, and every sale UPC has a valid check digit.
+    # Every return loads, every photo exists, and every sale UPC has a valid check digit.
     assert sorted(RETURNS) == [f"R-0{n}" for n in range(1, 8)], sorted(RETURNS)
     for ret in RETURNS.values():
         assert not ret.sale.upc or recipe.gtin_valid(ret.sale.upc), ret.sale.upc
