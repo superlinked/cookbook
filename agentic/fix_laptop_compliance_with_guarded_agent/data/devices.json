@@ -1,0 +1,190 @@
+[
+ {
+  "device_id": "D-101",
+  "owner_name": "Marta Quiles",
+  "owner_email": "marta.quiles@pellwood.example",
+  "model": "MacBook Air 13-inch, M3",
+  "firewall": false,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 300,
+  "airplay_receiver": false,
+  "guest_account": false,
+  "remote_login": false,
+  "os_version": "26.5.1",
+  "ssh_keys": [],
+  "last_backup": "2026-11-04",
+  "profiles": [],
+  "exceptions": []
+ },
+ {
+  "device_id": "D-102",
+  "owner_name": "Devon Achterberg",
+  "owner_email": "devon.achterberg@pellwood.example",
+  "model": "MacBook Air 15-inch, M3",
+  "firewall": true,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 300,
+  "airplay_receiver": false,
+  "guest_account": false,
+  "remote_login": false,
+  "os_version": "26.7.2",
+  "ssh_keys": [],
+  "last_backup": "2026-11-04",
+  "profiles": [],
+  "exceptions": []
+ },
+ {
+  "device_id": "D-103",
+  "owner_name": "Priya Natarajan",
+  "owner_email": "priya.natarajan@pellwood.example",
+  "model": "MacBook Pro 14-inch, M4",
+  "firewall": false,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 300,
+  "airplay_receiver": false,
+  "guest_account": false,
+  "remote_login": false,
+  "os_version": "26.7.2",
+  "ssh_keys": [],
+  "last_backup": "2026-11-04",
+  "profiles": [
+   {
+    "name": "PF-Dev-Legacy-2023",
+    "installed": "2023-04-11",
+    "manages": {
+     "firewall": false
+    }
+   }
+  ],
+  "exceptions": []
+ },
+ {
+  "device_id": "D-104",
+  "owner_name": "Ines Pardo",
+  "owner_email": "ines.pardo@pellwood.example",
+  "model": "MacBook Pro 16-inch, M4 Pro",
+  "firewall": true,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 1800,
+  "airplay_receiver": false,
+  "guest_account": false,
+  "remote_login": false,
+  "os_version": "26.7.2",
+  "ssh_keys": [
+   {
+    "file": "id_rsa",
+    "type": "rsa",
+    "has_passphrase": false
+   },
+   {
+    "file": "id_ed25519",
+    "type": "ed25519",
+    "has_passphrase": true
+   }
+  ],
+  "last_backup": "2026-11-04",
+  "profiles": [],
+  "exceptions": []
+ },
+ {
+  "device_id": "D-105",
+  "owner_name": "Tomasz Wierzba",
+  "owner_email": "tomasz.wierzba@pellwood.example",
+  "model": "MacBook Air 13-inch, M2",
+  "firewall": true,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 300,
+  "airplay_receiver": true,
+  "guest_account": true,
+  "remote_login": false,
+  "os_version": "26.7.2",
+  "ssh_keys": [],
+  "last_backup": "2026-11-04",
+  "profiles": [],
+  "exceptions": []
+ },
+ {
+  "device_id": "D-106",
+  "owner_name": "Kenji Mori",
+  "owner_email": "kenji.mori@pellwood.example",
+  "model": "MacBook Air 13-inch, M3",
+  "firewall": true,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 120,
+  "airplay_receiver": false,
+  "guest_account": false,
+  "remote_login": false,
+  "os_version": "26.7.2",
+  "ssh_keys": [],
+  "last_backup": "2026-11-04",
+  "profiles": [],
+  "exceptions": []
+ },
+ {
+  "device_id": "D-107",
+  "owner_name": "Aisha Bello",
+  "owner_email": "aisha.bello@pellwood.example",
+  "model": "MacBook Air 15-inch, M4",
+  "firewall": true,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 300,
+  "airplay_receiver": false,
+  "guest_account": false,
+  "remote_login": false,
+  "os_version": "26.7.2",
+  "ssh_keys": [],
+  "last_backup": "2026-11-04",
+  "profiles": [],
+  "exceptions": []
+ },
+ {
+  "device_id": "D-108",
+  "owner_name": "Sam Okafor",
+  "owner_email": "sam.okafor@pellwood.example",
+  "model": "Mac mini, M4",
+  "firewall": true,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 300,
+  "airplay_receiver": false,
+  "guest_account": false,
+  "remote_login": true,
+  "os_version": "26.7.2",
+  "ssh_keys": [],
+  "last_backup": "2026-11-04",
+  "profiles": [],
+  "exceptions": [
+   {
+    "setting": "remote_login",
+    "exception_id": "EX-0412",
+    "reason": "yard camera server",
+    "ends": "2026-12-31"
+   }
+  ]
+ },
+ {
+  "device_id": "D-109",
+  "owner_name": "Sofia Lund",
+  "owner_email": "sofia.lund@pellwood.example",
+  "model": "MacBook Air 13-inch, M3",
+  "firewall": true,
+  "gatekeeper": true,
+  "filevault": true,
+  "screen_lock_delay_s": 300,
+  "airplay_receiver": false,
+  "guest_account": false,
+  "remote_login": false,
+  "os_version": "26.7.2",
+  "ssh_keys": [],
+  "last_backup": "2026-09-20",
+  "profiles": [],
+  "exceptions": []
+ }
+]
