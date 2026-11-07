@@ -1,0 +1,18 @@
+pattern,per_15_min
+auth INFO token issued for user <email>,109.26
+auth WARN token refresh failed for user <email>: upstream timeout,1.79
+checkout ERROR payment step failed for order <n>: card declined,2.69
+"checkout INFO order <n> placed, request completed in <n> ms",72.76
+frontend INFO GET /api/cart <n> in <n> ms,136.51
+frontend INFO GET /api/products <n> in <n> ms,272.93
+frontend WARN GET /api/products <n> rate limited client <ip>,3.46
+inventory INFO stock reserved sku SKU-<n> qty <n>,82.59
+inventory WARN stock low for sku SKU-<n>: <n> left,4.56
+payments INFO charge ok for order <n> amount <n> EUR,72.41
+payments WARN card declined for order <n>: do not honor,0.93
+payments WARN card declined for order <n>: expired card,0.88
+payments WARN card declined for order <n>: insufficient funds,0.88
+"search INFO query served in <n> ms, <n> hits",108.29
+search WARN slow query took <n> ms,1.79
+worker ERROR job <id> failed: retry <n> of <n>,0.89
+worker INFO job <id> finished in <n> ms,36.21

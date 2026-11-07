@@ -1,0 +1,15 @@
+[project]
+name = "sie-flag-unusual-logs-and-investigate"
+version = "0.1.0"
+description = "Watch every log line with small models on SIE, and hand only the odd ones to a Claude agent."
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.0.0",
+    "numpy>=2",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+]
+
+[tool.uv]
+package = false
