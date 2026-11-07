@@ -5,7 +5,9 @@
 This repository holds example apps built on SIE. Each recipe is one job a team
 does every week, in one industry, built from SIE model calls plus rules in plain
 Python and YAML. Every recipe folder is self-contained: a reader can copy one
-folder into their own project and it runs with only `uv` and an SIE API key.
+folder into their own project and it runs with only `uv` and an SIE API key. Recipes in
+`agentic/` also need an `ANTHROPIC_API_KEY`, because Claude runs their agent loop and their tools
+call SIE models.
 
 ## Layout
 
@@ -35,7 +37,7 @@ Run everything from inside the recipe folder:
 
 A live run needs `SIE_API_KEY` in a `.env` in the
 recipe folder or the repo root, or `SIE_BASE_URL` pointing at SIE Cluster or SIE Local
-(the key is then optional).
+(the key is then optional). Recipes in `agentic/` also need `ANTHROPIC_API_KEY`.
 The first call can wait minutes while SIE Serverless starts a cold model.
 
 ## Development boundaries

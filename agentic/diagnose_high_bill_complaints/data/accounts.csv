@@ -1,0 +1,11 @@
+account_id,meter_serial,meter_type,service_status
+A-1001,AV-204817,manual,open
+A-1002,AV-510020,automated,open
+A-1003,AV-510030,automated,open
+A-1004,AV-510040,automated,open
+A-1005,AV-510050,automated,open
+A-1006,AV-771230,manual,open
+A-1007,AV-510070,automated,open
+A-1008,AV-510080,automated,open
+A-1009,AV-510090,automated,open
+A-1010,AV-510100,automated,open
