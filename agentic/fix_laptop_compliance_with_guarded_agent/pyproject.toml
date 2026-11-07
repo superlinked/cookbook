@@ -1,0 +1,19 @@
+[project]
+name = "sie-fix-laptop-compliance-with-guarded-agent"
+version = "0.1.0"
+description = "Fix a laptop that fails its security checks: Claude runs the loop, small models on SIE check each step."
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.0.0",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+]
+
+[dependency-groups]
+data = [
+    "pillow>=12.3.0,<13",
+]
+
+[tool.uv]
+package = false
