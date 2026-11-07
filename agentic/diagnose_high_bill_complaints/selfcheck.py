@@ -264,6 +264,9 @@ def check_statuses() -> None:
     # A question that's only useful to know doesn't move the status.
     assert recipe.status_of(result(True, needed=(False,)), []) == "draft_ready"
     assert recipe.status_of(result(False), []) == "not_in_policy"
+    # A photo with the wrong serial keeps the complaint open, even when Claude answered everything.
+    assert recipe.status_of(result(True), [], photo_rejected=True) == "partly_answered"
+    assert recipe.status_of(result(True), ["bad quote"], photo_rejected=True) == "check_failed"
     assert recipe.status_of(result(True), ["bad quote"]) == "check_failed"
     done = result(True)
     done.ran_out = True

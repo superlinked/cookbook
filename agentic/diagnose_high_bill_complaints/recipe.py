@@ -714,8 +714,9 @@ def check_draft(draft: dict[str, Any], box: Toolbox, complaint_text: str) -> lis
     return problems
 
 
-def status_of(result: AgentResult, problems: list[str]) -> str:
-    """The status, from what happened and what the checks found. Claude doesn't choose it."""
+def status_of(result: AgentResult, problems: list[str], photo_rejected: bool = False) -> str:
+    """The status, from what happened and what the checks found. Claude doesn't choose it. A photo
+    with the wrong serial leaves the bill unsettled, however complete the reply is."""
     if result.ran_out:
         return "out_of_steps"
     if result.draft is None:
@@ -727,7 +728,7 @@ def status_of(result: AgentResult, problems: list[str]) -> str:
         question["needed_before_anyone_can_act"]
         for question in result.draft["questions_for_customer"]
     )
-    if all(answered) and not waiting:
+    if all(answered) and not waiting and not photo_rejected:
         return "draft_ready"
     return "partly_answered" if any(answered) else "not_in_policy"
 
@@ -852,7 +853,7 @@ def answer_complaint(claude: anthropic.Anthropic, box: Toolbox) -> dict[str, Any
         box.complaint_text = masked_body
         result = run_agent(claude, box, complaint_prompt(complaint, masked_body))
     problems = result.problems
-    status = status_of(result, problems)
+    status = status_of(result, problems, photo_rejected=box.serial_matches is False)
     proposal = result.draft.get("proposed_credit") if result.draft else None
     return {
         "complaint_id": complaint.complaint_id,

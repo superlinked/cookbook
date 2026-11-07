@@ -62,7 +62,8 @@ agent asked the manual, and one of these statuses:
 
 - **`draft_ready`**: every question is answered, and every source and sum checks out.
 - **`partly_answered`**: the draft says what the data and rules show, and lists what's still open or what
-  has to come from the customer before anyone can act. A question that's only useful to know doesn't count.
+  has to come from the customer before anyone can act. A question that's only useful to know doesn't count. A photo
+  with the wrong serial always lands here, because the bill can't be settled until someone reads the meter.
 - **`not_in_policy`**: the customer asked something the manual doesn't cover.
 - **`check_failed`**: a quote isn't in its source, a figure or sum doesn't hold up, or the reply claims an action
   nobody took, even after Claude had a chance to fix it. The draft is kept, and the rep is told which line to distrust.
@@ -258,9 +259,11 @@ and I never found out why, so give it some room.
 
 ### Results
 
-7 of 10 complaints came out as expected on the last of three live runs on 7 Nov 2026 (UTC). The other two got 8 and 7, with the
-same prompts and the same index, so that gap is Claude taking different paths. A complaint counts when its status and the detail
-it's there to show both came out right. Single runs before the fixes below got 6 and 9, which is why I stopped trusting one run.
+8 of 10 complaints came out as expected on the last of three live runs on 7 Nov 2026 (UTC), and so did the other two. They scored 8, 7
+and 7 as they ran. I then added one rule in Python, that a photo with the wrong serial keeps a complaint at `partly_answered`, and
+put those same three runs through it, which moved C-2006 on two of them. A live run of C-2006 with the rule in place also came out
+`partly_answered`. A complaint counts when its status and the detail it's there to show both came out right. Single runs before these
+fixes got 6 and 9, which is why I stopped trusting one run.
 
 Those fixes came from reading the misses. Claude kept writing things like "I have passed your question on for review" on C-2008,
 in 5 of the 8 Opus runs I checked. The manual doesn't say who handles damage claims, so the reply had no honest way to finish. The
@@ -269,17 +272,18 @@ in `rules.yaml` sends those sentences back. On the three runs since, C-2008 came
 the field and the prompt did the work, and it's there as a backstop.
 
 The other fix: any question for the customer used to move the status, so a courtesy question could cost you `draft_ready`. Now
-Claude marks each one as needed before anyone can act, or not. C-2002, C-2004 and C-2007 settled on all three runs, and C-2005 and
-C-2006 moved the wrong way. Claude now makes that call, so the status got steadier and not more right: see below.
+Claude marks each one as needed before anyone can act, or not. C-2002, C-2004 and C-2007 settled on all three runs. C-2005 and C-2006
+moved the wrong way, because Claude now makes that call. C-2006 is the one Python can settle by itself, since it knows the serial
+didn't match, so I gave that decision back to Python.
 
 | Complaint | Expected status | Came out as expected |
 | --- | --- | --- |
-| C-2001, C-2002, C-2003, C-2004, C-2007, C-2008, C-2009 | as in the examples, or as below | 3 of 3 runs |
-| C-2006 | `partly_answered` | 1 of 3 runs |
+| C-2001, C-2002, C-2003, C-2004, C-2006, C-2007, C-2008, C-2009 | as in the examples, or as below | 3 of 3 runs |
 | C-2005 | `partly_answered` | 0 of 3 runs |
 | C-2010 | `draft_ready` | 0 of 3 runs |
 
-C-2003, C-2004 and C-2009 should be `partly_answered`, because each needs something only the customer has. C-2007 and C-2010 should be
+C-2003, C-2004 and C-2009 should be `partly_answered`, because each needs something only the customer has, and so should C-2006,
+because of its rejected photo. C-2007 and C-2010 should be
 `draft_ready`, and C-2008 should be `not_in_policy`.
 
 **Where it works:** turning one message into several questions. C-2010 ("is there any help, and will you shut off my water?") took
@@ -296,9 +300,6 @@ place: on C-2001 it caught a quote joined across lines on two of the three runs.
   and the rate change, and asks what started in July. Claude marked that question as only useful to know, which is fair, since the
   customer's own questions are answered. I already changed my mind once on this one, from `draft_ready` to `partly_answered`, and I'm
   not moving it again after seeing a result. Count it how you like.
-- **C-2006 came out `draft_ready` on two of three runs, where I expected `partly_answered`.** The customer wants the bill fixed, the photo
-  was rejected, and nothing can change until a technician reads the meter. That isn't a finished answer, but Claude marked both
-  questions answered and its question for the customer as optional. The reply and the next step for the rep are right.
 - **C-2010 came out `partly_answered` on all three runs, where I expected `draft_ready`.** Claude marked "will you shut off my water?" as
   not answered. The manual says when service isn't shut off, and not when it is, so that's defensible, but this is the status that
   moved most: three of the five runs before the fixes got `draft_ready`.
@@ -326,8 +327,6 @@ complaint by hand.
   the reply send the customer somewhere, and not stop at "I can't tell you".
 - **Answer simple questions without the agent.** C-2010 needs no account data or sums, only the manual, so a cheaper path
   might do. Whether you can tell those complaints apart up front is the part to test.
-- **Hold the status when a photo is rejected.** Python already knows the serial didn't match, so it could keep C-2006 at
-  `partly_answered` without asking Claude. I left this out because I'd be writing a rule to fit one complaint out of ten.
 - **Use an approximate index when the manual outgrows this.** Exact search is fine for a few thousand sections. Past that, vicinity
   has HNSW and FAISS backends, and only `vector_index.py` has to change.
 - **Handle a photo taken after the period ends.** C-2001's reading includes a few days of October, and section 3.2 doesn't
