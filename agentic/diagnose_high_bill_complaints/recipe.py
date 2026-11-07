@@ -13,8 +13,9 @@ Agent:     Claude runs the loop and decides what to check next. Its tools are:
            calculate_bill    plain Python
            submit_draft      plain Python, ends the loop
 Fixed:     superlinked/pii-redact on SIE masks personal data before Claude sees the complaint.
-Review:    When Claude submits, Python checks every quote and figure and works out any credit again.
-           What it finds goes back to Claude once to fix. Python then sets the status.
+Review:    When Claude submits, Python checks every quote and figure, works out any credit again and
+           looks for sentences claiming an action nobody took. What it finds goes back to Claude
+           once to fix. Python then sets the status.
 Output:    runs/<timestamp>/: drafts.csv, drafts/<complaint>.md and transcripts/<complaint>.json
            with every tool call. A status says what the checks found: draft_ready, partly_answered,
            not_in_policy, check_failed, out_of_steps or no_draft.
@@ -278,7 +279,19 @@ TOOLS: list[dict[str, Any]] = [
                         }
                     ),
                 },
-                "questions_for_customer": {"type": "array", "items": {"type": "string"}},
+                "questions_for_customer": {
+                    "type": "array",
+                    "items": object_schema(
+                        {
+                            "question": {"type": "string"},
+                            "needed_before_anyone_can_act": {"type": "boolean"},
+                        }
+                    ),
+                },
+                "next_step_for_rep": {
+                    "type": "string",
+                    "description": "What the rep has to do or find out. Empty when nothing is.",
+                },
                 "proposed_credit": {
                     "anyOf": [
                         object_schema({"amount": {"type": "number"}, "recharge_periods": PERIODS}),
@@ -625,6 +638,12 @@ def figures(text: str, min_digits: int) -> set[str]:
     return {re.sub(r"\.0+$", "", figure) for figure in re.findall(pattern, joined)}
 
 
+def action_claims(reply: str, patterns: list[str]) -> list[str]:
+    """Where a reply claims or promises an action. The recipe only drafts, so none has happened."""
+    text = plain(reply)
+    return [match.group(0) for pattern in patterns for match in re.finditer(pattern, text)]
+
+
 def worked_out_credit(draft: dict[str, Any], box: Toolbox) -> tuple[float | None, list[str]]:
     """The credit Python gets for the draft's recharged periods: billed minus recharged."""
     proposal = draft.get("proposed_credit")
@@ -687,6 +706,11 @@ def check_draft(draft: dict[str, Any], box: Toolbox, complaint_text: str) -> lis
                 problems.append(f"{figure} in a claim didn't come from any lookup")
     for figure in sorted(figures(draft["reply"], digits) - allowed):
         problems.append(f"{figure} in the reply didn't come from any lookup or the complaint")
+    for claim in action_claims(draft["reply"], rules["checks"]["action_claims"]):
+        problems.append(
+            f"the reply says {claim!r}, but nobody has done that. Take it out, and put what needs "
+            "doing in next_step_for_rep"
+        )
     return problems
 
 
@@ -699,7 +723,11 @@ def status_of(result: AgentResult, problems: list[str]) -> str:
     if problems:
         return "check_failed"
     answered = [question["answered"] for question in result.draft["questions"]]
-    if all(answered) and not result.draft["questions_for_customer"]:
+    waiting = any(
+        question["needed_before_anyone_can_act"]
+        for question in result.draft["questions_for_customer"]
+    )
+    if all(answered) and not waiting:
         return "draft_ready"
     return "partly_answered" if any(answered) else "not_in_policy"
 
@@ -755,10 +783,18 @@ def draft_markdown(
         if proposal:
             amount = proposal["amount"]
             lines += [f"**Proposed credit, for a supervisor to approve:** ${amount:.2f}", ""]
+        if draft["next_step_for_rep"]:
+            lines += [f"**Next step for the rep:** {draft['next_step_for_rep']}", ""]
         lines += ["## Draft reply", "", draft["reply"], ""]
-        if draft["questions_for_customer"]:
-            lines += ["## Still needed from the customer", ""]
-            lines += [f"- {question}" for question in draft["questions_for_customer"]] + [""]
+        for heading, needed in (("Still needed from", True), ("Worth asking", False)):
+            asks = [
+                question["question"]
+                for question in draft["questions_for_customer"]
+                if question["needed_before_anyone_can_act"] is needed
+            ]
+            if asks:
+                lines += [f"## {heading} the customer", ""]
+                lines += [f"- {ask}" for ask in asks] + [""]
         lines += ["## Sources", ""]
         for question in draft["questions"]:
             state = "answered" if question["answered"] else "not answered"

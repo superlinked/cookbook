@@ -139,7 +139,7 @@ These recipes also need an `ANTHROPIC_API_KEY`. Claude runs the agent loop, and 
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Work out why a customer's bill jumped and draft the reply, with a source for every line](agentic/diagnose_high_bill_complaints) | Claude Opus 5.5 (Anthropic API), Qwen3-Embedding-4B, Qwen3-Reranker-4B, LightOnOCR-3-4B, pii-redact | 63 | 343 s |
+| [Work out why a customer's bill jumped and draft the reply, with a source for every line](agentic/diagnose_high_bill_complaints) | Claude Opus 5.5 (Anthropic API), Qwen3-Embedding-4B, Qwen3-Reranker-4B, LightOnOCR-3-4B, pii-redact | 62 | 253 s |
 
 ### Personal agents
 

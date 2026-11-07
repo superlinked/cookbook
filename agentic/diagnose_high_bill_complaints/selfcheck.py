@@ -67,6 +67,7 @@ def draft(claim: str, source: str, quote: str, **extra: Any) -> dict[str, Any]:
         "likely_cause": "",
         "questions": [question],
         "questions_for_customer": [],
+        "next_step_for_rep": "",
         "proposed_credit": None,
     } | extra
 
@@ -159,6 +160,33 @@ def check_figures_and_quotes() -> None:
     assert "no source" in recipe.check_draft(bare, box, "")[0]
 
 
+def check_action_claims() -> None:
+    # Sentences Claude really wrote, and ones that are fine. The curly quote is on purpose.
+    for sentence in (
+        "I have passed your question on for review.",
+        "I\u2019ve flagged your message so the right team can look at it.",
+        "I've noted your request so it can be sent to the right people.",
+        "We'll look into it.",
+        "Your question has been forwarded.",
+    ):
+        found = recipe.action_claims(sentence, RULES["checks"]["action_claims"])
+        assert found, sentence
+    for sentence in (
+        "I looked at your account, and your last six bills show the same use.",
+        "We read your meter on 2026-09-01.",
+        "Our rules don't say who handles damage claims.",
+        "Please send the plumber's invoice.",
+    ):
+        assert recipe.action_claims(sentence, RULES["checks"]["action_claims"]) == [], sentence
+    box = box_for()
+    box.outputs["get_account"] = ['{"amount": "289.80"}']
+    said = draft("I have passed this on.", "get_account", "289.80")
+    assert "next_step_for_rep" in recipe.check_draft(said, box, "")[0]
+    # The field for the rep is where that belongs, so it isn't checked.
+    moved = draft("Billed 289.80.", "get_account", "289.80", next_step_for_rep="Passed it on.")
+    assert recipe.check_draft(moved, box, "") == []
+
+
 def check_credit() -> None:
     manual = Complaint("C-2", "A-1001", "2026-10-08", "s", "b", "x.jpg")
     box = box_for(manual)
@@ -225,13 +253,16 @@ def check_masking() -> None:
 
 
 def check_statuses() -> None:
-    def result(*answered: bool, ask: tuple[str, ...] = ()) -> AgentResult:
+    def result(*answered: bool, needed: tuple[bool, ...] = ()) -> AgentResult:
         questions = [{"answered": a} for a in answered]
-        return AgentResult(draft={"questions": questions, "questions_for_customer": list(ask)})
+        asks = [{"question": "Which?", "needed_before_anyone_can_act": n} for n in needed]
+        return AgentResult(draft={"questions": questions, "questions_for_customer": asks})
 
     assert recipe.status_of(result(True, True), []) == "draft_ready"
     assert recipe.status_of(result(True, False), []) == "partly_answered"
-    assert recipe.status_of(result(True, ask=("What happened?",)), []) == "partly_answered"
+    assert recipe.status_of(result(True, needed=(True, False)), []) == "partly_answered"
+    # A question that's only useful to know doesn't move the status.
+    assert recipe.status_of(result(True, needed=(False,)), []) == "draft_ready"
     assert recipe.status_of(result(False), []) == "not_in_policy"
     assert recipe.status_of(result(True), ["bad quote"]) == "check_failed"
     done = result(True)
@@ -271,6 +302,18 @@ class Script:
 def loop(replies: list[SimpleNamespace]) -> tuple[AgentResult, Script]:
     claude = Script(replies)
     return recipe.run_agent(cast(Any, claude), box_for(), "prompt"), claude
+
+
+def check_markdown() -> None:
+    final = draft("Billed 289.80.", "get_account", "289.80", next_step_for_rep="Find the owner.")
+    final["questions_for_customer"] = [
+        {"question": "Send the invoice.", "needed_before_anyone_can_act": True},
+        {"question": "When were you away?", "needed_before_anyone_can_act": False},
+    ]
+    text = recipe.draft_markdown(PLAIN, "partly_answered", AgentResult(draft=final), [], {})
+    assert "**Next step for the rep:** Find the owner." in text
+    assert "## Still needed from the customer\n\n- Send the invoice." in text
+    assert "## Worth asking the customer\n\n- When were you away?" in text
 
 
 def check_loop() -> None:
@@ -367,10 +410,12 @@ if __name__ == "__main__":
     check_billing()
     check_readings()
     check_figures_and_quotes()
+    check_action_claims()
     check_credit()
     check_photo()
     check_masking()
     check_statuses()
+    check_markdown()
     check_loop()
     check_data()
     print("selfcheck passed")

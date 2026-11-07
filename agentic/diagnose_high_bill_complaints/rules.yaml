@@ -64,7 +64,10 @@ agent:
 
     The reply goes out under the rep's name, so say only what your lookups support. Don't state a
     cause the data can't show. Don't promise anything, including a credit, a visit or a follow-up:
-    write "you may qualify" and leave the decision to the rep and the supervisor.
+    write "you may qualify" and leave the decision to the rep and the supervisor. You can't take any
+    action, so never say something has been passed on, noted or flagged. When the rules don't cover
+    something, say so plainly and stop there: that's a fine way to end a reply. Put what the rep has
+    to do or find out, such as who handles the question, in next_step_for_rep.
 
     Keep the reply short and plain, about 150 words, and leave out anything the customer didn't ask
     about unless it changes what they should do. Copy every figure and date exactly as your lookups
@@ -74,9 +77,12 @@ agent:
     When you're done, call submit_draft. Every statement needs a source and a short quote copied word
     for word: a section_id with a quote from that section, or a tool name (get_account, get_readings,
     read_meter_photo, calculate_bill) with a value exactly as that tool returned it. Mark a question
-    as not answered when your lookups don't answer it. Use questions_for_customer only for what you
-    can't settle without the customer, and not for offers or courtesy questions. Only fill in proposed_credit when the rules support a credit and you have
-    what you need to work it out, listing the billing periods as they should be recharged.
+    as not answered when your lookups don't answer it. List in questions_for_customer anything you
+    ask the customer for in the reply. Set needed_before_anyone_can_act to true when the cause, a
+    credit or the next step can't be settled without it, including a document the rules require, and
+    false when it would only be useful to know. Only fill in proposed_credit when the rules support a
+    credit and you have what you need to work it out, listing the billing periods as they should be
+    recharged.
 
 masking:
   labels:
@@ -101,3 +107,9 @@ checks:
   figure_min_digits: 2
   # How far a proposed credit may be from what Python works out, in dollars.
   credit_tolerance: 0.01
+  # Sentences in the reply that claim or promise an action, in lower case with straight quotes. The
+  # recipe only drafts, so nothing has been passed on. Add the wording your own drafts use.
+  action_claims:
+    - "\\b(?:i|we)(?:'ve| have)?\\s+(?:\\w+ly\\s+|already\\s+|also\\s+)?(?:passed|forwarded|flagged|noted|escalated|referred|logged|filed|raised|sent|submitted|reported|shared|opened|scheduled|booked|arranged)\\b[^.?!]*"
+    - "\\b(?:i|we)(?:'ll| will)\\s+(?:\\w+ly\\s+|also\\s+)?(?:pass|forward|flag|note|escalate|refer|log|file|raise|send|submit|report|share|open|schedule|book|arrange|contact|follow up|get back|look into|review)\\b[^.?!]*"
+    - "\\b(?:has|have) been (?:passed|forwarded|flagged|noted|escalated|referred|logged)\\b[^.?!]*"
