@@ -1,0 +1,10 @@
+time,service,version,change
+2026-11-05T08:30,search,v1.9.2,Tune the result cache size
+2026-11-05T09:00,frontend,v5.1.0,Switch to the new access log format
+2026-11-05T10:40,payments,v2.14.0,Move card token decryption to the new key service
+2026-11-05T11:20,payments,v2.13.4,Roll back v2.14.0
+2026-11-05T13:00,inventory,v3.2.0,Warm the stock cache when an instance starts
+2026-11-05T14:30,worker,v4.0.1,Upgrade the job queue client
+2026-11-05T16:15,auth-config,c-311,Lower the identity provider call timeout from 5000 ms to 500 ms
+2026-11-05T17:05,auth-config,c-312,Revert the identity provider call timeout to 5000 ms
+2026-11-05T19:00,frontend,v5.1.1,Fix a footer link
