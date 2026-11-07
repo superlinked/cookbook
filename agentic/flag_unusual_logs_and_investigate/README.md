@@ -4,9 +4,9 @@
 > lines from seven services.
 >
 > **How it works:** Python groups all 88,347 lines into patterns, for free. An embedding model on SIE
-> only sees the patterns Python hasn't met before: seven of them, in 9 embedding calls for the whole
-> day. Python also spots familiar patterns far above their usual count. Only those odd cases go to
-> Claude, three a day here, which looks into each one and writes a note for the on-call engineer.
+> only sees the patterns Python hasn't met before: seven of them all day, in 8 embedding calls. Python
+> also spots familiar patterns far above their usual count. Only those odd cases go to Claude, three a
+> day here, which looks into each one and writes a note for the on-call engineer.
 >
 > **Use the same pattern for:** payment or fraud events, support tickets, sensor readings, audit
 > trails: anything with too many items for a large model to read, where most of them are routine.
@@ -62,11 +62,15 @@ The output is one note per case for the on-call engineer: what's odd, the likely
 the next step, and a source for every statement. Nothing pages anyone or changes anything on its own.
 Each note gets one of these statuses:
 
-- **`page_recommended`**: the agent recommends paging, and every quote and figure checks out.
-- **`no_page_recommended`**: the agent recommends no page, and every quote and figure checks out.
-- **`check_failed`**: a quote isn't in its source, a figure doesn't come from the case or a lookup, or the note
-  claims something was done, even after Claude had a chance to fix it.
-- **`out_of_steps`**: the agent hit its limit on lookups or requests.
+- **`page_recommended`**: the agent recommends paging, quotes a runbook section that says to page, and every
+  check passes.
+- **`no_page_recommended`**: the agent recommends no page, and every check passes.
+- **`check_failed`**: a quote isn't word for word in its source; a figure in a claim, the summary, the likely cause
+  or the next step doesn't come from the case, a lookup or a runbook; the summary, likely cause or a claim says the
+  agent did something; a page has no runbook quote behind it; or a field holds leaked tool-call markup. This is
+  after Claude had one chance to fix it.
+- **`out_of_steps`**: the agent hit its limit on lookups or requests and never handed in a note. A note that comes
+  after a refused lookup keeps its own status, and the note and `cases.csv` count the refused lookups.
 - **`no_note`**: there's no note, because personal data couldn't be masked, Claude declined or an API call failed.
 
 Whether to page is Claude's call, and Python only checks the note behind it. The on-call engineer decides.
@@ -80,7 +84,7 @@ under this repo's Apache 2.0 license. The shop and its customers aren't real.
 
 > `payments ERROR card token decrypt failed for order 83303: key version 7 not found`
 
-Two minutes after payments v2.14.0 goes out, this line appears 140 times every 15 minutes, along with
+Two minutes after payments v2.14.0 goes out, this line appears about 180 to 200 times every 15 minutes, along with
 checkout's "payment step failed ... upstream 502". Neither was seen last week. Should raise a case for the
 10:30 window, recommend a page, and name the deploy as the likely cause.
 
@@ -103,20 +107,26 @@ outcome, because it's the limit this design has.
 ## How we'll solve it
 
 **Fixed work, before the day starts, with no agent.** Qwen3-Embedding-4B embeds last week's 17 log patterns
-and the 11 runbook sections, once.
+and the 11 runbook sections, once, as documents.
 
 **The watcher, every 15 minutes, with no agent.**
 
 1. Python turns each line into its pattern, swapping email addresses, ids, IP addresses and numbers for
    placeholders: `auth WARN token refresh failed for user <email>: upstream timeout`.
-2. For a pattern it hasn't seen, Qwen3-Embedding-4B compares it with last week's patterns and with the new
-   ones from earlier today. Close enough means the same event in new words. Otherwise it's new, and odd.
-3. For each known pattern, Python counts its lines in the window, including new wordings of it, and calls
-   it odd at 10 times its usual count and at least 20 lines.
-4. A pattern that raised a case stays quiet for two hours, so one spike is one case.
+2. For a pattern it hasn't seen, Qwen3-Embedding-4B embeds it as a query and compares it with last week's
+   patterns and today's earlier new ones, all embedded as documents. That's two calls per batch of new
+   patterns: one as a query, and one as a document for later batches to compare with. Close enough means
+   the same event in new words, and its lines count toward the pattern it matches. Otherwise it's new, and
+   odd.
+3. For each pattern, Python counts its lines in the window, including new wordings of it, and calls it odd
+   at 10 times its usual count and at least 20 lines. A known pattern's usual count is last week's. A new
+   pattern from earlier today is watched against its count in the window its case was raised.
+4. A pattern whose case got a note stays quiet for two hours, so one spike is one case. A case that got no
+   note doesn't start the quiet time, so it's raised again.
 
-**The agent, only on odd windows.** pii-redact and a plain pattern mask the case, then Claude calls these
-tools until it's satisfied, with up to 8 lookups per case:
+**The agent, only on odd windows.** pii-redact and plain patterns mask the case: names, email addresses,
+phone numbers and IP addresses. Every `<` and `>` in the case is escaped, so a log line can't close the tag
+around it. Then Claude calls these tools until it's satisfied, with up to 8 lookups per case:
 
 | Tool | What it does | What runs it |
 | --- | --- | --- |
@@ -127,16 +137,17 @@ tools until it's satisfied, with up to 8 lookups per case:
 
 Claude only sees logs and deploys up to the time the case was raised, the way it would in real time.
 
-**Checking, in plain code, when Claude submits.** Every quote must be word for word in its source, every
-figure of two digits or more must come from the case, a lookup or a runbook, and the note can't say
-something was paged or rolled back, because nothing here does that. Anything wrong goes back to Claude once.
-Then Python sets the status.
+**Checking, in plain code, when Claude submits.** Every quote must be word for word in its source. Every figure
+of two digits or more in a claim, the summary, the likely cause or the next step must come from the case, a
+lookup or a runbook. The summary, the likely cause and the claims can't say the agent paged or rolled anything
+back, because nothing here does that. A page needs a quote from a runbook section, and no field can hold
+leaked tool-call markup. Anything wrong goes back to Claude once. Then Python sets the status.
 
 ## Picking the models
 
 | Model | Its job here | Why this one, and not Claude |
 | --- | --- | --- |
-| `Qwen/Qwen3-Embedding-4B` | Tells a reworded line from a new one, and finds candidate runbook sections | It only sees patterns Python hasn't met: 9 calls for the whole day, including the runbooks and the agent's questions |
+| `Qwen/Qwen3-Embedding-4B` | Tells a reworded line from a new one, and finds candidate runbook sections | It only sees patterns Python hasn't met: 13 calls for the whole day, 8 of them for new patterns, plus last week's patterns, the runbooks and the agent's 3 questions |
 | `Qwen/Qwen3-Reranker-4B` | Scores runbook sections against the agent's question | Claude reads two sections per question, not every runbook |
 | `superlinked/pii-redact` | Masks personal data before Claude sees a line | It has to run before Claude, so it can't be Claude |
 | Claude Opus 5.5 | Looks into each case | This is the step that needs judgment: what to search, which deploy matters, whether anyone needs to act |
@@ -178,14 +189,15 @@ SDK, the same shape as [`diagnose_high_bill_complaints`](../diagnose_high_bill_c
 folder stands on its own.
 
 `log_patterns.py` turns a line into its pattern. Both `make_data.py` and `recipe.py` use it, so last week's
-patterns and today's lines group the same way. The vectors are a NumPy array: last week's 17 patterns, the
-new ones from today and 11 runbook sections are few enough to compare with all of them at once.
+patterns and today's lines group the same way. `PatternMatcher` holds the pattern vectors as a NumPy array:
+last week's 17 patterns and the new ones from today are few enough to compare with all of them at once, and so
+are the 11 runbook sections.
 
 | Step | Function | File | What runs it |
 | --- | --- | --- | --- |
 | Turn a line into its pattern | `pattern_of` | `log_patterns.py` | Python |
 | Embed last week's patterns and the runbooks | `embed`, `split_sections` | `recipe.py` | Qwen3-Embedding-4B |
-| Read a window | `windows_of`, `Watcher.step`, `Watcher.quiet` | `recipe.py` | Python, and Qwen3-Embedding-4B for new patterns |
+| Read a window | `windows_of`, `Watcher.step`, `Watcher.mark_raised`, `PatternMatcher` | `recipe.py` | Python, and Qwen3-Embedding-4B for new patterns |
 | Describe and mask the case | `case_text`, `mask_personal_data` | `recipe.py` | pii-redact and a pattern |
 | Run the loop | `investigate`, `run_agent`, `ask_claude`, `one_lookup`, `one_submission` | `recipe.py` | Claude |
 | Search the logs | `Toolbox.search_logs` | `recipe.py` | Python, then pii-redact |
@@ -198,8 +210,9 @@ new ones from today and 11 runbook sections are few enough to compare with all o
 
 `selfcheck.py` runs the whole committed day through the watcher with stand-in similarity scores and checks that
 it raises exactly three cases: the payments break, the warmup line and the auth spike. It also tests the
-grouping, the rate and quiet rules, the tools, the masking, the note checks, the statuses, the loop and the cost
-sums, using hand-written stand-in replies. It never calls SIE or Claude.
+grouping, the rate, growth and quiet rules, the pattern matcher, the tools and their time ranges, the masking,
+the tag escaping, the note checks, the statuses, the loop, the outputs and the cost sums, using hand-written
+stand-in replies. It never calls SIE or Claude.
 
 ## Run it
 
@@ -220,8 +233,8 @@ Each run writes `runs/<timestamp>/`: `windows.csv` with what the watcher found i
 with each case's status, tool calls, tokens and cost, `notes/<case>.md` for the on-call engineer,
 `transcripts/<case>.json` with every tool call, and `summary.md` with the day in numbers.
 
-On 7 Nov 2026 (UTC), the whole day took 47 s using SIE Serverless: 22 SIE calls (9 to Qwen3-Embedding-4B, 3 to
-Qwen3-Reranker-4B and 10 to pii-redact), charged 72 SIE credits (14, 10 and 48), and Claude spent $0.13 on three
+On 7 Nov 2026 (UTC), the whole day took 47 s using SIE Serverless: 29 SIE calls (13 to Qwen3-Embedding-4B, 3 to
+Qwen3-Reranker-4B and 13 to pii-redact), charged 79 SIE credits (18, 10 and 51), and Claude spent $0.13 on three
 cases. Each case took 5 to 7 tool calls and 14 to 16 s. The models were warm. A cold one can add minutes to the
 first call.
 
@@ -262,7 +275,8 @@ first call.
 ### Results
 
 5 of 5 events came out as expected on the last of three live runs on 7 Nov 2026 (UTC), and on the two runs
-before it. The five are the three examples, the auth spike and the frontend's new log format. An event counts
+before it. These runs came after a review's fixes, listed under [What changed after the review](#what-changed-after-the-review),
+and they raised the same three cases as the runs before the fixes. The five are the three examples, the auth spike and the frontend's new log format. An event counts
 when the watcher raised a case or stayed quiet as expected, and the note's page recommendation and likely cause
 came out right. The auth spike raised its case by the rate check, at about 45 times its usual count, and the
 note names auth-config c-311, which cut the identity provider timeout from 5000 ms to 500 ms. The log format
@@ -275,26 +289,27 @@ change raised nothing.
 | Cases sent to Claude | 3 | 3 | 3 |
 | Faults caught, of 3 | 2 | 2 | 2 |
 | False alarms, all closed without a page | 1 | 1 | 1 |
-| SIE calls | 22 | 22 | 22 |
-| SIE credits charged | 72 | 72 | 72 |
-| Claude, on the three cases | $0.16 | $0.13 | $0.13 |
-| Run time | 46 s | 49 s | 47 s |
+| SIE calls | 28 | 29 | 29 |
+| SIE credits charged | 75 | 79 | 79 |
+| Claude, on the three cases | $0.14 | $0.11 | $0.13 |
+| Run time | 48 s | 46 s | 47 s |
 
 The three faults are the payments break, the auth spike and the slow checkout. The false alarm is the warmup line.
 
 **What it would cost to have Claude read every line instead.** Claude's token counting API puts a sample of
-2,000 lines at 36.3 tokens a line, so the day is 88,347 x 36.3 = 3,205,936 input tokens. At the prices in
+2,000 lines at 36.29 tokens a line, so the day is 88,347 x 36.29 = 3,206,113 input tokens. At the prices in
 `rules.yaml`, from Anthropic's pricing page on 7 Nov 2026:
 
 | Reading the day with | How we got the number | One day |
 | --- | --- | --- |
-| Claude Opus 5.5, every line | Estimated: 3,205,936 tokens at $4.00 per million, input only | $12.82 |
-| Claude Haiku 5.5, every line | Estimated: 3,205,936 tokens at $0.10 per million, input only | $0.32 |
+| Claude Opus 5.5, every line | Estimated: 3,206,113 tokens at $4.00 per million, input only | $12.82 |
+| Claude Haiku 5.5, every line | Estimated: 3,206,113 tokens at $0.10 per million, input only | $0.32 |
 | Claude Haiku 5.5, every line | Measured once: 45 requests, 3,145,022 input and 113,299 output tokens, 553 s | $0.37 |
-| The watcher, then Opus 5.5 on three cases | Measured on three runs | $0.13 to $0.16 of Claude, plus 72 SIE credits |
+| The watcher, then Opus 5.5 on three cases | Measured on three runs | $0.11 to $0.14 of Claude, plus 75 to 79 SIE credits not priced in dollars |
 
-Opus reading everything costs about 100 times what the watcher and three cases cost. Haiku reading everything
-costs about 2.5 times as much, which is close, and it caught the same two faults the watcher did. Where it lost
+The watcher's side is $0.13 of Claude plus 79 SIE credits, and I can't put the credits in dollars, so these ratios
+compare Claude spend only. On that basis, Opus reading everything costs about 100 times the watcher's Claude
+spend, and Haiku reading everything about 3 times. Haiku caught the same two faults the watcher did. Where it lost
 was the pages: it recommended paging for nine things that were fine, didn't know about the deploys, and took
 553 s to the watcher's 47 s. [Try another model](#try-another-model) has the run.
 
@@ -303,12 +318,11 @@ found what a credit costs in dollars, so they stay in credits. SIE's [Serverless
 charts Qwen3-Embedding-4B at $0.06 per million tokens and Qwen3-Reranker-4B at $15 per 100,000 queries, but I
 couldn't confirm those are the Serverless rates, and it lists no price for pii-redact.
 
-**Where it works:** telling a reworded line from a new one: the frontend's new access log format scored 0.88 to
-0.90 against its old wording and raised nothing, while the payments errors scored 0.70 against their closest known
-line. Treating a third region's warmup line as part of the first two. Catching the auth warning at about 45 times
+**Where it works:** telling a reworded line from a new one: the frontend's new access log format scored 0.88 and
+0.90 against its old wording and raised nothing, while the new errors scored 0.70 and 0.78 against their closest
+known lines, and the warmup lines 0.56 and 0.57. Each run's `windows.csv` lists the scores. Treating a third region's warmup line as part of the first two, at 0.89. Catching the auth warning at about 45 times
 its usual count, though the line itself was familiar. Linking each fault to the right deploy or config change,
-and the harmless line to its deploy, on every run. Masking: the auth case had 23 email addresses masked, and no
-email address from the logs appears in any transcript. Claude only saw logs up to the time of each case, so it
+and the harmless line to its deploy, on every run. Masking: no email address or IP address from the logs appears in any run's output. Claude only saw logs up to the time of each case, so it
 couldn't see that payments was rolled back at 11:20.
 
 **Where it fails:**
@@ -319,6 +333,9 @@ couldn't see that payments was rolled back at 11:20.
   deploys a day, harmless new lines would be most of the cases.
 - **A line that stops isn't noticed.** The rate check only looks for more lines, not fewer. If a line that should be
   there goes quiet, nobody's told. This day has no such case, so it isn't tested.
+- **A new pattern is watched only for growth.** Once its case is written, a new pattern is checked against its count
+  in that window, after the two quiet hours. The payments errors stopped at 11:20, inside that time, so this day
+  doesn't exercise it.
 - **The thresholds fit this data.** I set the similarity of 0.83 after looking at the scores on these logs. The
   embedding swap below shows how much it depends on the model.
 - **The faults are mine.** I generated the logs and wrote the faults, the deploy notes and the runbooks to fit
@@ -340,6 +357,26 @@ The on-call engineer reads `notes/<case>.md` in the order the cases came in, sta
 decision is theirs. For a case closed without a page, they decide whether the new line should join last week's
 known patterns, so it stops showing up.
 
+### What changed after the review
+
+A code review of this recipe found real problems, and the runs above came after the fixes:
+
+- **A log line could close the tag around the case.** The case is now escaped, and tool results are named as data
+  in Claude's instructions.
+- **A note that recommended a page could come out `out_of_steps`** after one refused lookup. `out_of_steps` now means
+  no note at all, and the refused lookups are counted.
+- **A new pattern was never watched again** after its case, and a rewording of a rewording didn't follow through
+  to the pattern it meant. Both are fixed, and a case with no note no longer starts the quiet time.
+- **New patterns were compared with earlier new ones query to query**, with a threshold set on query-to-document
+  scores. They're now embedded as documents too, which takes the embedding calls from 9 to 13 a day.
+- **A failure while counting tokens at the end could lose every note.** The notes are now written first.
+- **The checks missed action claims in a claim and figures in the next step**, and didn't catch tool-call markup.
+  They do now, and a page needs a runbook quote behind it.
+- **The last window of the day couldn't look up 23:00**, because its day was taken from midnight.
+- **Pattern text in `cases.csv`, `windows.csv` and the console wasn't masked**, and IP addresses reached Claude. Both
+  are masked now, which adds one pii-redact call per case. pii-redact also tagged the `<email>` placeholder as an
+  email address, so placeholders are on the keep list.
+
 ## Potential improvements
 
 - **Use your own logs.** Point `load_logs` at your log platform's export, and build `known_patterns.csv` from a quiet
@@ -357,9 +394,9 @@ nothing else and ran the whole day once each using SIE Serverless on 7 Nov 2026 
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `agent` | `claude-haiku-5-5` (with `fallbacks: null`, since it has no server-side fallback) | $0.0071 for the three cases, against $0.13 for Opus, with the same page recommendations and the same likely causes. But it handed in notes with no sources: on the payments case it fixed that when the review sent the note back, and on the auth case it did it again, so that case came out `check_failed` |
-| `agent`, and no watcher | `claude-haiku-5-5` reading all 88,347 lines itself, in 45 chunks of 2,000 lines in time order, each on its own, with a short prompt asking what to page for, with times and quoted lines. Email addresses and phone numbers masked with the same plain patterns as `rules.yaml`, not pii-redact, which would take thousands of SIE calls. No deploys, runbooks or last week's patterns. The script is kept out of the recipe, since the repo has no eval code | $0.37 and 553 s, against $0.13 of Claude, 72 SIE credits and 47 s. It paged for the payments break (in all three chunks it spans) and the auth surge, though it couldn't name the deploy or config change behind either, with no deploy log. It didn't page for the warmup line or the log format change, and it missed the slow checkout, as the watcher did. It also recommended 9 pages for things that were fine: slow search queries and auth timeouts at their usual rate, card-declined errors, and order numbers that repeat in my generated data, which it read as double charges. Of 186 findings, 18 were pages. By the same rule as the watcher, page decision and likely cause both right, it got 3 of 5 events, and it paged wrongly 9 times where the watcher paged wrongly none |
-| `embed` | `tencent/R3-embedding-0.6b` | The frontend's new access log format scored 0.75 and 0.77 against its old wording, under the 0.83 threshold, so it raised a fourth case at 09:00. Claude closed it without a page and suggested teaching the watcher the new format. The other three cases came out with the same statuses as the default. The threshold was set for Qwen3-Embedding-4B, so a new embedding model needs its own |
+| `agent` | `claude-haiku-5-5` (with `fallbacks: null`, since it has no server-side fallback) | Run before the review's fixes. $0.0071 for the three cases, against $0.13 for Opus, with the same page recommendations. But its notes went wrong in ways Opus's didn't. On the payments case, its first note had no statements at all, and the note accepted on review had tool-call markup leaked into the likely cause (`</likely_cause>` and `<parameter name="page_oncall">true`). The checks of the time didn't look for that, so it came out `page_recommended`. The markup check added since would send it back. On the auth case it handed in a note with no statements twice, so it came out `check_failed` |
+| `agent`, and no watcher | `claude-haiku-5-5` reading all 88,347 lines itself, in 45 chunks of 2,000 lines in time order, each on its own, with a short prompt asking what to page for, with times and quoted lines. Email addresses and phone numbers masked with the same plain patterns as `rules.yaml`, not pii-redact, which would take thousands of SIE calls. No deploys, runbooks or last week's patterns. The script is kept out of the recipe, since the repo has no eval code | $0.37 and 553 s, against the watcher's $0.13 of Claude, 79 SIE credits and 47 s on its last run. It paged for the payments break (in all three chunks it spans) and the auth surge, though it couldn't name the deploy or config change behind either, with no deploy log. It didn't page for the warmup line or the log format change, and it missed the slow checkout, as the watcher did. It also recommended 9 pages for things that were fine: slow search queries and auth timeouts at their usual rate, card-declined errors, and order numbers that repeat in my generated data, which it read as double charges. Of 186 findings, 18 were pages. By the same rule as the watcher, page decision and likely cause both right, it got 3 of 5 events, and it paged wrongly 9 times where the watcher paged wrongly none |
+| `embed` | `tencent/R3-embedding-0.6b` | Run before the review's fixes. The frontend's new access log format scored 0.75 and 0.77 against its old wording, under the 0.83 threshold, so it raised a fourth case at 09:00. Claude closed it without a page and suggested teaching the watcher the new format. The other three cases came out with the same statuses as the default. The threshold was set for Qwen3-Embedding-4B, so a new embedding model needs its own |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

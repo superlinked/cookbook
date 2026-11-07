@@ -23,8 +23,8 @@ class SIEStopped(Exception):
 
 
 class CallFailed(Exception):
-    """One SIE call failed or replied without what was expected. A complaint's run goes on without
-    it, or stops if masking failed. During indexing it stops the whole run."""
+    """One SIE call failed or replied without what was expected. In a case the agent goes on
+    without that lookup, or the case stops if masking failed. In the watcher it stops the run."""
 
 
 def jsonable(value: Any) -> Any:

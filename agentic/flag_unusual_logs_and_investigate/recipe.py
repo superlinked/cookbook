@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import html
 import json
 import os
 import re
@@ -66,6 +67,7 @@ CASE_ROW = [
     "tool_calls",
     "runbook_searches",
     "revisions",
+    "refused_lookups",
     "sie_calls",
     "seconds",
     "input_tokens",
@@ -74,7 +76,16 @@ CASE_ROW = [
     "output_tokens",
     "cost_usd",
 ]
-WINDOW_ROW = ["window", "lines", "patterns", "new_patterns", "same_as_known", "odd", "case_id"]
+WINDOW_ROW = [
+    "window",
+    "lines",
+    "patterns",
+    "new_patterns",
+    "same_as_seen",
+    "new_pattern_scores",
+    "odd",
+    "case_id",
+]
 
 
 class ToolError(Exception):
@@ -315,10 +326,10 @@ class Odd:
     """One pattern the watcher found odd in a window, and why."""
 
     pattern: str
-    reason: str  # "new" or "rate"
+    reason: str  # "new", "rate" (a known pattern) or "growth" (a new pattern from earlier today)
     count: int
-    usual: float | None  # lines per 15 minutes last week; None for a new pattern
-    closest: str  # the closest known pattern, for a new one
+    usual: float | None  # last week's count per 15 minutes, or the count when first raised
+    closest: str  # the closest pattern seen before, for a new one
     similarity: float
     examples: list[LogLine]
 
@@ -329,7 +340,8 @@ class WindowResult:
     lines: int
     patterns: int
     new_patterns: list[str]
-    same_as_known: list[str]
+    same_as_seen: list[str]
+    scores: list[float]  # the closest similarity of each pattern compared in this window
     odd: list[Odd]
 
 
@@ -339,14 +351,55 @@ Similar = Callable[[list[str]], list[tuple[str, float]]]
 
 
 @dataclass
+class PatternMatcher:
+    """Finds the closest pattern seen before for each new one: last week's, or a new one from
+    earlier today. Every pattern is compared as a query against the others as documents, the way
+    the threshold in rules.yaml was set."""
+
+    calls: Calls
+    client: SIEClient
+    rules: dict[str, Any]
+    names: list[str]  # last week's patterns, then today's new ones as they come
+    documents: Any  # one unit vector per name, embedded as a document
+
+    @classmethod
+    def start(
+        cls, calls: Calls, client: SIEClient, rules: dict[str, Any], known: list[str]
+    ) -> PatternMatcher:
+        vectors = embed(calls, client, rules["models"]["embed"], known, False)
+        return cls(calls, client, rules, list(known), vectors)
+
+    def __call__(self, patterns: list[str]) -> list[tuple[str, float]]:
+        model = self.rules["models"]["embed"]
+        instruction = self.rules["watch"]["similarity_instruction"]
+        queries = embed(self.calls, self.client, model, patterns, True, instruction)
+        scores = queries @ self.documents.T
+        found = [(self.names[int(row.argmax())], float(row.max())) for row in scores]
+        # Later patterns are compared with these ones the same way: as documents.
+        self.documents = np.vstack(
+            [self.documents, embed(self.calls, self.client, model, patterns, False)]
+        )
+        self.names += patterns
+        return found
+
+
+@dataclass
 class Watcher:
     """What the watcher remembers through the day. It never sees the lines after a window."""
 
     known: dict[str, float]  # last week's patterns and their usual count per 15 minutes
     rules: dict[str, Any]
-    same_as: dict[str, str] = field(default_factory=dict)  # new pattern -> known pattern
+    # A reworded pattern -> what it counts toward: a known pattern, or a new one from earlier today.
+    same_as: dict[str, str] = field(default_factory=dict)
     seen_new: set[str] = field(default_factory=set)  # new patterns already compared
+    closest: dict[str, tuple[str, float]] = field(default_factory=dict)  # new pattern -> match
+    unraised: set[str] = field(default_factory=set)  # new patterns with no case written yet
+    first_count: dict[str, int] = field(default_factory=dict)  # lines when its case was raised
     last_raised: dict[str, datetime] = field(default_factory=dict)
+
+    def target(self, pattern: str) -> str:
+        """The pattern this one counts toward: itself, a known pattern or an earlier new one."""
+        return self.same_as.get(pattern, pattern)
 
     def step(self, start: datetime, lines: list[LogLine], similar: Similar) -> WindowResult:
         """Read one window of lines and say which patterns are odd in it."""
@@ -357,40 +410,51 @@ class Watcher:
         unseen = sorted(p for p in by_pattern if p not in self.known and p not in self.seen_new)
         new_here: list[str] = []
         same_here: list[str] = []
-        odd: list[Odd] = []
+        scores: list[float] = []
         threshold = settings["same_event_similarity"]
-        for pattern, (closest, score) in zip(
-            unseen, similar(unseen) if unseen else [], strict=True
-        ):
+        matches = similar(unseen) if unseen else []
+        for pattern, (closest, score) in zip(unseen, matches, strict=True):
             self.seen_new.add(pattern)
+            scores.append(score)
             if score >= threshold:
-                # The same event as a known pattern, or as a new one seen earlier today, such as
-                # the same warmup line for another region.
-                if closest in self.known:
-                    self.same_as[pattern] = closest
+                # The same event as a known pattern, or as a new one from earlier today (such as
+                # the same warmup line for another region). Follow that one's own alias, if any.
+                self.same_as[pattern] = self.target(closest)
                 same_here.append(pattern)
                 continue
             new_here.append(pattern)
-            if self.quiet(pattern, start):
-                group = by_pattern[pattern]
-                odd.append(
-                    Odd(pattern, "new", len(group), None, closest, score, self.sample(group))
-                )
-        # A known pattern's count includes the new wordings that mean the same event.
+            self.closest[pattern] = (closest, score)
+            self.unraised.add(pattern)
+        # Each pattern's lines count toward its target, so new wordings add to the old one.
         counts: dict[str, list[LogLine]] = {}
         for pattern, group in by_pattern.items():
-            known = pattern if pattern in self.known else self.same_as.get(pattern)
-            if known is not None:
-                counts.setdefault(known, []).extend(group)
-        for known, group in sorted(counts.items()):
-            usual = self.known[known]
+            counts.setdefault(self.target(pattern), []).extend(group)
+        odd: list[Odd] = []
+        for target, group in sorted(counts.items()):
+            if not self.quiet(target, start):
+                continue
+            if target in self.unraised:
+                closest, score = self.closest[target]
+                odd.append(Odd(target, "new", len(group), None, closest, score, self.sample(group)))
+                continue
+            usual = self.known.get(target)
+            reason = "rate"
+            if usual is None:
+                # A new pattern from earlier today: watched against its count when first raised.
+                usual, reason = float(self.first_count[target]), "growth"
             busy = len(group) >= settings["rate_min_lines"]
             high = len(group) >= settings["rate_times_usual"] * max(usual, 1.0)
-            if busy and high and self.quiet(known, start):
-                odd.append(Odd(known, "rate", len(group), usual, "", 1.0, self.sample(group)))
+            if busy and high:
+                odd.append(Odd(target, reason, len(group), usual, "", 1.0, self.sample(group)))
+        return WindowResult(start, len(lines), len(by_pattern), new_here, same_here, scores, odd)
+
+    def mark_raised(self, odd: list[Odd], start: datetime) -> None:
+        """Start the quiet period for a case that got a note. A failed case is raised again."""
         for item in odd:
             self.last_raised[item.pattern] = start
-        return WindowResult(start, len(lines), len(by_pattern), new_here, same_here, odd)
+            if item.reason == "new":
+                self.unraised.discard(item.pattern)
+                self.first_count[item.pattern] = item.count
 
     def quiet(self, pattern: str, start: datetime) -> bool:
         """True when the pattern hasn't raised a case recently."""
@@ -426,6 +490,11 @@ def describe(item: Odd) -> str:
         )
     assert item.usual is not None
     times = item.count / max(item.usual, 1.0)
+    if item.reason == "growth":
+        return (
+            f"a new pattern raised earlier today with {item.usual:.0f} lines in its window; "
+            f"{item.count} lines in this window: about {times:.0f} times as many."
+        )
     return (
         f"{item.count} lines in this window, where last week it averaged {item.usual:.2f} per 15 "
         f"minutes: about {times:.0f} times its usual count."
@@ -562,7 +631,8 @@ class Toolbox:
 
     def between(self, start_time: str, end_time: str) -> tuple[datetime, datetime]:
         """The range asked for, cut off at `now`. Empty times mean the two hours before `now`."""
-        day = self.now.replace(hour=0, minute=0, second=0)
+        # The case's own day: for the last window, `now` is already midnight of the next one.
+        day = (self.now - timedelta(seconds=1)).replace(hour=0, minute=0, second=0)
 
         def parse(value: str, default: datetime) -> datetime:
             if not value:
@@ -677,6 +747,7 @@ class Toolbox:
 class AgentResult:
     note: dict[str, Any] | None = None
     ran_out: bool = False  # hit the limit on lookups or requests
+    refused_lookups: int = 0  # lookups refused past the limit
     stopped: str = ""  # why there's no note, when there isn't one
     tool_calls: int = 0  # lookups and submissions
     lookups: int = 0
@@ -707,9 +778,13 @@ def ask_claude(claude: anthropic.Anthropic, messages: list[Any], rules: dict[str
     )
 
 
+def escape(text: str) -> str:
+    """Text with no tags in it: log lines can hold anything, including a tag that closes ours."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def case_prompt(case: str) -> str:
-    # Log lines can hold anything, so they can't be allowed to close the tag themselves.
-    return f"<case>\n{case.replace('</case>', '')}\n</case>"
+    return f"<case>\n{escape(case)}\n</case>"
 
 
 def text_of(content: list[Any]) -> str:
@@ -722,6 +797,7 @@ def one_lookup(box: Toolbox, use: Any, result: AgentResult, max_lookups: int) ->
     block: dict[str, Any] = {"type": "tool_result", "tool_use_id": use.id}
     if result.lookups >= max_lookups:
         result.ran_out = True
+        result.refused_lookups += 1
         output = "No lookups left. Call submit_note now with what you have."
         block["is_error"] = True
     else:
@@ -832,8 +908,9 @@ def run_agent(claude: anthropic.Anthropic, box: Toolbox, prompt: str) -> AgentRe
 
 
 def plain(text: str) -> str:
-    """Text for comparing a quote: no markdown marks, one kind of quote and dash, single spaces."""
-    text = re.sub(r"[`*\\]", "", text).translate(SAME_CHARACTER)
+    """Text for comparing a quote: no markdown marks or escapes, one kind of quote and dash, single
+    spaces. The case reaches Claude escaped, so a quote of "&lt;n&gt;" matches "<n>"."""
+    text = re.sub(r"[`*\\]", "", html.unescape(text)).translate(SAME_CHARACTER)
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
@@ -865,9 +942,10 @@ def action_claims(text: str, patterns: list[str]) -> list[str]:
 
 
 def check_note(note: dict[str, Any], box: Toolbox) -> list[str]:
-    """Every problem in a note. An empty list means every quote and figure checked out."""
+    """Every problem in a note. An empty list means every quote, figure and claim checked out."""
     rules = box.rules
-    digits = rules["checks"]["figure_min_digits"]
+    checks = rules["checks"]
+    digits = checks["figure_min_digits"]
     sections = {item["section_id"]: item for item in box.runbooks.sections}
     found = "\n".join(readable(output) for outputs in box.outputs.values() for output in outputs)
     runbook_text = "\n".join(f"{s['heading']}\n{s['text']}" for s in box.runbooks.sections)
@@ -892,24 +970,30 @@ def check_note(note: dict[str, Any], box: Toolbox) -> list[str]:
             problems.append(f"the quote isn't word for word in {source}: {quote!r}")
         for figure in sorted(figures(statement["claim"], digits) - allowed):
             problems.append(f"{figure} in a claim didn't come from the case or any lookup")
-    for name in ("summary", "likely_cause"):
+    for name in ("summary", "likely_cause", "next_step_for_oncall"):
         for figure in sorted(figures(note[name], digits) - allowed):
             problems.append(f"{figure} in the {name} didn't come from the case or any lookup")
-    told = f"{note['summary']}\n{note['likely_cause']}"
-    for claim in action_claims(told, rules["checks"]["action_claims"]):
+    if note["page_oncall"] and not any(s["source"] in sections for s in note["statements"]):
+        problems.append(
+            "the note recommends a page but quotes no runbook section that says to page"
+        )
+    told = [note["summary"], note["likely_cause"]] + [s["claim"] for s in note["statements"]]
+    for claim in action_claims("\n".join(told), checks["action_claims"]):
         problems.append(
             f"the note says {claim!r}, but nobody has done that. Take it out, and put what needs "
             "doing in next_step_for_oncall"
         )
+    fields = [note["summary"], note["likely_cause"], note["next_step_for_oncall"]]
+    fields += [s[key] for s in note["statements"] for key in ("claim", "source", "quote")]
+    if any(re.search(checks["markup"], text) for text in fields):
+        problems.append("a field holds tool-call markup, such as <parameter: write plain text")
     return problems
 
 
 def status_of(result: AgentResult, problems: list[str]) -> str:
     """The status, from what happened, what the checks found and Claude's recommendation."""
-    if result.ran_out:
-        return "out_of_steps"
     if result.note is None:
-        return "no_note"
+        return "out_of_steps" if result.ran_out else "no_note"
     if problems:
         return "check_failed"
     return "page_recommended" if result.note["page_oncall"] else "no_page_recommended"
@@ -962,6 +1046,8 @@ def note_markdown(case_id: str, status: str, result: AgentResult, box: Toolbox) 
             f"**{box.failed_calls} lookup(s) failed, so this note may be missing something.**"
         ]
         lines.append("")
+    if result.refused_lookups:
+        lines += [f"**{result.refused_lookups} lookup(s) refused past the limit.**", ""]
     if result.problems:
         lines += ["**Check these before acting:**", ""]
         lines += [f"- {problem}" for problem in result.problems] + [""]
@@ -1019,22 +1105,27 @@ def write_outputs(
 
 def investigate(
     claude: anthropic.Anthropic, box: Toolbox, window: WindowResult, minutes: int
-) -> dict[str, Any]:
-    """Mask the case's example lines, let the agent look into it, and shape the result."""
+) -> tuple[dict[str, Any], AgentResult]:
+    """Mask the case, let the agent look into it, and shape the result."""
     calls = box.calls
     before = calls.total
     started = time.monotonic()
     examples = "\n".join(line.text() for item in window.odd for line in item.examples)
     raw = case_text(box.case_id, window.start, minutes, window.odd, examples)
+    odd = " | ".join(f"{item.reason}: {item.pattern}" for item in window.odd)
     try:
-        # The whole case, because a pattern can hold a name the pattern rules don't replace.
+        # The whole case, because a pattern can hold a name the pattern rules don't replace. The
+        # list of odd patterns too, because it goes into cases.csv and windows.csv.
         masked, counts = mask_personal_data(
             calls, box.client, f"{box.case_id}/case", raw, box.rules
         )
-    except CallFailed as error:
-        # Fail closed: unmasked log lines don't go to a third-party API.
-        result = AgentResult(stopped=f"personal data couldn't be masked: {error}")
+        odd = mask_personal_data(calls, box.client, f"{box.case_id}/odd", odd, box.rules)[0]
+    except CallFailed:
+        # Fail closed: unmasked log lines don't go to a third-party API. The detail is in
+        # calls.failures, because an error message can repeat the text it failed on.
+        result = AgentResult(stopped="personal data couldn't be masked, so nothing went to Claude")
         box.case = "(not shown: personal data couldn't be masked)"
+        odd = "(not shown: personal data couldn't be masked)"
     else:
         box.masked_counts.update(counts)
         box.case = masked
@@ -1043,11 +1134,12 @@ def investigate(
     row: dict[str, Any] = {
         "case_id": box.case_id,
         "raised_at": box.now.strftime("%H:%M"),
-        "odd_patterns": " | ".join(f"{item.reason}: {item.pattern}" for item in window.odd),
+        "odd_patterns": odd,
         "status": status,
         "tool_calls": result.tool_calls,
         "runbook_searches": sum(1 for e in result.transcript if e.get("tool") == "search_runbooks"),
         "revisions": result.revisions,
+        "refused_lookups": result.refused_lookups,
         "sie_calls": calls.total - before,
         "seconds": round(time.monotonic() - started),
         "input_tokens": result.input_tokens,
@@ -1058,7 +1150,7 @@ def investigate(
         "transcript": result.transcript,
     }
     row["cost_usd"] = f"{claude_cost(row, box.rules['prices'][box.rules['models']['agent']]):.4f}"
-    return row
+    return row, result
 
 
 def summary_markdown(
@@ -1067,12 +1159,14 @@ def summary_markdown(
     windows: list[dict[str, Any]],
     cases: list[dict[str, Any]],
     calls: Calls,
-    per_line: float,
+    per_line: float | None,
 ) -> str:
-    """The day in numbers, and what Claude reading every line would have cost instead."""
+    """The day in numbers, and what Claude reading every line would have cost instead. `per_line`
+    is None when the tokens weren't counted."""
     agent = rules["models"]["agent"]
     spent = sum(float(row["cost_usd"]) for row in cases)
-    tokens = lines_read * per_line
+    statuses = Counter(row["status"] for row in cases)
+    by_status = ", ".join(f"{status}: {count}" for status, count in sorted(statuses.items()))
     windows_count = len(windows)
     by_model = ", ".join(f"{model}: {count}" for model, count in sorted(calls.count.items()))
     credits = (
@@ -1088,19 +1182,26 @@ def summary_markdown(
         f"- Log lines read by the watcher: {lines_read}",
         f"- 15 minute windows: {windows_count}",
         f"- New patterns compared by the embedding model: "
-        f"{sum(int(w['new_patterns']) + int(w['same_as_known']) for w in windows)}",
+        f"{sum(int(w['new_patterns']) + int(w['same_as_seen']) for w in windows)}",
         f"- Of those, the same event as a pattern already seen: "
-        f"{sum(int(w['same_as_known']) for w in windows)}",
+        f"{sum(int(w['same_as_seen']) for w in windows)}",
         f"- Cases sent to Claude: {len(cases)}",
+        f"- Their statuses: {by_status or 'none'}",
         f"- SIE calls: {calls.total} ({by_model})",
         f"- SIE credits charged: {credits}",
         "",
         "## Cost",
         "",
         f"- Claude on the cases ({agent}): ${spent:.4f}, from the token counts in cases.csv",
-        f"- One log line is about {per_line:.1f} Claude input tokens, counted on a sample of "
+    ]
+    if per_line is None:
+        lines.append("- Every line through Claude: unknown, because the tokens weren't counted")
+        return "\n".join(lines) + "\n"
+    tokens = lines_read * round(per_line, 2)
+    lines += [
+        f"- One log line is about {per_line:.2f} Claude input tokens, counted on a sample of "
         f"{rules['token_sample_lines']} lines",
-        f"- Every line through Claude: {lines_read} lines x {per_line:.1f} = {tokens:,.0f} input "
+        f"- Every line through Claude: {lines_read} lines x {per_line:.2f} = {tokens:,.0f} input "
         "tokens, before any instructions or answers",
     ]
     for model, prices in rules["prices"].items():
@@ -1122,29 +1223,13 @@ def run(args: argparse.Namespace) -> None:
     settings = rules["watch"]
 
     # Fixed work, with no agent: last week's patterns and the runbooks, embedded once.
-    known_names = sorted(known)
-    known_vectors = embed(calls, client, embed_model, known_names, False)
+    similar = PatternMatcher.start(calls, client, rules, sorted(known))
     runbooks = Runbooks(
         sections,
         embed(
             calls, client, embed_model, [f"{s['heading']}\n{s['text']}" for s in sections], False
         ),
     )
-
-    # New patterns from earlier today are compared too, so one new event raises one case.
-    today_names: list[str] = []
-    today_vectors: list[Any] = []
-
-    def similar(patterns: list[str]) -> list[tuple[str, float]]:
-        vectors = embed(
-            calls, client, embed_model, patterns, True, settings["similarity_instruction"]
-        )
-        names = known_names + today_names
-        compared = np.vstack([known_vectors, *today_vectors]) if today_vectors else known_vectors
-        scores = vectors @ compared.T
-        today_names.extend(patterns)
-        today_vectors.append(vectors)
-        return [(names[int(row.argmax())], float(row.max())) for row in scores]
 
     watcher = Watcher(known, rules)
     minutes = settings["window_minutes"]
@@ -1157,6 +1242,7 @@ def run(args: argparse.Namespace) -> None:
         hour, minute = (int(part) for part in args.until.split(":"))
         stop = logs[0].time.replace(hour=hour, minute=minute, second=0)
     finished = False
+    summary = ""
     try:
         for start, lines in windows_of(logs, minutes):
             if stop is not None and start >= stop:
@@ -1164,14 +1250,18 @@ def run(args: argparse.Namespace) -> None:
             lines_read += len(lines)
             window = watcher.step(start, lines, similar)
             case_id = ""
+            odd = ""
             if window.odd:
                 case_id = f"case-{start.strftime('%H%M')}"
                 now = start + timedelta(minutes=minutes)
                 box = Toolbox(client, calls, rules, logs, deploys, runbooks, now, case_id)
-                row = investigate(claude, box, window, minutes)
+                row, result = investigate(claude, box, window, minutes)
+                if result.note is not None:
+                    watcher.mark_raised(window.odd, start)
+                odd = row["odd_patterns"]
                 print(
                     f"{case_id}: {row['status']} ({row['tool_calls']} tool calls, "
-                    f"{row['revisions']} revisions, {row['seconds']} s) {row['odd_patterns']}"
+                    f"{row['revisions']} revisions, {row['seconds']} s) {odd}"
                 )
                 cases.append(row)
             window_rows.append(
@@ -1180,22 +1270,29 @@ def run(args: argparse.Namespace) -> None:
                     "lines": window.lines,
                     "patterns": window.patterns,
                     "new_patterns": len(window.new_patterns),
-                    "same_as_known": len(window.same_as_known),
-                    "odd": " | ".join(f"{item.reason}: {item.pattern}" for item in window.odd),
+                    "same_as_seen": len(window.same_as_seen),
+                    "new_pattern_scores": " ".join(f"{score:.2f}" for score in window.scores),
+                    "odd": odd,
                     "case_id": case_id,
                 }
             )
         finished = True
     finally:
-        # A day that stops partway keeps the notes it already paid for.
+        # A day that stops partway keeps the notes it already paid for: write them first.
         if window_rows:
-            per_line = tokens_per_line(claude, logs, rules) if finished else 0.0
-            summary = summary_markdown(rules, lines_read, window_rows, cases, calls, per_line)
+            summary = summary_markdown(rules, lines_read, window_rows, cases, calls, None)
             if not finished:
                 summary += (
                     "\nThe run stopped partway, so these counts cover only part of the day.\n"
                 )
             write_outputs(output, window_rows, cases, summary)
+    try:
+        per_line: float | None = tokens_per_line(claude, logs, rules)
+    except anthropic.APIError as error:
+        print(f"Couldn't count the tokens in a log line: {type(error).__name__}")
+        per_line = None
+    summary = summary_markdown(rules, lines_read, window_rows, cases, calls, per_line)
+    (output / "summary.md").write_text(summary, encoding="utf-8")
     if calls.failures:
         print(
             f"{len(calls.failures)} of {calls.total} SIE calls failed. First: {calls.failures[0]}"
@@ -1210,12 +1307,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="folder for the outputs")
     parser.add_argument("--rules", type=Path, default=RULES_PATH, help="another rules.yaml to try")
     args = parser.parse_args()
+    if args.until and not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", args.until):
+        parser.error(f"--until needs a time like 12:00, not {args.until!r}")
+    partial = "If the watcher finished any 15 minute window, what it found is in runs/."
     try:
         run(args)
     except SIEStopped as error:
-        raise SystemExit(f"Stopped: {error} No outputs were written.") from None
+        raise SystemExit(f"Stopped: {error} {partial}") from None
     except CallFailed as error:
-        raise SystemExit(f"Stopped: an SIE call the watcher needs failed: {error}") from None
+        raise SystemExit(
+            f"Stopped: an SIE call the watcher needs failed: {error} {partial}"
+        ) from None
     except (
         anthropic.AuthenticationError,
         anthropic.PermissionDeniedError,
@@ -1224,7 +1326,7 @@ def main() -> None:
     ) as error:
         raise SystemExit(
             f"Stopped: the Claude API refused the request, {type(error).__name__}: {error}. Check "
-            "ANTHROPIC_API_KEY and the model name in rules.yaml. No outputs were written."
+            f"ANTHROPIC_API_KEY and the model name in rules.yaml. {partial}"
         ) from None
 
 
