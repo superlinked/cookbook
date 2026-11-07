@@ -133,6 +133,14 @@ recipe's SIE requests (one request can carry many items).
 | [Triage threat reports against what your company runs](security/triage_threat_reports) | NuNER_Zero | 1 | 1 s |
 | [Find the attacker tools your detection rules don't cover](security/find_detection_gaps) | gliner-relex-large-v1.0 | 1 | 3 s |
 
+### Agentic
+
+These recipes also need an `ANTHROPIC_API_KEY`. Claude runs the agent loop, and its tools call models on SIE.
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Work out why a customer's bill jumped and draft the reply, with a source for every line](agentic/diagnose_high_bill_complaints) | Claude Opus 5.5 (Anthropic API), Qwen3-Embedding-4B, Qwen3-Reranker-4B, LightOnOCR-3-4B, pii-redact | 63 | 343 s |
+
 ### Personal agents
 
 | Recipe | Models | SIE calls | Run time |

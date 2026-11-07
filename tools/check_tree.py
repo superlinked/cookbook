@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 INDUSTRIES = (
+    "agentic",
     "ecommerce",
     "finance",
     "healthcare",
