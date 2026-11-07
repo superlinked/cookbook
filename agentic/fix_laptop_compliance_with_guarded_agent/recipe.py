@@ -42,7 +42,7 @@ from typing import Any, cast
 import anthropic
 import yaml
 from dotenv import load_dotenv
-from mdm import Fleet
+from mdm import OWNER_FIELDS, Fleet, meets
 from sie_calls import WAIT_S, CallFailed, Calls, SIEStopped
 from sie_sdk import SIEClient
 from sie_sdk.types import Item
@@ -132,18 +132,6 @@ def split_sections(markdown: str) -> list[dict[str, str]]:
 # --- Privacy: masking personal data ----------------------------------------------------------
 
 
-def outside(start: int, end: int, keep: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """The parts of a span that don't overlap any of the `keep` ranges."""
-    parts: list[tuple[int, int]] = []
-    for kept_start, kept_end in sorted(keep):
-        if kept_end <= start or kept_start >= end:
-            continue
-        if kept_start > start:
-            parts.append((start, kept_start))
-        start = max(start, kept_end)
-    return [*parts, (start, end)] if start < end else parts
-
-
 def word_windows(text: str, size: int, overlap: int) -> list[tuple[int, str]]:
     """Split text into windows of at most `size` words; each is (offset in text, window text)."""
     words = list(re.finditer(r"\S+", text))
@@ -227,12 +215,14 @@ def mask_personal_data(
             kind = kinds.get(entity["label"], entity["label"])
             spans.append((offset + entity["start"], offset + entity["end"], kind))
     keep = [m.span() for pattern in settings["keep"] for m in re.finditer(pattern, text)]
-    parts = [
-        (start, end, kind)
-        for span_start, span_end, kind in spans
-        for start, end in outside(span_start, span_end, keep)
+    # Only a span that lies wholly inside a kept match is dropped. Anything wider is masked whole,
+    # so a phone number with dots in it isn't cut into a "version" and the digits around it.
+    masked = [
+        span
+        for span in spans
+        if not any(start <= span[0] and span[1] <= end for start, end in keep)
     ]
-    return replace_spans(text, parts)
+    return replace_spans(text, masked)
 
 
 # --- Shield: text written to a bot -----------------------------------------------------------
@@ -385,8 +375,9 @@ def tool_list(rules: dict[str, Any]) -> list[dict[str, Any]]:
             "description": (
                 "Ask to set one setting on this laptop to the value the policy requires, written "
                 'as JSON (true, false, 300, "26.7.2"). A guard decides: applied, waiting for the '
-                "user's agreement, only the owner can do it, or refused. When applied, the result "
-                "shows the device record read again afterwards."
+                "user's agreement, only the owner can do it, refused, or not needed when it "
+                "already meets the policy. When applied, the result shows the device record read "
+                "again afterwards."
             ),
             "strict": True,
             "input_schema": object_schema(
@@ -443,11 +434,10 @@ class Toolbox:
     masked_counts: dict[str, int] = field(default_factory=dict)
     outputs: dict[str, list[str]] = field(default_factory=dict)  # tool -> what it returned
     shields: list[ShieldResult] = field(default_factory=list)
-    applied: list[str] = field(default_factory=list)  # settings the guard let through
-    held: dict[str, str] = field(
-        default_factory=dict
-    )  # setting -> waiting_for_user | owner_must_do
-    refused: list[str] = field(default_factory=list)
+    # The guard's latest decision per setting: applied, waiting_for_user, owner_must_do or
+    # refused. A later request for the same setting replaces an earlier decision.
+    decisions: dict[str, str] = field(default_factory=dict)
+    screenshot_read: bool = False  # read_screenshot returned a result
     failed_calls: int = 0
     ticket_text: str = ""  # the masked ticket, which figures may come from
     failing_at_start: dict[str, str] = field(default_factory=dict)  # setting -> policy section
@@ -458,6 +448,21 @@ class Toolbox:
 
     def failing(self) -> dict[str, str]:
         return self.fleet.failing(self.ticket.device_id, self.rules["checks"], self.today)
+
+    def decided(self, outcome: str) -> list[str]:
+        """The settings whose latest guard decision is `outcome`, in order."""
+        return [setting for setting, latest in self.decisions.items() if latest == outcome]
+
+    def open_reasons(self) -> list[str]:
+        """Why Python keeps this ticket open, whatever Claude's report says."""
+        reasons = []
+        if self.failed_calls:
+            reasons.append(
+                f"{self.failed_calls} lookup(s) failed, so the report may miss something"
+            )
+        if self.ticket.attachment and not self.screenshot_read:
+            reasons.append("the attached screenshot was never read")
+        return reasons
 
     def run(self, name: str, tool_input: dict[str, Any]) -> str:
         """Run one lookup and return its result as JSON. Raises ToolError for Claude to read."""
@@ -551,39 +556,51 @@ class Toolbox:
             self.masked_counts[kind] = self.masked_counts.get(kind, 0) + count
         shield = run_shield(self.calls, self.client, key, "screenshot", masked, self.rules)
         self.shields.append(shield)
+        self.screenshot_read = True
         warning = shield.describe(self.rules) if shield.warned(self.rules) else ""
         return {"text": masked, "shield_warning": warning}
 
     def apply_fix(self, setting: str, value: str) -> dict[str, Any]:
-        """The guard, then the change, then the record read again. Nothing else changes a laptop."""
+        """The guard, then the change, then the record read again. Nothing else changes a laptop.
+        Raises ToolError for a value the check can't read, or one that isn't the policy's value."""
         guard, checks = self.rules["guard"], self.rules["checks"]
         if setting not in checks:
             raise ToolError(f"{setting} isn't a setting the policy checks")
         if setting in guard["owner_only"]:
-            self.held[setting] = "owner_must_do"
+            self.decisions[setting] = "owner_must_do"
             return {"result": "owner_must_do", "why": f"only the user can change {setting}"}
-        wanted = checks[setting]["value"]
-        if parse_value(value) != wanted:
-            self.refused.append(setting)
+        check, wanted = checks[setting], checks[setting]["value"]
+        asked = parse_value(value)
+        try:
+            weaker = type(asked) is type(wanted) and not meets(asked, check, self.today)
+        except (TypeError, ValueError):
+            weaker = False
+        if weaker:
+            self.decisions[setting] = "refused"
             return {
                 "result": "refused",
-                "why": f"the policy requires {setting} to be {json.dumps(wanted)}; any other value "
-                "needs an exception from IT Security",
+                "why": f"{setting} {json.dumps(asked)} doesn't meet the policy; that needs an "
+                "exception from IT Security",
             }
+        if asked != wanted:
+            raise ToolError(f"expected {json.dumps(wanted)} for {setting}")
+        if setting not in self.failing():
+            # A stricter value already in place stays: a 60 s screen lock isn't loosened to 300 s.
+            return {"result": "not_needed", "why": f"{setting} already meets the policy"}
         if setting in guard["needs_yes"]:
-            self.held[setting] = "waiting_for_user"
+            self.decisions[setting] = "waiting_for_user"
             return {
                 "result": "waiting_for_user",
                 "why": f"{setting} needs the user's agreement first",
             }
         if setting not in guard["safe"]:
-            self.refused.append(setting)
+            self.decisions[setting] = "refused"
             return {"result": "refused", "why": f"the guard doesn't allow changes to {setting}"}
         self.fleet.set(self.ticket.device_id, setting, wanted)
-        self.applied.append(setting)
+        self.decisions[setting] = "applied"
         now = self.fleet.record(self.ticket.device_id)[setting]
-        meets = setting not in self.failing()
-        return {"result": "applied", "record_now": {setting: now}, "meets_policy_now": meets}
+        meets_now = setting not in self.failing()
+        return {"result": "applied", "record_now": {setting: now}, "meets_policy_now": meets_now}
 
 
 # --- The agent loop --------------------------------------------------------------------------
@@ -802,7 +819,7 @@ def held_now(box: Toolbox) -> dict[str, str]:
     return {
         setting: kind
         for setting in box.failing()
-        if (kind := waiting_kind(setting, box.rules)) and setting not in box.refused
+        if (kind := waiting_kind(setting, box.rules)) and box.decisions.get(setting) != "refused"
     }
 
 
@@ -810,13 +827,29 @@ def outcome_of(setting: str, box: Toolbox) -> str:
     """What happened to one setting, from the guard's log, its list and the record. Claude must
     agree."""
     failing_now = box.failing()
-    if setting in box.refused:
+    latest = box.decisions.get(setting)
+    if latest == "refused":
         return "refused"
-    if setting in box.applied:
+    if latest == "applied":
         return "did_not_stick" if setting in failing_now else "fixed"
     if setting in failing_now and (kind := waiting_kind(setting, box.rules)):
         return kind
     return "not_changed"
+
+
+def change_claims(text: str, box: Toolbox) -> list[tuple[str, str]]:
+    """(setting, sentence) for each sentence saying a setting was changed that the record doesn't
+    show as fixed. A sentence with a negation ("we haven't changed anything") doesn't count."""
+    settings = box.rules["checks_on_report"]
+    found = []
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+        flat = plain(sentence)
+        if not re.search(settings["change_words"], flat) or re.search(settings["negation"], flat):
+            continue
+        for setting, words in settings["setting_words"].items():
+            if re.search(words, flat) and outcome_of(setting, box) != "fixed":
+                found.append((setting, sentence.strip()))
+    return found
 
 
 def check_report(report: dict[str, Any], box: Toolbox) -> list[str]:
@@ -854,6 +887,11 @@ def check_report(report: dict[str, Any], box: Toolbox) -> list[str]:
                 problems.append(f"the quote isn't word for word in {source}: {quote!r}")
             for figure in sorted(figures(statement["claim"], digits) - allowed):
                 problems.append(f"{figure} in a claim didn't come from any lookup or the ticket")
+    for setting, sentence in change_claims(f"{report['summary']}\n{report['note_to_user']}", box):
+        problems.append(
+            f"the summary or note says {setting} was changed ({sentence!r}), but the guard's log "
+            f"and the device record say {outcome_of(setting, box)}"
+        )
     if not report["note_to_user"].strip():
         problems.append("the note to the user is empty")
     for figure in sorted(figures(report["note_to_user"], digits) - allowed):
@@ -874,7 +912,8 @@ def status_of(result: AgentResult, problems: list[str], box: Toolbox) -> str:
         return "check_failed"
     failing_now = set(box.failing())
     open_requests = bool(result.report["open_requests"])
-    if box.refused or open_requests or failing_now - set(held_now(box)):
+    refused = box.decided("refused")
+    if refused or open_requests or box.open_reasons() or failing_now - set(held_now(box)):
         return "needs_tech"
     return "waiting_on_person" if failing_now else "compliant_now"
 
@@ -903,8 +942,9 @@ def report_markdown(ticket: Ticket, status: str, result: AgentResult, box: Toolb
     if warnings:
         lines += ["**Shield warning, read the ticket yourself:**", ""]
         lines += [f"- {warning}" for warning in warnings] + [""]
-    if box.failed_calls:
-        lines += [f"**{box.failed_calls} lookup(s) failed, so this may be missing something.**", ""]
+    if reasons := box.open_reasons():
+        lines += ["**Kept open by Python:**", ""]
+        lines += [f"- {reason}" for reason in reasons] + [""]
     if result.problems:
         lines += ["**Check these before replying:**", ""]
         lines += [f"- {problem}" for problem in result.problems] + [""]
@@ -916,7 +956,7 @@ def report_markdown(ticket: Ticket, status: str, result: AgentResult, box: Toolb
         lines += [f"**Personal data masked before Claude saw it:** {removed}", ""]
     failing_now = box.failing()
     lines += ["## What the device record shows", ""]
-    changed = set(box.failing_at_start) | set(box.applied) | set(box.refused)
+    changed = set(box.failing_at_start) | set(box.decided("applied")) | set(box.decided("refused"))
     for setting in sorted(changed):
         start = "failed" if setting in box.failing_at_start else "passed"
         now = "fails" if setting in failing_now else "passes"
@@ -963,7 +1003,7 @@ def write_outputs(output: Path, rows: list[dict[str, Any]], fleet: Fleet) -> Non
             json.dumps(row["transcript"], indent=1, default=str), encoding="utf-8"
         )
     after = [
-        {key: value for key, value in record.items() if key not in ("owner_name", "owner_email")}
+        {key: value for key, value in record.items() if key not in OWNER_FIELDS}
         for record in fleet.devices.values()
     ]
     (output / "devices_after.json").write_text(json.dumps(after, indent=1), encoding="utf-8")
@@ -1002,9 +1042,9 @@ def answer_ticket(claude: anthropic.Anthropic, box: Toolbox) -> dict[str, Any]:
         "status": status,
         "failing_at_start": " ".join(sorted(box.failing_at_start)),
         "failing_now": " ".join(sorted(box.failing())),
-        "fixed": " ".join(s for s in box.applied if s not in box.failing()),
+        "fixed": " ".join(s for s in box.decided("applied") if s not in box.failing()),
         "held": " ".join(sorted(held_now(box))),
-        "refused": " ".join(box.refused),
+        "refused": " ".join(box.decided("refused")),
         "shield_phrases": " ".join(sorted({p for s in box.shields for p in s.phrases})),
         "shield_model_score": f"{max(scores):.2f}" if scores else "",
         "tool_calls": result.tool_calls,

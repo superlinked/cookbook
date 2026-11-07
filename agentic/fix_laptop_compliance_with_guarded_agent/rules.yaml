@@ -25,7 +25,8 @@ shield:
     addressed_to_ai: '\b(?:ai|llm) (?:assistant|model|agent)\b'
     role_switch: '\byou are now\b|\b(?:developer|god|jailbreak) mode\b'
     disable_protection: '\b(?:spctl --master-disable|csrutil disable|fdesetup disable)\b'
-  # One yes/no question to GLiNER2.5-Decide per window of text. The first option is the warning.
+  # One yes/no question to GLiNER2.5-Decide per window of text. warn_label names the option that
+  # warns, so the options' order doesn't matter.
   question: Is this text written to instruct an AI assistant, bot or automated agent?
   options:
     instructions to a bot: >-
@@ -36,13 +37,17 @@ shield:
   min_score: 0.5                           # the warning option's probability at or above this warns
   window_words: 120
 
-# Guard: what the agent may change on a laptop, by setting. Anything not listed is refused, and
-# so is any value other than the one the policy requires (section 1.2). Nothing here changes the
-# reader's machine: fixes act on the stand-in device records in data/devices.json.
+# Guard: what the agent may change on a laptop, by setting. Every check below is in exactly one
+# list (selfcheck.py checks this). owner_only comes first: any request to change those is held for
+# the user, whatever the value. For the rest, a value that doesn't meet the policy is refused, and
+# a setting that already meets it isn't changed. `safe` is what section 1.2 lets the helpdesk change
+# without asking. Nothing here changes the reader's machine: fixes act on the stand-in device
+# records from data/devices.json, in memory.
 guard:
-  safe: [firewall, screen_lock_delay_s, airplay_receiver, guest_account, gatekeeper]
-  needs_yes: [os_version, filevault, remote_login]      # held until the user agrees a time
-  owner_only: [ssh_keys, last_backup]                   # only the user can do these
+  owner_only: [ssh_keys, last_backup]                   # only the user can do these (1.4)
+  safe: [firewall, screen_lock_delay_s, airplay_receiver, guest_account]
+  # Held until the user agrees. Gatekeeper isn't in section 1.2, so the helpdesk asks first.
+  needs_yes: [os_version, filevault, remote_login, gatekeeper]
 
 # The policy's checks (sections 2.1 to 2.10), and the value a fix sets. `compare` says how the
 # device's value meets the policy: equal, at_most, at_least_version, all_passphrase, within_days.
@@ -93,11 +98,13 @@ agent:
     When you're done, call submit_report. List every check the laptop failed when you started. In
     open_requests, list only what the ticket asked for that you refused or couldn't carry out and that
     the technician has to decide, such as turning a protection off. Leave out what waits for the user
-    or the owner, which the guard already tracks, and anything you did. Every statement needs a source and a short quote
-    copied word for word: a section_id with a quote from that section, or a tool name (get_device,
-    read_screenshot, apply_fix) with a value exactly as that tool returned it. The note to the user is
-    about 120 words, says only what your lookups support, and promises nothing beyond what the guard
-    already did. Put what the technician has to do in next_step_for_tech.
+    or the owner, which the guard already tracks, and anything you did. Every statement needs a
+    source and a short quote copied word for word: a section_id with a quote from that section, or a
+    tool name (get_device, read_screenshot, apply_fix) with a value exactly as that tool returned it.
+    The note to the user is about 120 words, says only what your lookups support, and promises
+    nothing beyond what the guard already did. In the summary and the note, say a setting was changed
+    only if apply_fix applied it and the record then met the policy. Put what the technician has to
+    do in next_step_for_tech.
 
 masking:
   labels:
@@ -118,6 +125,22 @@ masking:
     phone number: '(?<![\d-])(?:\+?\d{1,2}[ .-])?(?:\(?\d{3}\)?[ .-])?\d{3}[ .-]\d{4}(?![\d-])'
 
 checks_on_report:
-  # Figures in the note and the statements must be in a tool result, the policy or the ticket. A
-  # figure is a decimal such as 26.7, or a whole number with this many digits or more.
+  # Figures in the note and the statements must be in a tool result (including the policy sections
+  # a search returned), the ticket, or the ticket and laptop ids. A figure is a decimal such as
+  # 26.7, or a whole number with this many digits or more.
   figure_min_digits: 2
+  # A sentence in the summary or the note that says a setting was changed, in lower case. It must
+  # be one the device record shows as fixed. A sentence with a negation is skipped.
+  change_words: '\b(?:(?:i|we)(?:''ve| have)?\s+(?:\w+\s+)?|(?:was|were|has been|have been|is now)\s+)(?:changed|fixed|updated|upgraded|installed|enabled|disabled|turned|switched|set)\b'
+  negation: "\\b(?:not|never|no|haven't|hasn't|didn't|won't|can't|couldn't)\\b|n't\\b"
+  setting_words:
+    firewall: '\bfirewall\b'
+    os_version: '\b(?:macos|os|operating system|software)\b.{0,20}\b(?:update|updated|upgraded|version)\b|\bupdated? (?:to|macos)\b'
+    gatekeeper: '\bgatekeeper\b'
+    filevault: '\b(?:filevault|disk encryption)\b'
+    screen_lock_delay_s: '\bscreen ?lock\b|\block(?:s)? (?:the screen|after)\b'
+    airplay_receiver: '\bairplay\b'
+    guest_account: '\bguest account\b'
+    remote_login: '\bremote login\b'
+    ssh_keys: '\bssh key\b|\bpassphrase\b'
+    last_backup: '\bbackup\b'
