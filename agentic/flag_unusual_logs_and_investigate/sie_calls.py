@@ -51,6 +51,22 @@ def is_fatal(error: SIEError) -> bool:
     )
 
 
+def credits_of(reply: Any) -> float | None:
+    """What one call was charged, from the request metadata SIE attaches to its reply.
+
+    A batch reply repeats the same request-wide metadata on every item, so only the first counts.
+    """
+    first = reply[0] if isinstance(reply, list) and reply else reply
+    request = first.get("request") if isinstance(first, dict) else None
+    if not isinstance(request, dict):
+        return None
+    value = request.get("credits_debited_decimal", request.get("credits_debited"))
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def short(error: SIEError) -> str:
     return f"{type(error).__name__}: {str(error)[:ERROR_CHARS]}"
 
@@ -61,6 +77,8 @@ class Calls:
 
     count: dict[str, int] = field(default_factory=dict)  # model -> calls
     failures: list[str] = field(default_factory=list)
+    credits: dict[str, float] = field(default_factory=dict)  # model -> SIE credits charged
+    unreported: int = 0  # successful calls whose reply didn't say what they were charged
 
     @property
     def total(self) -> int:
@@ -84,4 +102,9 @@ class Calls:
         if not valid(reply):
             self.failures.append(f"{model}: replied without {expected}")
             raise CallFailed(f"{model} replied without {expected}")
+        charged = credits_of(reply)
+        if charged is None:
+            self.unreported += 1
+        else:
+            self.credits[model] = self.credits.get(model, 0.0) + charged
         return reply

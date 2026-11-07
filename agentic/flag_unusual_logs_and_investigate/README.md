@@ -1,12 +1,12 @@
-# Read every log line with small models, and hand only the odd ones to an agent
+# Group every log line in Python, embed only what's new, and hand the odd cases to an agent
 
 > **This example:** the on-call engineer at a small online shop, and a day of its logs: 88,347
 > lines from seven services.
 >
-> **How it works:** a watcher with no agent in it reads every line. Python groups the lines into
-> patterns, an embedding model on SIE spots the ones it has never seen, and Python spots familiar
-> ones far above their usual count. Only those cases go to Claude, which looks into each one and
-> writes a note for the on-call engineer.
+> **How it works:** Python groups all 88,347 lines into patterns, for free. An embedding model on SIE
+> only sees the patterns Python hasn't met before: seven of them, in 9 embedding calls for the whole
+> day. Python also spots familiar patterns far above their usual count. Only those odd cases go to
+> Claude, three a day here, which looks into each one and writes a note for the on-call engineer.
 >
 > **Use the same pattern for:** payment or fraud events, support tickets, sensor readings, audit
 > trails: anything with too many items for a large model to read, where most of them are routine.
@@ -38,16 +38,17 @@ flowchart LR
 
 ## The problem
 
-You could hand every line to Claude and ask it what's wrong. It would probably do a decent job, but
-it would read 88,347 lines a day to find a handful worth reading, and most days nothing is wrong at
-all. Each line costs about 36 tokens, so that's around 3.2 million input tokens a day before any
-instructions or answers.
+You could hand every line to Claude and ask it what's wrong. Each line costs about 36 tokens, so a day
+is around 3.2 million input tokens, about $12.82 with Opus 5.5 or $0.32 with Haiku 5.5 before any
+instructions or answers. We tried the Haiku version once: it found the two big faults, but it also
+paged nine times for things that were fine, because a model reading one slice of logs at a time has no
+idea what normal looks like. [Results](#results) has the details.
 
 Most of the reading is the same thing over and over: "token issued for user ...", "query served in
-... ms". What you need is something cheap that reads everything and only speaks up when a line is
-new or a familiar line is suddenly far more common. Then something that can think looks into those
-few cases: was there a deploy, what else is failing, what does the runbook say, does anyone need to
-act now?
+... ms". Python can group those lines into patterns without any model at all. What's left is the few
+patterns it hasn't seen before, which a small embedding model can check, and the familiar ones that are
+suddenly far more common, which is just counting. Then something that can think looks into those few
+cases: was there a deploy, what else is failing, what does the runbook say, does anyone need to act now?
 
 Two things make the cheap part harder than a word match:
 
@@ -135,7 +136,7 @@ Then Python sets the status.
 
 | Model | Its job here | Why this one, and not Claude |
 | --- | --- | --- |
-| `Qwen/Qwen3-Embedding-4B` | Tells a reworded line from a new one, and finds candidate runbook sections | A handful of calls a day, one per batch of new patterns, against a whole day of lines |
+| `Qwen/Qwen3-Embedding-4B` | Tells a reworded line from a new one, and finds candidate runbook sections | It only sees patterns Python hasn't met: 9 calls for the whole day, including the runbooks and the agent's questions |
 | `Qwen/Qwen3-Reranker-4B` | Scores runbook sections against the agent's question | Claude reads two sections per question, not every runbook |
 | `superlinked/pii-redact` | Masks personal data before Claude sees a line | It has to run before Claude, so it can't be Claude |
 | Claude Opus 5.5 | Looks into each case | This is the step that needs judgment: what to search, which deploy matters, whether anyone needs to act |
@@ -219,9 +220,10 @@ Each run writes `runs/<timestamp>/`: `windows.csv` with what the watcher found i
 with each case's status, tool calls, tokens and cost, `notes/<case>.md` for the on-call engineer,
 `transcripts/<case>.json` with every tool call, and `summary.md` with the day in numbers.
 
-On 7 Nov 2026 (UTC), the whole day took 44 s using SIE Serverless: 22 SIE calls (9 to Qwen3-Embedding-4B, 3 to
-Qwen3-Reranker-4B and 10 to pii-redact), and Claude spent $0.13 on three cases. Each case took 5 to 7 tool
-calls and 13 to 15 s. The models were warm. A cold one can add minutes to the first call.
+On 7 Nov 2026 (UTC), the whole day took 47 s using SIE Serverless: 22 SIE calls (9 to Qwen3-Embedding-4B, 3 to
+Qwen3-Reranker-4B and 10 to pii-redact), charged 72 SIE credits (14, 10 and 48), and Claude spent $0.13 on three
+cases. Each case took 5 to 7 tool calls and 14 to 16 s. The models were warm. A cold one can add minutes to the
+first call.
 
 ## What came out
 
@@ -273,9 +275,10 @@ change raised nothing.
 | Cases sent to Claude | 3 | 3 | 3 |
 | Faults caught, of 3 | 2 | 2 | 2 |
 | False alarms, all closed without a page | 1 | 1 | 1 |
-| SIE calls | 22 | 21 | 22 |
+| SIE calls | 22 | 22 | 22 |
+| SIE credits charged | 72 | 72 | 72 |
 | Claude, on the three cases | $0.16 | $0.13 | $0.13 |
-| Run time | 49 s | 47 s | 44 s |
+| Run time | 46 s | 49 s | 47 s |
 
 The three faults are the payments break, the auth spike and the slow checkout. The false alarm is the warmup line.
 
@@ -283,20 +286,22 @@ The three faults are the payments break, the auth spike and the slow checkout. T
 2,000 lines at 36.3 tokens a line, so the day is 88,347 x 36.3 = 3,205,936 input tokens. At the prices in
 `rules.yaml`, from Anthropic's pricing page on 7 Nov 2026:
 
-| Reading every line with | Price per million input tokens | One day |
+| Reading the day with | How we got the number | One day |
 | --- | --- | --- |
-| Claude Opus 5.5 | $4.00 | $12.82 |
-| Claude Haiku 5.5 | $0.10 | $0.32 |
-| The watcher, then Opus 5.5 on three cases | | $0.13 of Claude, plus 22 SIE calls |
+| Claude Opus 5.5, every line | Estimated: 3,205,936 tokens at $4.00 per million, input only | $12.82 |
+| Claude Haiku 5.5, every line | Estimated: 3,205,936 tokens at $0.10 per million, input only | $0.32 |
+| Claude Haiku 5.5, every line | Measured once: 45 requests, 3,145,022 input and 113,299 output tokens, 553 s | $0.37 |
+| The watcher, then Opus 5.5 on three cases | Measured on three runs | $0.13 to $0.16 of Claude, plus 72 SIE credits |
 
-That's input only, with no instructions and no answers, so reading everything would really cost more. Opus
-reading everything costs about 100 times what the watcher and three cases cost. Haiku reading everything costs
-about 2.5 times as much, a much smaller gap, and I didn't test whether Haiku reading 3.2 million tokens a day
-would find these faults. The SIE side is small enough not to change the picture: SIE's
-[Serverless page](https://superlinked.com/serverless) charts Qwen3-Embedding-4B at $0.06 per million tokens and
-Qwen3-Reranker-4B at $15 per 100,000 queries, and the watcher embeds a few thousand tokens a day. I couldn't
-confirm those chart figures are the Serverless rates, and the page lists no price for pii-redact, so I've left
-SIE out of the dollar totals.
+Opus reading everything costs about 100 times what the watcher and three cases cost. Haiku reading everything
+costs about 2.5 times as much, which is close, and it caught the same two faults the watcher did. Where it lost
+was the pages: it recommended paging for nine things that were fine, didn't know about the deploys, and took
+553 s to the watcher's 47 s. [Try another model](#try-another-model) has the run.
+
+SIE reports what each call was charged, so the credits above are what SIE debited, not an estimate. I haven't
+found what a credit costs in dollars, so they stay in credits. SIE's [Serverless page](https://superlinked.com/serverless)
+charts Qwen3-Embedding-4B at $0.06 per million tokens and Qwen3-Reranker-4B at $15 per 100,000 queries, but I
+couldn't confirm those are the Serverless rates, and it lists no price for pii-redact.
 
 **Where it works:** telling a reworded line from a new one: the frontend's new access log format scored 0.88 to
 0.90 against its old wording and raised nothing, while the payments errors scored 0.70 against their closest known
@@ -319,8 +324,11 @@ couldn't see that payments was rolled back at 11:20.
 - **The faults are mine.** I generated the logs and wrote the faults, the deploy notes and the runbooks to fit
   together, and a runbook that names the exact fix makes the agent's job easy. Real logs are messier, and real
   runbooks are often out of date.
-- **This isn't new.** Log platforms already offer anomaly detection. The point here is the split: something cheap
-  reads everything, and the agent only gets the few cases worth thinking about.
+- **It can't see what it doesn't group.** Haiku, reading every line, noticed order numbers that turn up twice. That's a
+  quirk of my generator, which picks order numbers at random, not a fault I wrote in. But in real logs it's the kind of
+  catch the watcher can never make, because it drops the numbers before anything looks at them.
+- **This isn't new.** Log platforms already offer anomaly detection. The point here is the split: Python groups
+  every line, a small model only sees what's new, and the agent only gets the few cases worth thinking about.
 - **Grouping is crude.** The pattern rules replace emails, ids, IPs and numbers, so "region eu-west-1" and "region
   us-east-2" become different patterns. The embedding model covered for that here. Real logs need a proper
   template miner, such as Drain.
@@ -350,6 +358,7 @@ nothing else and ran the whole day once each using SIE Serverless on 7 Nov 2026 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
 | `agent` | `claude-haiku-5-5` (with `fallbacks: null`, since it has no server-side fallback) | $0.0071 for the three cases, against $0.13 for Opus, with the same page recommendations and the same likely causes. But it handed in notes with no sources: on the payments case it fixed that when the review sent the note back, and on the auth case it did it again, so that case came out `check_failed` |
+| `agent`, and no watcher | `claude-haiku-5-5` reading all 88,347 lines itself, in 45 chunks of 2,000 lines in time order, each on its own, with a short prompt asking what to page for, with times and quoted lines. Email addresses and phone numbers masked with the same plain patterns as `rules.yaml`, not pii-redact, which would take thousands of SIE calls. No deploys, runbooks or last week's patterns. The script is kept out of the recipe, since the repo has no eval code | $0.37 and 553 s, against $0.13 of Claude, 72 SIE credits and 47 s. It paged for the payments break (in all three chunks it spans) and the auth surge, though it couldn't name the deploy or config change behind either, with no deploy log. It didn't page for the warmup line or the log format change, and it missed the slow checkout, as the watcher did. It also recommended 9 pages for things that were fine: slow search queries and auth timeouts at their usual rate, card-declined errors, and order numbers that repeat in my generated data, which it read as double charges. Of 186 findings, 18 were pages. By the same rule as the watcher, page decision and likely cause both right, it got 3 of 5 events, and it paged wrongly 9 times where the watcher paged wrongly none |
 | `embed` | `tencent/R3-embedding-0.6b` | The frontend's new access log format scored 0.75 and 0.77 against its old wording, under the 0.83 threshold, so it raised a fourth case at 09:00. Claude closed it without a page and suggested teaching the watcher the new format. The other three cases came out with the same statuses as the default. The threshold was set for Qwen3-Embedding-4B, so a new embedding model needs its own |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.

@@ -1,7 +1,7 @@
 [project]
 name = "sie-flag-unusual-logs-and-investigate"
 version = "0.1.0"
-description = "Watch every log line with small models on SIE, and hand only the odd ones to a Claude agent."
+description = "Group every log line in Python, embed only what's new on SIE, and hand the odd cases to a Claude agent."
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.0.0",

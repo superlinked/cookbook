@@ -18,7 +18,7 @@ from typing import Any, cast
 
 import numpy as np
 from log_patterns import pattern_of
-from sie_calls import CallFailed, Calls
+from sie_calls import CallFailed, Calls, credits_of
 from sie_sdk.client.errors import ServerError
 
 import recipe
@@ -410,6 +410,21 @@ def check_whole_case() -> None:
         assert (Path(folder) / "notes" / "case-x.md").read_text(encoding="utf-8") == row["markdown"]
 
 
+def check_credits() -> None:
+    charged = {"credits_debited": 1, "credits_debited_decimal": "1.500000"}
+    # A batch reply repeats the request's charge on every item, so it counts once.
+    assert credits_of([{"dense": [1.0], "request": charged}, {"request": charged}]) == 1.5
+    assert credits_of({"scores": [], "request": {"credits_debited": 2}}) == 2.0
+    assert credits_of({"entities": []}) is None
+    calls = Calls()
+    calls.call("m", lambda: {"ok": 1, "request": charged}, lambda r: "ok" in r, "ok")
+    calls.call("m", lambda: {"ok": 1}, lambda r: "ok" in r, "ok")
+    assert calls.credits == {"m": 1.5}
+    assert calls.unreported == 1
+    text = recipe.summary_markdown(RULES, 10, [], [], calls, 1.0)
+    assert "SIE credits charged: 1.5 (m: 1.5), and 1 calls whose reply didn't say" in text
+
+
 def check_cost() -> None:
     row = {
         "input_tokens": 1_000_000,
@@ -436,5 +451,6 @@ if __name__ == "__main__":
     check_statuses()
     check_loop()
     check_whole_case()
+    check_credits()
     check_cost()
     print("selfcheck passed")

@@ -1,4 +1,4 @@
-"""Read every log line with small models, and hand only the odd cases to a Claude agent.
+"""Group every log line in Python, embed only what's new, and hand the odd cases to a Claude agent.
 
 Who:       The on-call engineer at a small online shop. Nothing here pages anyone or changes
            anything: the agent writes a note, and the engineer decides.
@@ -1075,6 +1075,13 @@ def summary_markdown(
     tokens = lines_read * per_line
     windows_count = len(windows)
     by_model = ", ".join(f"{model}: {count}" for model, count in sorted(calls.count.items()))
+    credits = (
+        f"{sum(calls.credits.values()):g} ("
+        + ", ".join(f"{model}: {amount:g}" for model, amount in sorted(calls.credits.items()))
+        + ")"
+    )
+    if calls.unreported:
+        credits += f", and {calls.unreported} calls whose reply didn't say"
     lines = [
         "# The day in numbers",
         "",
@@ -1086,6 +1093,7 @@ def summary_markdown(
         f"{sum(int(w['same_as_known']) for w in windows)}",
         f"- Cases sent to Claude: {len(cases)}",
         f"- SIE calls: {calls.total} ({by_model})",
+        f"- SIE credits charged: {credits}",
         "",
         "## Cost",
         "",
