@@ -2,7 +2,7 @@
 
 This is a fixed pipeline, with no agent, because it does the same thing every time. Run it after
 the manual changes with `uv run ingest.py`. recipe.py also runs it when the index is missing or
-the manual has changed.
+the manual or the embedding model has changed.
 """
 
 from __future__ import annotations

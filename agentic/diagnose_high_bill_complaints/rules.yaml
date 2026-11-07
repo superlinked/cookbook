@@ -95,7 +95,8 @@ masking:
   keep:
     - '\b\d{5,7}\s*GAL\b'
     - '\b[A-Z]{2}-\d{6}\b'
-  # Plain rules that run alongside the model, so these never depend on the model finding them.
+  # Plain rules that run alongside the model, for addresses and numbers written in these forms. A phone
+  # number with no separators isn't matched, so it depends on the model.
   patterns:
     email address: '[\w.+-]+@[\w-]+(?:\.[\w-]+)+'
     # Separators are required, so a date such as 2026-09-01 or a meter serial doesn't match.

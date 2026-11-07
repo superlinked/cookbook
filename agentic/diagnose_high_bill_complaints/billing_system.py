@@ -1,7 +1,7 @@
 """A stand-in for the utility's billing and meter data systems, backed by the CSV files in data/.
 
-Replace these functions with calls to your own systems and nothing else changes. Amounts come back
-as strings with two decimals, so they read the same way everywhere they're quoted.
+Replace these methods and `accounts` with calls to your own systems and nothing else changes.
+Amounts Claude sees are strings with two decimals, so they read the same wherever they're quoted.
 """
 
 from __future__ import annotations
@@ -82,7 +82,10 @@ def daily_summary(rows: Iterable[dict[str, str]], overnight: list[int]) -> list[
         {
             "date": day,
             "gallons": f"{record['total']:.0f}",
-            "lowest_overnight_gallons_per_hour": f"{min(record['overnight'], default=0.0):.1f}",
+            # Missing readings say so: 0.0 would read as "no leak".
+            "lowest_overnight_gallons_per_hour": (
+                f"{min(record['overnight']):.1f}" if record["overnight"] else "no readings"
+            ),
         }
         for day, record in sorted(days.items())
     ]

@@ -1,8 +1,8 @@
 """A thin in-memory vector index, using vicinity's exact flat backend.
 
-Vicinity compares a query with every vector, so results are exact, which suits a few hundred manual
-sections. Only `search_policies` in recipe.py uses it, so a vector database can replace this file
-without touching the agent.
+Vicinity compares a query with every vector, so results are exact, which suits a few thousand manual
+sections. A vector database can replace this file without touching the agent, as long as it keeps
+`nearest` for `search_policies` and `items` for the quote check.
 """
 
 from __future__ import annotations

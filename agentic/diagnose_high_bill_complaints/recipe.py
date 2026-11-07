@@ -12,7 +12,8 @@ Agent:     Claude runs the loop and decides what to check next. Its tools are:
            get_readings      plain Python
            calculate_bill    plain Python
            submit_draft      plain Python, ends the loop
-Fixed:     superlinked/pii-redact on SIE masks personal data before Claude sees the complaint.
+Fixed:     superlinked/pii-redact on SIE masks personal data in the subject and body before Claude
+           sees the complaint.
 Review:    When Claude submits, Python checks every quote and figure, works out any credit again and
            looks for sentences claiming an action nobody took. What it finds goes back to Claude
            once to fix. Python then sets the status.
@@ -31,6 +32,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import time
 from collections.abc import Callable
@@ -94,6 +96,18 @@ def load_complaints(path: Path) -> list[Complaint]:
 # --- Masking personal data -------------------------------------------------------------------
 
 
+def outside(start: int, end: int, keep: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """The parts of a span that don't overlap any of the `keep` ranges."""
+    parts: list[tuple[int, int]] = []
+    for kept_start, kept_end in sorted(keep):
+        if kept_end <= start or kept_start >= end:
+            continue
+        if kept_start > start:
+            parts.append((start, kept_start))
+        start = max(start, kept_end)
+    return [*parts, (start, end)] if start < end else parts
+
+
 def word_windows(text: str, size: int, overlap: int) -> list[tuple[int, str]]:
     """Split text into windows of at most `size` words; each is (offset in text, window text)."""
     words = list(re.finditer(r"\S+", text))
@@ -141,7 +155,7 @@ def mask_personal_data(
     calls: Calls, client: SIEClient, key: str, text: str, rules: dict[str, Any]
 ) -> tuple[str, dict[str, int]]:
     """The text with personal data replaced, and how many of each kind. Raises CallFailed when a
-    call fails, so unmasked customer text never reaches Claude."""
+    call fails or a reply has a span it can't place, so that text never reaches Claude unmasked."""
     model = rules["models"]["pii"]
     settings = rules["masking"]
     kinds: dict[str, str] = settings["labels"]
@@ -165,19 +179,29 @@ def mask_personal_data(
                 provision_timeout_s=WAIT_S,
             )
 
+        def valid(reply: Any, window: str = window) -> bool:
+            return (
+                isinstance(reply, dict)
+                and isinstance(reply.get("entities"), list)
+                and all(valid_entity(window, entity) for entity in reply["entities"])
+            )
+
         reply = calls.call(
             model,
             work,
-            lambda r: isinstance(r, dict) and isinstance(r.get("entities"), list),
-            "'entities'",
+            valid,
+            "'entities' with valid offsets",
         )
         for entity in reply["entities"]:
-            if valid_entity(window, entity):
-                kind = kinds.get(entity["label"], entity["label"])
-                spans.append((offset + entity["start"], offset + entity["end"], kind))
+            kind = kinds.get(entity["label"], entity["label"])
+            spans.append((offset + entity["start"], offset + entity["end"], kind))
     keep = [m.span() for pattern in settings["keep"] for m in re.finditer(pattern, text)]
-    spans = [s for s in spans if not any(s[0] < end and start < s[1] for start, end in keep)]
-    return replace_spans(text, spans)
+    parts = [
+        (start, end, kind)
+        for span_start, span_end, kind in spans
+        for start, end in outside(span_start, span_end, keep)
+    ]
+    return replace_spans(text, parts)
 
 
 # --- The tools Claude can call ---------------------------------------------------------------
@@ -326,6 +350,13 @@ class Toolbox:
     outputs: dict[str, list[str]] = field(default_factory=dict)  # tool -> what it returned
     serial_matches: bool | None = None  # None until the photo is read
     complaint_text: str = ""  # the masked complaint, which figures may come from
+    failed_calls: int = 0  # lookups that failed because of an SIE call
+
+    @property
+    def unsettled(self) -> bool:
+        """A photo that was rejected or never read, or a failed lookup, leaves the answer open."""
+        photo_open = bool(self.complaint.attachment) and self.serial_matches is not True
+        return photo_open or self.failed_calls > 0
 
     def run(self, name: str, tool_input: dict[str, Any]) -> str:
         """Run one lookup and return its result as JSON. Raises ToolError for Claude to read."""
@@ -341,9 +372,9 @@ class Toolbox:
         try:
             output = json.dumps(tools[name](**tool_input))
         except CallFailed as error:
-            raise ToolError(str(error)) from error
-        except (KeyError, TypeError) as error:
-            raise ToolError(f"bad input for {name}: {error}") from error
+            # The details stay in Calls.failures: a server's error could repeat unmasked text.
+            self.failed_calls += 1
+            raise ToolError(f"{name} failed, so you don't have this result") from error
         self.outputs.setdefault(name, []).append(output)
         return output
 
@@ -354,7 +385,7 @@ class Toolbox:
     def get_readings(self, start_date: str, end_date: str) -> dict[str, Any]:
         start, end = parse_day(start_date), parse_day(end_date)
         limit = self.rules["readings"]["max_days"]
-        if end < start or end - start > timedelta(days=limit):
+        if end < start or end - start >= timedelta(days=limit):
             raise ToolError(f"ask for a range of 1 to {limit} days")
         overnight = self.rules["readings"]["overnight_hours"]
         return self.system.daily_use(self.complaint.account_id, start, end, overnight)
@@ -406,6 +437,7 @@ class Toolbox:
                 isinstance(r, dict)
                 and isinstance(r.get("scores"), list)
                 and {e.get("item_id") for e in r["scores"] if isinstance(e, dict)} == set(by_id)
+                and all(isinstance(e.get("score"), (int, float)) for e in r["scores"])
             ),
             "a score for every section",
         )
@@ -426,30 +458,40 @@ class Toolbox:
         if not self.complaint.attachment:
             raise ToolError("this complaint has no photo attached")
         model = self.rules["models"]["ocr"]
-        image = (self.data_dir / self.complaint.attachment).read_bytes()
+        # Only the file's name, so an attachment field can't point outside the data folder.
+        path = self.data_dir / Path(self.complaint.attachment).name
+        try:
+            image = path.read_bytes()
+        except OSError as error:
+            raise ToolError("the attached photo couldn't be opened") from error
         key = f"{self.complaint.complaint_id}/photo"
         reply = self.calls.call(
             model,
             lambda: self.client.extract(
                 model, Item(id=key, images=[image]), provision_timeout_s=WAIT_S
             ),
-            lambda r: isinstance(r, dict) and isinstance(r.get("entities"), list),
-            "'entities'",
+            lambda r: (
+                isinstance(r, dict)
+                and isinstance(r.get("entities"), list)
+                and any(
+                    isinstance(entity, dict) and entity.get("label") == "markdown"
+                    for entity in r["entities"]
+                )
+            ),
+            "any text",
         )
         text = next(
-            (
-                str(entity.get("text", ""))
-                for entity in reply["entities"]
-                if isinstance(entity, dict) and entity.get("label") == "markdown"
-            ),
-            "",
+            str(entity.get("text", ""))
+            for entity in reply["entities"]
+            if isinstance(entity, dict) and entity.get("label") == "markdown"
         )
         masked, counts = mask_personal_data(self.calls, self.client, key, text, self.rules)
         for kind, count in counts.items():
             self.masked_counts[kind] = self.masked_counts.get(kind, 0) + count
         expected = self.system.accounts[self.complaint.account_id]["meter_serial"]
         found = re.findall(self.rules["photo"]["serial_pattern"], text)
-        self.serial_matches = expected in found
+        # Another serial next to the right one could be a different meter, so it doesn't count.
+        self.serial_matches = set(found) == {expected}
         return {
             "text": masked,
             "serial_numbers_found": found,
@@ -478,6 +520,8 @@ class AgentResult:
 
 def make_claude() -> anthropic.Anthropic:
     load_dotenv()
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise SystemExit("Stopped: set ANTHROPIC_API_KEY, in .env or the environment.")
     return anthropic.Anthropic()
 
 
@@ -498,12 +542,13 @@ def ask_claude(claude: anthropic.Anthropic, messages: list[Any], rules: dict[str
     )
 
 
-def complaint_prompt(complaint: Complaint, masked_body: str) -> str:
+def complaint_prompt(complaint: Complaint, masked_text: str) -> str:
     photo = "one photo of a meter" if complaint.attachment else "none"
     return (
         f"Complaint {complaint.complaint_id}, received {complaint.received}, about account "
         f"{complaint.account_id}. Attachment: {photo}.\n"
-        f"<complaint_text>\nSubject: {complaint.subject}\n{masked_body}\n</complaint_text>"
+        # The customer writes this text, so it can't be allowed to close the tag itself.
+        f"<complaint_text>\n{masked_text.replace('</complaint_text>', '')}\n</complaint_text>"
     )
 
 
@@ -544,7 +589,7 @@ def one_submission(
     result.transcript.append({"tool": "submit_draft", "input": use.input, "problems": problems})
     if problems and result.revisions < box.rules["agent"]["max_revisions"]:
         result.revisions += 1
-        result.first_review = problems
+        result.first_review = result.first_review or problems
         found = "\n".join(f"- {problem}" for problem in problems)
         tool_results.append(
             {
@@ -607,11 +652,13 @@ def run_agent(claude: anthropic.Anthropic, box: Toolbox, prompt: str) -> AgentRe
 
         tool_results: list[dict[str, Any]] = []
         accepted = False
-        for use in uses:
-            if use.name == "submit_draft":
-                accepted = one_submission(box, use, result, tool_results)
-            else:
+        # Lookups first, so a draft sent in the same response is checked against their results.
+        for use in sorted(uses, key=lambda use: use.name == "submit_draft"):
+            if use.name != "submit_draft":
                 tool_results.append(one_lookup(box, use, result, settings["max_lookups"]))
+            elif one_submission(box, use, result, tool_results):
+                accepted = True
+                break
         if accepted:
             return result
         messages.append({"role": "user", "content": tool_results})
@@ -638,6 +685,19 @@ def figures(text: str, min_digits: int) -> set[str]:
     return {re.sub(r"\.0+$", "", figure) for figure in re.findall(pattern, joined)}
 
 
+def readable(output: str) -> str:
+    """A tool's JSON result as its plain values, so a line break in photo text is a line break."""
+
+    def values(value: Any) -> list[str]:
+        if isinstance(value, dict):
+            return [text for item in value.values() for text in values(item)]
+        if isinstance(value, list):
+            return [text for item in value for text in values(item)]
+        return [str(value)]
+
+    return "\n".join(values(json.loads(output)))
+
+
 def action_claims(reply: str, patterns: list[str]) -> list[str]:
     """Where a reply claims or promises an action. The recipe only drafts, so none has happened."""
     text = plain(reply)
@@ -653,7 +713,12 @@ def worked_out_credit(draft: dict[str, Any], box: Toolbox) -> tuple[float | None
     billed = recharged = 0.0
     if not proposal["recharge_periods"]:
         return None, ["the proposed credit lists no periods to recharge, so it can't be checked"]
+    starts = [period["period_start"] for period in proposal["recharge_periods"]]
+    if len(set(starts)) < len(starts):
+        return None, ["the proposed credit recharges the same period twice"]
     for period in proposal["recharge_periods"]:
+        if period["gallons"] < 0:
+            return None, [f"the proposed credit recharges {period['period_start']} below zero"]
         amount = box.system.billed_amount(account, period["period_start"])
         if amount is None:
             return None, [f"the proposed credit recharges {period['period_start']}: no such bill"]
@@ -668,7 +733,7 @@ def check_draft(draft: dict[str, Any], box: Toolbox, complaint_text: str) -> lis
     rules = box.rules
     digits = rules["checks"]["figure_min_digits"]
     sections = {item["section_id"]: item for item in box.index.items}
-    found = "\n".join(output for outputs in box.outputs.values() for output in outputs)
+    found = "\n".join(readable(output) for outputs in box.outputs.values() for output in outputs)
     allowed = figures(f"{complaint_text}\n{found}", digits)
     problems: list[str] = []
 
@@ -677,11 +742,15 @@ def check_draft(draft: dict[str, Any], box: Toolbox, complaint_text: str) -> lis
     proposal = draft.get("proposed_credit")
     if credit is not None and proposal:
         allowed |= figures(f"{credit:.2f}", digits)
+        if credit <= 0:
+            problems.append(f"the proposed credit works out {credit}, which isn't a credit")
         if abs(credit - float(proposal["amount"])) > rules["checks"]["credit_tolerance"]:
             amount = proposal["amount"]
             problems.append(f"the proposed credit is {amount}, but it works out {credit}")
-    if proposal and box.serial_matches is False:
-        problems.append("a credit is proposed, but the photo's serial doesn't match the account")
+    if proposal and box.complaint.attachment and box.serial_matches is not True:
+        problems.append(
+            "a credit is proposed, but the photo wasn't read or its serial doesn't match"
+        )
 
     if not draft["reply"].strip():
         problems.append("the reply is empty")
@@ -696,7 +765,7 @@ def check_draft(draft: dict[str, Any], box: Toolbox, complaint_text: str) -> lis
                 section = sections[source]
                 whole = f"{section['heading']}\n{section['text']}"
             elif source in LOOKUP_TOOLS:
-                whole = "\n".join(box.outputs.get(source, []))
+                whole = "\n".join(f"{o}\n{readable(o)}" for o in box.outputs.get(source, []))
             else:
                 problems.append(f"cites a source that doesn't exist: {source}")
                 continue
@@ -714,9 +783,9 @@ def check_draft(draft: dict[str, Any], box: Toolbox, complaint_text: str) -> lis
     return problems
 
 
-def status_of(result: AgentResult, problems: list[str], photo_rejected: bool = False) -> str:
-    """The status, from what happened and what the checks found. Claude doesn't choose it. A photo
-    with the wrong serial leaves the bill unsettled, however complete the reply is."""
+def status_of(result: AgentResult, problems: list[str], unsettled: bool = False) -> str:
+    """The status, from what happened, what the checks found and the flags Claude set on its draft.
+    `unsettled` holds a complaint back when Python knows something is open, whatever Claude said."""
     if result.ran_out:
         return "out_of_steps"
     if result.draft is None:
@@ -728,9 +797,9 @@ def status_of(result: AgentResult, problems: list[str], photo_rejected: bool = F
         question["needed_before_anyone_can_act"]
         for question in result.draft["questions_for_customer"]
     )
-    if all(answered) and not waiting and not photo_rejected:
+    if all(answered) and not waiting and not unsettled:
         return "draft_ready"
-    return "partly_answered" if any(answered) else "not_in_policy"
+    return "partly_answered" if any(answered) or waiting or unsettled else "not_in_policy"
 
 
 # --- Output ----------------------------------------------------------------------------------
@@ -757,6 +826,7 @@ def draft_markdown(
     result: AgentResult,
     problems: list[str],
     masked: dict[str, int],
+    failed_calls: int = 0,
 ) -> str:
     lines = [
         f"# {complaint.complaint_id}: {complaint.subject}",
@@ -768,6 +838,11 @@ def draft_markdown(
     ]
     if result.stopped:
         lines += [f"**Stopped because:** {result.stopped}", ""]
+    if failed_calls:
+        lines += [
+            f"**{failed_calls} lookup(s) failed, so this draft may be missing something.**",
+            "",
+        ]
     if problems:
         lines += ["**Check these before sending:**", ""]
         lines += [f"- {problem}" for problem in problems] + [""]
@@ -840,20 +915,23 @@ def answer_complaint(claude: anthropic.Anthropic, box: Toolbox) -> dict[str, Any
     calls, complaint = box.calls, box.complaint
     before = calls.total
     started = time.monotonic()
-    masked_body = ""
     try:
-        masked_body, counts = mask_personal_data(
-            calls, box.client, f"{complaint.complaint_id}/body", complaint.body, box.rules
+        masked_text, counts = mask_personal_data(
+            calls,
+            box.client,
+            f"{complaint.complaint_id}/text",
+            f"Subject: {complaint.subject}\n{complaint.body}",
+            box.rules,
         )
     except CallFailed as error:
         # Fail closed: unmasked customer text doesn't go to a third-party API.
         result = AgentResult(stopped=f"personal data couldn't be masked: {error}")
     else:
         box.masked_counts.update(counts)
-        box.complaint_text = masked_body
-        result = run_agent(claude, box, complaint_prompt(complaint, masked_body))
+        box.complaint_text = masked_text
+        result = run_agent(claude, box, complaint_prompt(complaint, masked_text))
     problems = result.problems
-    status = status_of(result, problems, photo_rejected=box.serial_matches is False)
+    status = status_of(result, problems, unsettled=box.unsettled)
     proposal = result.draft.get("proposed_credit") if result.draft else None
     return {
         "complaint_id": complaint.complaint_id,
@@ -867,7 +945,9 @@ def answer_complaint(claude: anthropic.Anthropic, box: Toolbox) -> dict[str, Any
         "seconds": round(time.monotonic() - started),
         "input_tokens": result.input_tokens + result.cached_tokens,
         "output_tokens": result.output_tokens,
-        "markdown": draft_markdown(complaint, status, result, problems, box.masked_counts),
+        "markdown": draft_markdown(
+            complaint, status, result, problems, box.masked_counts, box.failed_calls
+        ),
         "transcript": result.transcript,
     }
 
@@ -894,16 +974,20 @@ def run(args: argparse.Namespace) -> None:
             raise SystemExit(f"Stopped: no complaint {args.complaint} in data/complaints.csv")
     index = load_or_build_index(calls, client, rules)
     rows: list[dict[str, Any]] = []
-    for complaint in complaints:
-        box = Toolbox(client, calls, index, system, rules, complaint)
-        row = answer_complaint(claude, box)
-        print(
-            f"{row['complaint_id']}: {row['status']} ({row['tool_calls']} tool calls, "
-            f"{row['searches']} searches, {row['revisions']} revisions, {row['seconds']} s)"
-        )
-        rows.append(row)
     output = args.output or RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    write_outputs(output, rows)
+    try:
+        for complaint in complaints:
+            box = Toolbox(client, calls, index, system, rules, complaint)
+            row = answer_complaint(claude, box)
+            print(
+                f"{row['complaint_id']}: {row['status']} ({row['tool_calls']} tool calls, "
+                f"{row['searches']} searches, {row['revisions']} revisions, {row['seconds']} s)"
+            )
+            rows.append(row)
+    finally:
+        # A run that stops partway keeps the drafts it already paid for.
+        if rows:
+            write_outputs(output, rows)
     if calls.failures:
         failed = len(calls.failures)
         print(f"{failed} of {calls.total} SIE calls failed. First: {calls.failures[0]}")
@@ -924,7 +1008,9 @@ def main() -> None:
     try:
         run(args)
     except SIEStopped as error:
-        raise SystemExit(f"Stopped: {error} No outputs were written.") from None
+        raise SystemExit(f"Stopped: {error} Any finished drafts are in runs/.") from None
+    except CallFailed as error:
+        raise SystemExit(f"Stopped: the manual couldn't be indexed: {error}") from None
     except (
         anthropic.AuthenticationError,
         anthropic.PermissionDeniedError,
@@ -933,7 +1019,7 @@ def main() -> None:
     ) as error:
         raise SystemExit(
             f"Stopped: the Claude API refused the request, {type(error).__name__}: {error}. Check "
-            "ANTHROPIC_API_KEY and the model name in rules.yaml. No outputs were written."
+            "ANTHROPIC_API_KEY and the model name in rules.yaml. Any finished drafts are in runs/."
         ) from None
 
 

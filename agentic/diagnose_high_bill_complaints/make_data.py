@@ -52,7 +52,7 @@ NORMAL = {
     "A-1009": 5000,
     "A-1010": 11000,
 }
-# Manually read meters: the three estimated months, then the real use for those months.
+# Manually read meters: the serial, the last actual read and the three estimated months.
 MANUAL: dict[str, dict[str, Any]] = {
     "A-1001": {"serial": "AV-204817", "first": 46000, "estimates": [6000, 6000, 55000]},
     "A-1006": {"serial": "AV-771230", "first": 31500, "estimates": [6000, 6000, 30000]},
