@@ -42,10 +42,13 @@ def is_fatal(error: SIEError) -> bool:
     """A refusal that fails every call the same way: a bad key, no credits, an unknown model.
 
     A rate limit, an over-long input, a timeout, a lost connection, a model still loading and a
-    5xx are passing or per-item failures.
+    5xx are passing or per-item failures. So is a conversation that has outgrown the model's
+    context window, which SIE reports as a plain request error.
     """
     if isinstance(error, ModelLoadFailedError):
         return bool(error.permanent)
+    if "context_length" in str(error):
+        return False
     return isinstance(error, RequestError) and not isinstance(
         error, (RateLimitError, InputTooLongError)
     )

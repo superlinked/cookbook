@@ -3,7 +3,7 @@
 Who:       A dev team that wants open models as the default for coding work, and a frontier model
            only for the tasks that need it. A developer reviews every change before it merges.
 Input:     data/library.json, a small made-up invoicing library with its tests, and data/tasks.json,
-           twelve tasks written as issues, each with the tests that decide when it's done.
+           fifteen tasks written as issues, each with the tests that decide when it's done.
 Router:    fastino/GLiNER2.5-Decide on SIE sorts each issue into a kind of task, which names the
            level it starts at. Levels, cheapest first:
            tool    ruff with fixed arguments, no model
@@ -394,10 +394,11 @@ class OpenModelChat:
     """An open model on SIE, through its chat endpoint with tools."""
 
     def __init__(
-        self, client: SIEClient, calls: Calls, model: str, rules: dict[str, Any], prompt: str
+        self, client: SIEClient, calls: Calls, level: str, rules: dict[str, Any], prompt: str
     ):
-        self.client, self.calls, self.model = client, calls, model
+        self.client, self.calls, self.model = client, calls, rules["models"][level]
         self.settings = rules["open_models"]
+        self.max_tokens = self.settings["max_completion_tokens"][level]
         self.usage = Usage()
         self.messages: list[dict[str, Any]] = [
             {"role": "system", "content": rules["system"]},
@@ -412,7 +413,7 @@ class OpenModelChat:
                 self.model,
                 cast(Any, self.messages),
                 tools=OPEN_TOOLS,
-                max_completion_tokens=self.settings["max_completion_tokens"],
+                max_completion_tokens=self.max_tokens,
                 temperature=self.settings["temperature"],
                 provision_timeout_s=WAIT_S,
             ),
@@ -629,9 +630,7 @@ def run_level(
                 chat = ClaudeChat(claude, rules, issue_prompt(task))
                 rounds = rules["claude"]["max_rounds"]
             else:
-                chat = OpenModelChat(
-                    client, calls, rules["models"][level], rules, issue_prompt(task)
-                )
+                chat = OpenModelChat(client, calls, level, rules, issue_prompt(task))
                 rounds = rules["open_models"]["max_rounds"]
             try:
                 work_loop(chat, ws, attempt, rules, rounds)

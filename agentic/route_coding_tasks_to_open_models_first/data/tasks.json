@@ -106,5 +106,38 @@
   "ci_tests": {
    "ci/test_t12.py": "from datetime import date\nfrom decimal import Decimal\n\nimport pytest\n\nfrom ledgerline import dates\n\n\ndef test_easter():\n    assert dates.due_date(date(2026, 3, 25), 10) == date(2026, 4, 7)\n"
   }
+ },
+ {
+  "task_id": "T13",
+  "title": "Holidays for any year",
+  "body": "holidays.py only lists 2026, so due dates in other years skip no holidays. Add holidays_in(year) that returns the set of holidays for any year: New Year's Day, Easter Monday (the day after Western Easter Sunday), the last Monday in May, Christmas Day and Boxing Day. When New Year's Day, Christmas Day or Boxing Day falls on a weekend, the holiday moves to the next weekday that isn't already a holiday. Keep HOLIDAYS as the 2026 set.",
+  "tests": {
+   "tests/test_t13.py": "from datetime import date\nfrom decimal import Decimal\n\nimport pytest\n\nfrom ledgerline import holidays\n\n\ndef test_holidays_in():\n    assert holidays.holidays_in(2026) == holidays.HOLIDAYS\n    assert holidays.holidays_in(2027) == {\n        date(2027, 1, 1), date(2027, 3, 29), date(2027, 5, 31),\n        date(2027, 12, 27), date(2027, 12, 28),\n    }\n    assert holidays.holidays_in(2028) == {\n        date(2028, 1, 3), date(2028, 4, 17), date(2028, 5, 29),\n        date(2028, 12, 25), date(2028, 12, 26),\n    }\n"
+  },
+  "ci_tests": {
+   "ci/test_t13.py": "from datetime import date\nfrom decimal import Decimal\n\nimport pytest\n\nfrom ledgerline import holidays\n\n\ndef test_other_years():\n    assert holidays.holidays_in(2035) == {\n        date(2035, 1, 1), date(2035, 3, 26), date(2035, 5, 28),\n        date(2035, 12, 25), date(2035, 12, 26),\n    }\n    assert holidays.holidays_in(2038) == {\n        date(2038, 1, 1), date(2038, 4, 26), date(2038, 5, 31),\n        date(2038, 12, 27), date(2038, 12, 28),\n    }\n    assert holidays.holidays_in(2043) == {\n        date(2043, 1, 1), date(2043, 3, 30), date(2043, 5, 25),\n        date(2043, 12, 25), date(2043, 12, 28),\n    }\n"
+  }
+ },
+ {
+  "task_id": "T14",
+  "title": "Read amounts the way customers type them",
+  "body": "Add parse_amount(text) to money.py. It returns the amount as money (to_money). Accept an optional currency code or symbol before the amount (USD, EUR, GBP, $, \u20ac, \u00a3), spaces around it, a leading minus or brackets for a negative amount, and thousands separators. The last comma or dot is the decimal mark when one or two digits follow it; otherwise every comma, dot or space in the number is a thousands separator. Thousands groups must be exactly three digits, and the decimal mark can't also be used as a thousands separator. Anything else raises ValueError.",
+  "tests": {
+   "tests/test_t14.py": "from datetime import date\nfrom decimal import Decimal\n\nimport pytest\n\nfrom ledgerline import money\n\n\ndef test_parse_amount():\n    assert money.parse_amount(\"1,234.50\") == Decimal(\"1234.50\")\n    assert money.parse_amount(\"1.234,50\") == Decimal(\"1234.50\")\n    assert money.parse_amount(\"USD 1,234.5\") == Decimal(\"1234.50\")\n    assert money.parse_amount(\"(12.00)\") == Decimal(\"-12.00\")\n    assert money.parse_amount(\"1,234\") == Decimal(\"1234.00\")\n    with pytest.raises(ValueError):\n        money.parse_amount(\"twelve\")\n"
+  },
+  "ci_tests": {
+   "ci/test_t14.py": "from datetime import date\nfrom decimal import Decimal\n\nimport pytest\n\nfrom ledgerline import money\n\n\ndef test_more_amounts():\n    assert money.parse_amount(\"\u20ac 0,5\") == Decimal(\"0.50\")\n    assert money.parse_amount(\" (1 234,56) \") == Decimal(\"-1234.56\")\n    assert money.parse_amount(\"-\u00a31.234.567\") == Decimal(\"-1234567.00\")\n    assert money.parse_amount(\"1.234\") == Decimal(\"1234.00\")\n    for bad in (\"12.345.67\", \"1,23,456\", \"\", \"1,234.567,89\", \"USD\"):\n        with pytest.raises(ValueError):\n            money.parse_amount(bad)\n"
+  }
+ },
+ {
+  "task_id": "T15",
+  "title": "Pay an invoice in installments",
+  "body": "Add Invoice.installments(count, every_days=30). It returns a list of (due date, amount) pairs that add up exactly to the invoice total. Split the total evenly, rounding each part down to the cent, and add any cents left over one at a time to the earliest installments. The first falls due on the invoice's due date and each next one every_days later. A due date on a weekend or a holiday in holidays.py moves to the next working day, but the next installment still counts from the date before it moved. A count below 1 raises ValueError.",
+  "tests": {
+   "tests/test_t15.py": "from datetime import date\nfrom decimal import Decimal\n\nimport pytest\n\nfrom ledgerline.invoice import Invoice, Line\n\n\ndef test_installments():\n    invoice = Invoice(\"INV-15\", date(2026, 11, 27))\n    invoice.add_line(Line(\"Service\", 1, Decimal(\"100.01\")))\n    assert invoice.total() == Decimal(\"120.01\")\n    assert invoice.installments(3) == [\n        (date(2026, 12, 29), Decimal(\"40.01\")),\n        (date(2027, 1, 26), Decimal(\"40.00\")),\n        (date(2027, 2, 25), Decimal(\"40.00\")),\n    ]\n    with pytest.raises(ValueError):\n        invoice.installments(0)\n"
+  },
+  "ci_tests": {
+   "ci/test_t15.py": "from datetime import date\nfrom decimal import Decimal\n\nimport pytest\n\nfrom ledgerline.invoice import Invoice, Line\n\n\ndef test_weekly():\n    invoice = Invoice(\"INV-15b\", date(2026, 3, 2), terms_days=5)\n    invoice.add_line(Line(\"Service\", 1, Decimal(\"83.33\")))\n    parts = invoice.installments(7, every_days=7)\n    assert [amount for _, amount in parts] == [Decimal(\"14.29\")] * 4 + [\n        Decimal(\"14.28\")\n    ] * 3\n    assert [due for due, _ in parts] == [\n        date(2026, 3, 9), date(2026, 3, 16), date(2026, 3, 23),\n        date(2026, 3, 30),\n        date(2026, 4, 7), date(2026, 4, 13), date(2026, 4, 20),\n    ]\n"
+  }
  }
 ]

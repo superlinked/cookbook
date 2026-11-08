@@ -50,7 +50,12 @@ retries_after_failed_tests: 1
 
 open_models:
   max_rounds: 14              # requests per attempt
-  max_completion_tokens: 4000   # Qwen3.5-4B on SIE allows at most 4096
+  # Output tokens each request may use, per level. Both models get an 8,192-token window on SIE
+  # Serverless, shared by the conversation and the reply, so a lower limit leaves the conversation
+  # more room. A request that doesn't fit ends the attempt, and the task moves up.
+  max_completion_tokens:
+    small: 4000               # Qwen3.5-4B on SIE allows at most 4096
+    open: 4000
   temperature: 0
 
 claude:

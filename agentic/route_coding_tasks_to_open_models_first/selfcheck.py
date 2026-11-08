@@ -14,8 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-from sie_calls import Calls, credits_of
-from sie_sdk.client.errors import ServerError
+from sie_calls import CallFailed, Calls, SIEStopped, credits_of
+from sie_sdk.client.errors import RequestError, ServerError
 
 import recipe
 from recipe import Attempt, Usage, Workspace
@@ -123,7 +123,7 @@ def fix_by_writing(content: str, path: str = "ledgerline/dates.py") -> list[dict
 
 
 def check_tasks() -> None:
-    assert len(TASKS) == 12
+    assert len(TASKS) == 15
     for task_id in TASKS:
         ws = workspace(task_id)
         try:
@@ -333,6 +333,25 @@ def check_sums() -> None:
     assert calls.unreported == 1
 
 
+def check_sie_errors() -> None:
+    def fail(message: str) -> Any:
+        raise RequestError(message, status_code=400)
+
+    full = "prompt_tokens (4342) + max_new_tokens (4000) = 8342 exceeds context_length (8192)"
+    calls = Calls()
+    try:  # a conversation too long for the small model ends that attempt, not the run
+        calls.call("m", lambda: fail(full), lambda r: True, "anything")
+        raise AssertionError("expected CallFailed")
+    except CallFailed:
+        assert calls.failures
+        assert "context_length" in calls.failures[0]
+    try:
+        calls.call("m", lambda: fail("Model 'x' not found"), lambda r: True, "anything")
+        raise AssertionError("expected SIEStopped")
+    except SIEStopped:
+        pass
+
+
 def check_outputs() -> None:
     route = recipe.Route("small fix", 0.6, "small", credits=2.0, seconds=1.0)
     small = Attempt(level="small", model="m", seconds=4.0, usage=Usage(credits=30.0))
@@ -374,5 +393,6 @@ if __name__ == "__main__":
     check_escalation()
     check_loop_edges()
     check_sums()
+    check_sie_errors()
     check_outputs()
     print("selfcheck passed")
