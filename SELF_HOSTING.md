@@ -56,6 +56,7 @@ for every model it calls. Grouped:
 | `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_returned_item_against_sale](retail/check_returned_item_against_sale) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda12-transformers5` | [fix_laptop_compliance_with_guarded_agent](agentic/fix_laptop_compliance_with_guarded_agent), [index_and_check_received_documents](legal/index_and_check_received_documents), [turn_messages_into_actions](personal/turn_messages_into_actions) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_contracts_for_required_clauses](legal/check_contracts_for_required_clauses), [check_shelf_from_photo](retail/check_shelf_from_photo) |
+| `cuda12-sglang` + `cuda12-transformers5` + `cuda13-sglang-cu130` | [route_coding_tasks_to_open_models_first](agentic/route_coding_tasks_to_open_models_first) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda12-transformers5` + `cuda13-sglang-cu130` | [keep_facts_current_from_notes](personal/keep_facts_current_from_notes) |
 
 Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB), except where a
