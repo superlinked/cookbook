@@ -186,8 +186,8 @@ Each run writes `runs/<timestamp>/`: `tasks.csv`, `summary.md`, `tasks/<task>.md
 `diffs/<task>-router.diff` and `diffs/<task>-claude-alone.diff`, and `transcripts/<task>.json` with every tool call.
 
 On 8 Nov 2026 (UTC), the last of three runs took 110 s for the router and 151 s for Claude alone, using SIE
-Serverless: 65 SIE calls and 3,154 SIE credits for the router, $0.0798 of Claude for the router, and $0.3247 for Claude
-alone. The first run of the day took 207 s for the router, because the small model was cold: T03 waited 96 s.
+Serverless: 65 SIE calls and 3,154 SIE credits ($0.0315) for the router, $0.0798 of Claude for the router, and $0.3247
+for Claude alone. So the router cost $0.1113 in all, against $0.3247. The first run of the day took 207 s for the router, because the small model was cold: T03 waited 96 s.
 
 ## What came out
 
@@ -203,7 +203,7 @@ alone. The first run of the day took 207 s for the router, because the small mod
 **2. A fix that looks small and isn't (T12).**
 
 - **Expected outcome:** the small model fails, and the larger open model finishes it.
-- **What came back:** the small model did it alone on all three runs, in 11 requests and about 810 SIE credits. It added the
+- **What came back:** the small model did it alone on all three runs, in 11 requests and about 810 SIE credits ($0.008). It added the
   weekend and holiday loop to `due_date` and, like the tests needed, changed `Invoice.due` to call it. The checks kept back for CI
   passed too. I was wrong about how hard this was for a 4B model, and the larger open model never ran.
 - **Verdict:** Miss. The tests pass, but not the way I expected, so this example doesn't show a task moving up.
@@ -227,14 +227,15 @@ router's picks and scores were the same on every run.
 | --- | --- | --- |
 | Tasks whose tests pass | 12 of 12 | 12 of 12 |
 | Claude, per run | $0.07 to $0.09 | $0.32 to $0.40 |
-| SIE, per run | about 3,150 credits, in 65 calls | none |
+| SIE, per run | about 3,150 credits ($0.03), in 65 calls | none |
+| In all, per run | $0.10 to $0.12 | $0.32 to $0.40 |
 | Time, per run, once warm | 110 to 116 s | 148 to 151 s |
 | Done by | tool 2, small 8, Claude 2 | Claude 12 |
 
-That's about four to five times less Claude. Whether it's cheaper overall depends on what an SIE credit costs, which I didn't
-find in dollars: the router saves $0.25 to $0.31 of Claude a run and spends about 3,150 credits to do it. Nearly all of those
-credits are the small model's: it needed 5 to 11 requests a task, at about 40 to 80 credits a request, more as the conversation
-grew. The router itself cost 4 credits a task.
+That's about four to five times less Claude, and about a third of the cost once the SIE credits are counted: the SIE console
+sold 5,000,000 credits for $50 on 8 Nov 2026, so a credit is $0.00001 and `sie_credit_usd` in `rules.yaml` holds that price.
+The router saved $0.21 to $0.28 a run. Nearly all of its credits are the small model's: it needed 5 to 11 requests a task,
+at about 40 to 80 credits a request, more as the conversation grew. The router itself cost 4 credits a task.
 
 **Where it works:** the tests deciding when a task is done, and moving a task up when they don't. T07 and T09 started at the tool
 level because the router called them style, ruff couldn't fix them, and the small model did. The small model did far more than I
@@ -268,7 +269,6 @@ knows. A task where no level passed has the last test output at the bottom, and 
   one cheap check that clearly works: whether ruff alone can do it.
 - **Start every task at the small model.** It passed all 8 tasks it was given. The cost of a wasted first try on a hard
   task would show up as credits, and this data has no hard enough task to measure it.
-- **Price the credits.** With a dollar price per SIE credit, the summary could say plainly whether the router is cheaper.
 - **Harder tasks.** A bigger library, vaguer issues and a few tasks the small model can't do would show the larger open model and
   Claude earning their place.
 - **Run it in a container by default.** The tests run model-written code. A container with no network is the safe default.
@@ -280,8 +280,8 @@ and ran all twelve tasks once using SIE Serverless on 8 Nov 2026 (UTC). One run 
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `claude` | `claude-sonnet-5-5` (for the Claude level and for Claude alone) | The same routes and the same 12 of 12. Claude cost about half: $0.0393 for the router and $0.1796 for Claude alone, with Claude alone the quicker at 95 s |
-| `small` | `Qwen/Qwen3.8-27B-FP8` (the larger model at the small level too) | The same routes and 12 of 12, for 1,593 SIE credits against about 3,100 with the 4B: 47 requests at about 34 credits each, against the 4B's 53 at about 59. One run, so treat the credit gap as a hint. Its T07 change also shows the review problem: it changed the default `tax_rate` from `0.20` to `20` and worked tax out with `percent_of`, which passes every test and changes what every caller's tax rate means |
+| `claude` | `claude-sonnet-5-5` (for the Claude level and for Claude alone) | The same routes and the same 12 of 12. Claude cost about half: $0.0393 for the router, or about $0.07 with its SIE credits, and $0.1796 for Claude alone, with Claude alone the quicker at 95 s |
+| `small` | `Qwen/Qwen3.8-27B-FP8` (the larger model at the small level too) | The same routes and 12 of 12, for 1,593 SIE credits ($0.016) against about 3,100 ($0.031) with the 4B: 47 requests at about 34 credits each, against the 4B's 53 at about 59. One run, so treat the credit gap as a hint. Its T07 change also shows the review problem: it changed the default `tax_rate` from `0.20` to `20` and worked tax out with `percent_of`, which passes every test and changes what every caller's tax rate means |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

@@ -852,7 +852,11 @@ def task_markdown(result: TaskResult, rules: dict[str, Any]) -> str:
 
 
 def summary_markdown(
-    results: list[TaskResult], rows: list[dict[str, Any]], calls: Calls, finished: bool
+    results: list[TaskResult],
+    rows: list[dict[str, Any]],
+    calls: Calls,
+    finished: bool,
+    credit_usd: float,
 ) -> str:
     done = [r for r in results if r.attempts[-1].passed]
     by_level: dict[str, int] = {}
@@ -862,6 +866,7 @@ def summary_markdown(
     ci_fail = [r["task_id"] for r in rows if r["ci_checks"] == "fail"]
     router_dollars = sum(float(r["claude_cost_usd"]) for r in rows)
     router_seconds = sum(int(r["seconds"]) for r in rows)
+    credits = sum(calls.credits.values())
     lines = [
         "# Run summary",
         "",
@@ -875,9 +880,10 @@ def summary_markdown(
         "- Done by level: " + ", ".join(f"{level} {count}" for level, count in by_level.items()),
         f"- Failed the checks kept back for CI: {', '.join(ci_fail) or 'none'}",
         f"- Claude: ${router_dollars:.4f}",
-        f"- SIE credits charged: {sum(calls.credits.values()):.0f} ("
+        f"- SIE credits charged: {credits:.0f} ("
         + ", ".join(f"{model}: {value:.0f}" for model, value in sorted(calls.credits.items()))
-        + ")",
+        + f"), ${credits * credit_usd:.4f}",
+        f"- Total: ${router_dollars + credits * credit_usd:.4f}",
         f"- SIE calls: {calls.total}, of which {calls.unreported} didn't report what they cost"
         f" and {len(calls.failures)} failed",
         f"- Time: {router_seconds} s",
@@ -930,7 +936,7 @@ def write_outputs(
             json.dumps(transcript, indent=1, default=str), encoding="utf-8"
         )
     (output / "summary.md").write_text(
-        summary_markdown(results, rows, calls, finished), encoding="utf-8"
+        summary_markdown(results, rows, calls, finished, rules["sie_credit_usd"]), encoding="utf-8"
     )
 
 

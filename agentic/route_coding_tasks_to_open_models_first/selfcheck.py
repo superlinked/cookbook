@@ -356,6 +356,8 @@ def check_outputs() -> None:
         assert "stopped partway" in summary
         assert "Failed the checks kept back for CI: T05" in summary
         assert "- Claude: $4.0000" in summary  # the router
+        assert "SIE credits charged: 32 (m: 30, router: 2), $0.0003" in summary
+        assert "- Total: $4.0003" in summary
         assert "- Claude: $8.0000" in summary  # Claude alone
         report = (output / "tasks" / "T05.md").read_text(encoding="utf-8")
         assert "done by `claude`" in report
