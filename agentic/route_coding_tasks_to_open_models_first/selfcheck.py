@@ -7,6 +7,7 @@ Claude. Run it with `uv run --frozen python selfcheck.py`; it exits non-zero if 
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import tempfile
@@ -21,6 +22,13 @@ import recipe
 from recipe import Attempt, Usage, Workspace
 
 RULES = recipe.load_rules()
+# The levels are a list in rules.yaml. The escalation checks add a second open model below the
+# 27B, so a task moving up between two SIE models is checked too.
+TWO_OPEN = copy.deepcopy(RULES)
+TWO_OPEN["models"]["small"] = "stand-in/small-model"
+TWO_OPEN["levels"] = ["tool", "small", "open", "claude"]
+TWO_OPEN["routing"]["kinds"]["small fix"]["level"] = "small"
+TWO_OPEN["open_models"]["max_completion_tokens"]["small"] = 4000
 LIBRARY = recipe.load_library()
 TASKS = {task["task_id"]: task for task in recipe.load_tasks()}
 DATES = LIBRARY["ledgerline/dates.py"]
@@ -222,7 +230,7 @@ def check_routing() -> None:
 
 
 def check_escalation() -> None:
-    small, open_model = RULES["models"]["small"], RULES["models"]["open"]
+    small, open_model = TWO_OPEN["models"]["small"], TWO_OPEN["models"]["open"]
     wrong = fix_by_writing(WRONG_DATES)
     # After failing tests the small model gets one more go, then gives up the same way.
     wrong.append(chat_reply(tool_call("finish", {"summary": "done again"}, "d")))
@@ -242,7 +250,7 @@ def check_escalation() -> None:
     )
     calls = Calls()
     result = recipe.solve_task(
-        TASKS["T05"], LIBRARY, RULES, cast(Any, sie), calls, cast(Any, claude), compare=True
+        TASKS["T05"], LIBRARY, TWO_OPEN, cast(Any, sie), calls, cast(Any, claude), compare=True
     )
     assert [attempt.level for attempt in result.attempts] == ["small", "open"]
     first, second = result.attempts
@@ -261,14 +269,14 @@ def check_escalation() -> None:
     assert "max(0" in result.alone.diff
     sent = claude.requests[1]["messages"][-1]["content"][0]
     assert sent["tool_use_id"] == "x"
-    row = recipe.task_row(result, RULES)
+    row = recipe.task_row(result, TWO_OPEN)
     assert row["done_by"] == "open"
     assert row["failed_levels"] == "small"
     assert row["sie_credits"] == "107"  # router 2, small 60, open 45
 
 
 def check_loop_edges() -> None:
-    small = RULES["models"]["small"]
+    small = TWO_OPEN["models"]["small"]
     # Arguments that aren't JSON come back as an error the model can read.
     script = [
         chat_reply(tool_call("read_file", "{not json", "a")),
@@ -278,7 +286,7 @@ def check_loop_edges() -> None:
     ]
     sie = FakeSIE(scripts={small: script})
     attempt = recipe.run_level(
-        "small", TASKS["T05"], LIBRARY, RULES, cast(Any, sie), Calls(), cast(Any, None)
+        "small", TASKS["T05"], LIBRARY, TWO_OPEN, cast(Any, sie), Calls(), cast(Any, None)
     )
     assert attempt.log[0]["is_error"]
     assert "valid JSON" in attempt.log[0]["output"]
@@ -286,7 +294,7 @@ def check_loop_edges() -> None:
     assert "without calling finish" in attempt.stopped
     assert not attempt.passed
     # The issue reaches the model inside its tag, after the shared instructions.
-    assert sie.sent[0][0]["content"] == RULES["system"]
+    assert sie.sent[0][0]["content"] == TWO_OPEN["system"]
     assert "<issue>" in sie.sent[0][1]["content"]
     # A failed SIE call ends the attempt, not the run.
 
@@ -295,7 +303,7 @@ def check_loop_edges() -> None:
             raise ServerError("stand-in failure")
 
     attempt = recipe.run_level(
-        "open", TASKS["T05"], LIBRARY, RULES, cast(Any, Broken()), Calls(), cast(Any, None)
+        "open", TASKS["T05"], LIBRARY, TWO_OPEN, cast(Any, Broken()), Calls(), cast(Any, None)
     )
     assert "SIE call failed" in attempt.stopped
     assert not attempt.passed

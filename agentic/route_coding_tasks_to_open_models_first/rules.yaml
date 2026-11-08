@@ -2,13 +2,12 @@
 
 models:
   router: fastino/GLiNER2.5-Decide     # sorts each issue into a kind of task, on SIE
-  small: Qwen/Qwen3.5-4B               # small tasks, on SIE
-  open: Qwen/Qwen3.8-27B-FP8           # the default for most tasks, on SIE
+  open: Qwen/Qwen3.8-27B-FP8           # every task a model has to write, first, on SIE
   claude: claude-opus-5-5              # anything unclear, or what failed one level down
 
 # The levels a task can move up through, cheapest first. A task starts at the level its kind
 # names below and moves up one level each time the tests still fail.
-levels: [tool, small, open, claude]
+levels: [tool, open, claude]
 
 # One question to GLiNER2.5-Decide per issue (title and body). Each option is a kind of task and
 # the level it starts at. The option's text is what the model reads.
@@ -19,10 +18,10 @@ routing:
       level: tool
       description: Lint or formatting only, such as unused or unsorted imports or code layout, with no change to behaviour.
     docs:
-      level: small
+      level: open
       description: Docstrings, comments or type hints only.
     small fix:
-      level: small
+      level: open
       description: A small fix of one or two lines in one function.
     change:
       level: open
@@ -50,11 +49,10 @@ retries_after_failed_tests: 1
 
 open_models:
   max_rounds: 14              # requests per attempt
-  # Output tokens each request may use, per level. Both models get an 8,192-token window on SIE
+  # Output tokens each request may use, per level. Qwen3.8-27B gets an 8,192-token window on SIE
   # Serverless, shared by the conversation and the reply, so a lower limit leaves the conversation
   # more room. A request that doesn't fit ends the attempt, and the task moves up.
   max_completion_tokens:
-    small: 4000               # Qwen3.5-4B on SIE allows at most 4096
     open: 4000
   temperature: 0
 

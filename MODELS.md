@@ -25,7 +25,6 @@ it's called through the Anthropic API with your own key, not served by SIE, so i
 | [`TomoroAI/tomoro-colqwen3-embed-4b`](https://huggingface.co/TomoroAI/tomoro-colqwen3-embed-4b) | Embed page images (diagrams included) as many vectors per page | `encode` | Apache 2.0 | `cuda12-default` | [answer_from_equipment_manual](manufacturing/answer_from_equipment_manual) |
 | [`IDEA-Research/grounding-dino-base`](https://huggingface.co/IDEA-Research/grounding-dino-base) | Draw boxes around objects named in text | `extract` | Apache 2.0 | `cuda12-default` | [check_shelf_from_photo](retail/check_shelf_from_photo) |
 | [`Qwen/Qwen3Guard-Gen-4B`](https://huggingface.co/Qwen/Qwen3Guard-Gen-4B) | Give a safety verdict and categories for a prompt | `chat_completions` | Apache 2.0 | `cuda12-sglang` | [screen_assistant_prompts](security/screen_assistant_prompts) |
-| [`Qwen/Qwen3.5-4B`](https://huggingface.co/Qwen/Qwen3.5-4B) | Work on small coding tasks with tools, in a loop | `chat_completions` | Apache 2.0 | `cuda12-sglang` | [route_coding_tasks_to_open_models_first](agentic/route_coding_tasks_to_open_models_first) |
 | [`knowledgator/gliner-relex-large-v1.0`](https://huggingface.co/knowledgator/gliner-relex-large-v1.0) | Find entities and the relations between them | `extract` | Apache 2.0 | `cuda12-default` | [find_detection_gaps](security/find_detection_gaps) |
 
 ## Swaps we ran

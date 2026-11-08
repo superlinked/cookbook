@@ -7,8 +7,7 @@ Input:     data/library.json, a small made-up invoicing library with its tests, 
 Router:    fastino/GLiNER2.5-Decide on SIE sorts each issue into a kind of task, which names the
            level it starts at. Levels, cheapest first:
            tool    ruff with fixed arguments, no model
-           small   Qwen/Qwen3.5-4B on SIE, in a loop with the tools below
-           open    Qwen/Qwen3.8-27B-FP8 on SIE, the same loop
+           open    Qwen/Qwen3.8-27B-FP8 on SIE, in a loop with the tools below
            claude  claude-opus-5-5, the same loop
            A task moves up one level each time the tests still fail.
 Tools:     list_files, read_file, write_file (only .py files under ledgerline/) and run_tests
