@@ -48,15 +48,16 @@ Three things make a hosted chat service the wrong place for that here:
 - **It needs to know which sentences a model wrote.** The scientist edits the draft; she doesn't
   rewrite every sentence. So the record of what a model drafted travels with the paper: for
   disclosure, and so the team knows how much of its fine-tuning data a model wrote. The US
-  Copyright Office says prompting alone doesn't make you the author of what comes back, and that
-  AI-written parts should be disclosed when you register
+  Copyright Office asks you to disclose AI-generated parts of a work when you register it
+  ([its March 2023 guidance](https://www.copyright.gov/ai/ai_policy_guidance.pdf)), and its 2025
+  report says prompting alone doesn't make you the author of what comes back
   ([Authors Guild summary](https://authorsguild.org/news/us-copyright-office-ai-report-part-2-what-authors-should-know/)).
 
 **A note on provider terms.** OpenAI and Anthropic say you own what their models write for you,
 and bar using it to develop models that compete with theirs
 ([OpenAI's terms](https://openai.com/policies/terms-of-use),
 [Anthropic's help page](https://support.claude.com/en/articles/12326764-can-i-use-my-outputs-to-train-an-ai-model)).
-That clause binds the provider's own customer. If someone else wrote a paper with a chat service
+As I read it, that clause binds the provider's own customer. If someone else wrote a paper with a chat service
 and you fine-tune on it, you never agreed to those terms; the paper's copyright and licence apply,
 as with any text. Lemley and Henderson argue the clause is hard to enforce even against the
 customer ([summary](https://spicyip.com/2025/01/discussing-lemley-and-hendersons-the-mirage-of-artificial-intelligence-terms-of-use-restrictions.html)),
@@ -70,7 +71,8 @@ The scientist wants a first draft of each section from her bullets, with:
 
 - a citation for every point a study report or a published abstract backs, with the exact words
   it quotes, so she can check it in a minute;
-- internal and public sources told apart, because only one kind can go in a journal paper later;
+- internal and public sources told apart, because a journal paper can't cite an internal report
+  the way it cites a published one;
 - a list of the points nothing backed, so she knows what to source or present as the team's view;
 - a record of every sentence the model drafted;
 - nothing added that she didn't say, and nothing she said dropped.
@@ -83,8 +85,8 @@ ids.
 `data/outline.md` is the outline for a short paper, "Liver findings with CVN-114 at 30 mg/kg
 reversed within two weeks": three sections and 9 bullets. `data/papers/` holds the five study
 reports and memos it can cite: a cell study, a single-dose mouse study, a repeat-dose liver safety
-study, a stability report and a decision memo. I wrote all of it for this recipe; Corvane Bio,
-CVN-114 and every result in it are made up. The public science behind it, GalNAc-siRNA drugs and
+study, a stability report and a decision memo. I wrote all of it for this recipe, so there's no
+license to record; Corvane Bio, CVN-114 and every result in it are made up. The public science behind it, GalNAc-siRNA drugs and
 their liver safety, is real, and the abstracts come from PubMed at run time. Abstracts stay under
 their publishers' copyright; the draft quotes a few words of each, with the citation, and nothing
 from PubMed is committed here. Three bullets and what should happen to each:
@@ -103,10 +105,12 @@ and title at the top. Python splits them into passages of up to 120 words, keepi
 and Qwen3-Embedding-4B embeds them once per run.
 
 **Search PubMed.** For each section, Qwen3.8-27B writes two short PubMed queries for the public
-science behind the bullets. It's asked to use general terms and never internal names. That's a
-request, so Python also holds back any query that names something on the `never_send` list in
-`rules.yaml` (CVN-114, Corvane, report ids) or copies more than three words in a row from a
-bullet; `queries.md` lists what it held back. Python sends the rest to PubMed's public API (no key
+science behind the bullets. It's asked to use general terms and never internal names or results.
+That's a request, so Python also holds back any query that names something on the `never_send`
+list in `rules.yaml` (CVN-114, Corvane, report ids), however it's spelled ("CVN 114" and
+"cvn‑114" count), repeats a number from the outline (30, 2.4, 52%), or copies more than three
+words in a row from the title, a heading or a bullet. `queries.md` lists what it held back and
+why. Python sends the rest to PubMed's public API (no key
 needed), reads the abstracts of the top three papers for each, and keeps each PMID.
 
 **Pick the passages.** Qwen3-Embedding-4B embeds the abstracts and every bullet. For each bullet,
@@ -120,7 +124,9 @@ sentence, the bullet it comes from, and its citations, each a passage id and the
 
 **Check.** Python keeps a citation only if it names a passage the model was given and the quote's
 words are in that passage in the same order: 3 to 40 words, with punctuation, case and spacing not
-counted, and "..." allowed to skip words as long as each piece is there, in order. Then it lists,
+counted, and "..." allowed to skip up to 30 words as long as each piece is at least 3 words and
+there, in order. Signs that change a claim count as words, so "p < 0.05" doesn't match
+"p > 0.05", and Greek letters count too, so TGF-α doesn't match TGF-β. Then it lists,
 per section: bullets the draft left out, bullets with no checked citation and why, citations it
 dropped and why, and any sentence that came from no bullet and no source.
 
@@ -150,12 +156,12 @@ drafts one section at a time and shows the model at most six passages.
 flowchart TD
     P["Study reports: data/papers/"] --> EI["Qwen3-Embedding-4B:<br/>embed once"]
     S["Outline: data/outline.md"] --> Q["Qwen3.8-27B:<br/>two PubMed queries per section"]
-    Q --> H{"Python: does a query name<br/>something internal or copy the outline?"}
+    Q --> H{"Python: does a query name something internal,<br/>repeat a number or copy the outline?"}
     H -->|"yes"| HB["Held back,<br/>listed in queries.md"]
     H -->|"no"| W["Python: search PubMed,<br/>read the abstracts"]
     W --> E["Qwen3-Embedding-4B:<br/>nearest passages per bullet"]
     EI --> E
-    E --> R["Qwen3-Reranker-4B:<br/>keep the ones that back the bullet"]
+    E --> R["Qwen3-Reranker-4B:<br/>keep the ones that back the bullet,<br/>at most six per section"]
     R --> D["Qwen3.8-27B:<br/>the draft, sentence by sentence"]
     D --> C{"Python: are the quote's words<br/>in its passage?"}
     C -->|"yes"| K["Citation kept"]
@@ -175,12 +181,13 @@ Every model name, threshold, the `never_send` list and the instructions the mode
 | --- | --- | --- | --- |
 | Read the outline | `parse_outline` | `recipe.py` | Python |
 | Read the internal reports | `read_report`, `internal_passages`, `split_text` | `recipe.py` | Python |
-| PubMed queries | `queries_prompt`, `chat_json`, `clean_queries`, `shared_run` | `recipe.py` | SIE (Qwen3.8-27B) |
+| Draft one section, start to end | `draft_section` | `recipe.py` | Python, calling the steps below |
+| PubMed queries | `queries_prompt`, `chat_json`, `clean_queries`, `squash`, `numbers_in`, `shared_run` | `recipe.py` | SIE (Qwen3.8-27B) |
 | Search PubMed and read abstracts | `PubMed.search`, `PubMed.papers`, `paper_passages` | `pubmed.py`, `recipe.py` | PubMed's API |
-| Embed passages and bullets | `embed` | `recipe.py` | SIE (Qwen3-Embedding-4B) |
+| Embed passages and bullets | `embed`, `embed_batch` | `recipe.py` | SIE (Qwen3-Embedding-4B) |
 | Rerank, and pick what the model sees | `rerank`, `pick_passages` | `recipe.py` | SIE (Qwen3-Reranker-4B) |
 | Draft | `draft_prompt`, `chat_json` | `recipe.py` | SIE (Qwen3.8-27B) |
-| Check citations and bullets | `check_draft`, `check_citation`, `section_flags` | `recipe.py` | Python |
+| Check citations and bullets | `check_draft`, `check_citation`, `find_run`, `section_flags` | `recipe.py` | Python |
 | Write it up | `paper_markdown`, `review_markdown`, `queries_markdown`, `inert` | `recipe.py` | Python |
 | Count calls and credits | `Calls` | `sie_calls.py` | Python |
 
@@ -213,18 +220,22 @@ before the first run, not after you spot one in `queries.md`.
 **What leaves the company.** With SIE Serverless, the outline and the internal passages go to SIE
 to run the models. That's fine for this made-up example; for real unpublished work, run the same
 models on SIE Cluster or SIE Local, and then the only thing that leaves is the PubMed queries.
-`queries.md` in each run lists every one, and every one held back.
+`queries.md` in each run lists every one, and every one held back. Even with the checks, the
+queries of one run, taken together, say what the paper is about (siRNA, liver safety, GalNAc), and
+a result reworded without its numbers or code names would still get through. Read `queries.md`
+for anything sensitive, and put undisclosed target names in `never_send` too.
 
 Each run writes `runs/<timestamp>/`. On this outline a run made 22 SIE calls (6 to the chat model,
-9 to the reranker, 7 to the embedding model) and 12 PubMed requests, and took 29 or 30 s with the
-models warm. SIE charged 406 to 477 credits a run, about $0.004 at the SIE console price of
+9 to the reranker, 7 to the embedding model) and 12 PubMed requests, and took 31 to 52 s with the
+models warm. SIE charged 418 to 477 credits a run, $0.004 to $0.005 at the SIE console price of
 $0.00001 a credit on 8 Nov 2026.
 
 ## What came out
 
 ### The three examples
 
-From the last of three runs. The other two came out the same.
+From the last of three runs. The other two gave the same verdicts, with small differences in
+wording.
 
 **1. ALT back to normal (section 2, bullet 3).**
 
@@ -269,8 +280,8 @@ expectations before the first run on this outline.
 | Bullets left out of the draft | 0 | 0 | 0 |
 | Sentences from no bullet and no source | 0 | 0 | 0 |
 | PubMed queries held back | 0 | 0 | 0 |
-| SIE credits | 477 | 458 | 406 |
-| Time | 29 s | 30 s | 30 s |
+| SIE credits | 477 | 458 | 418 |
+| Time | 31 s | 38 s | 52 s |
 
 The only miss is the team's view, above. The model never put CVN-114, Corvane or a report id in a
 query, so the `never_send` check had nothing to hold back on these runs. It's there for the run
@@ -281,15 +292,19 @@ the first run had a stricter quote check that dropped two good citations: one be
 wrote "PCSK9 binds" where the abstract has "(PCSK9) binds", one because the quote skipped words
 with "...". I changed the check to compare words only and to accept "...". Before any run on that
 outline I also raised the quote limit from 30 to 40 words, because an earlier version of this
-recipe lost good citations to 31-word quotes. Both changes came before the runs above.
+recipe lost good citations to 31-word quotes. Both changes came before the runs above. After a
+review of this version, I also made the check keep signs and Greek letters, limit what "..." can
+skip, and hold back queries with the outline's numbers or title, then ran the three runs above
+again. They came out the same as the three before the review.
 
 **How this version came about.** I first built this as a book-writing recipe, then as a research
 note at an analyst firm, both citing Wikipedia. The reasons to control the models were weak for
 both. A biotech company with unpublished results is the case where they're strong, and it has its
 own reports to cite, so the recipe reads them and searches PubMed. The quarterly update became a
 short internal paper, because a series of those is what the company would write often and fine-tune
-on later. On the quarterly-update outline, three runs got 9 of 11 bullets as expected, and missed
-a public bullet (inclisiran) because neither PubMed query asked about it.
+on later. On the quarterly-update outline, three runs got 9 of 11 bullets as expected. They missed
+a public bullet (inclisiran) because neither PubMed query asked about it, and cited the decision
+memo for a plan I expected to have no source.
 
 **Where it works:** every result in the paper was cited to the right study report on every run,
 quoted word for word: the 52% LDL drop, the ALT rise at 30 mg/kg, the vacuolation without
@@ -307,8 +322,9 @@ Nothing was left out, and no query named anything internal.
   they support the sentence.
 - **The model adds cited sentences.** In the last section it added "The program review agreed to
   move CVN-114 into a GLP toxicology study." and "We will watch liver enzymes closely in the GLP
-  study.", both cited to the reports and true, and neither in the outline. The review lists them,
-  marked as coming from no bullet.
+  study.", both cited to the reports and true, and neither in the outline. The table in
+  `review.md` lists them as coming from no bullet, but "Check these first" doesn't, because it
+  only flags added sentences that are also uncited. Read the table too.
 - **The draft states unsupported bullets as fact.** The made-up company reads as true in
   `paper.md`. The review is where it's flagged, so the review isn't optional.
 - **Internal and public citations sit in one list.** The reference list marks which is which, but
@@ -344,8 +360,8 @@ One run each, so a bullet either way doesn't prove much.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `write` | `Qwen/Qwen3.5-4B` | 8 of 9 as expected, the same miss. It found a better source for the liver uptake bullet, "Givosiran selectively targets hepatocytes due to its linkage to N-acetylgalactosamine (GalNac)", and added no sentences of its own, but kept 9 citations instead of 13. Slower, 68 s, and 350 credits |
-| `retrieval.min_rerank_score` | `0.3` instead of `0.5` | 8 of 9, the same citations as the 27B at 0.5, 31 s and 408 credits. On the quarterly-update outline the same setting cited a made-up claim to a real paper on rat hepatotoxicity, so a lower bar can let a misleading source through |
+| `write` | `Qwen/Qwen3.5-4B` | 8 of 9 as expected, the same miss. It found a better source for the liver uptake bullet, "Givosiran selectively targets hepatocytes due to its linkage to N-acetylgalactosamine (GalNac) leading to its selective uptake via asialoglycoprotein receptors (ASGPR).", and kept 9 citations instead of 13. It added "We will watch liver enzymes closely in the GLP study and keep its top dose at or below 10 mg/kg." but tied it to the view bullet, so the record misses it as an addition, and the paper then says the top dose twice. Slower, 90 s, and 343 credits |
+| `retrieval.min_rerank_score` | `0.3` instead of `0.5` | 8 of 9, the same citations as the 27B at 0.5, 35 s and 418 credits. A paper on liver transplant injury (score 0.96) reached the model for the vacuolation bullet; it didn't cite it. On the quarterly-update outline the same setting cited a made-up claim to a real paper on rat hepatotoxicity, so a lower bar can let a misleading source through |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

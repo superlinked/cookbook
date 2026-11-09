@@ -10,14 +10,20 @@ models:
 # queries.md, with any query held back.
 search:
   api: https://eutils.ncbi.nlm.nih.gov/entrez/eutils
-  # NCBI asks every client to name itself. Put your own tool name and contact here.
-  user_agent: sie-cookbook-draft-internal-paper/0.1 (https://github.com/superlinked/cookbook)
+  # NCBI asks every client to name itself with a tool name, and an email it can write to. Both
+  # go with every query, so pick ones you're happy to have tied to your searches.
+  user_agent: sie-cookbook/0.1 (https://github.com/superlinked/cookbook)
+  tool: sie-cookbook
+  email: ""
   queries_per_section: 2
   max_query_words: 8
-  # A query that copies more than this many words in a row from a bullet isn't sent.
+  # A query that copies more than this many words in a row from the outline isn't sent, and
+  # neither is one that repeats a number from it.
   max_shared_words: 3
-  # A query that contains any of these (any case) isn't sent: code names, report ids, the company.
-  never_send: [CVN-114, CVN114, Corvane, CVB-]
+  # A query that contains any of these isn't sent, however it's spelled (case, spaces, hyphens
+  # and dashes don't count): code names, report ids, the company. Add targets you haven't
+  # disclosed too.
+  never_send: [CVN-114, Corvane, CVB-]
   results_per_query: 3
   timeout_s: 30
 
@@ -40,6 +46,7 @@ write:
   temperature: 0
   min_quote_words: 3         # a shorter quote proves nothing, so the citation is dropped
   max_quote_words: 40        # a citation quotes at most this many words of its passage
+  max_skipped_words: 30      # a "..." in a quote may skip at most this many words
 
 system: |
   You help a scientist at a biotech company turn the outline of one section of a short internal

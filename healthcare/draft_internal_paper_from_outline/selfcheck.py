@@ -83,7 +83,7 @@ def check_outline() -> None:
     assert [s.heading for s in outline.sections] == ["Delivery", "Safety"]
     # A sub-bullet joins its bullet; numbered bullets count.
     assert outline.sections[0].bullets == [
-        "GalNAc takes the siRNA to liver cells.; through one receptor",
+        "GalNAc takes the siRNA to liver cells; through one receptor",
         "We think one dose a quarter is enough.",
     ]
     assert outline.sections[1].bullets == ["Liver enzymes stayed normal."]
@@ -111,9 +111,16 @@ def check_passages() -> None:
     # "Short." is under min_words and dropped; each heading starts a new passage.
     assert [p.heading for p in passages] == ["Summary", "Results"]
     assert all("Short." not in p.text for p in passages)
-    # A paragraph longer than max_words is cut into pieces of max_words.
+    # A paragraph longer than max_words is cut into pieces of max_words; a short tail is dropped.
     long = recipe.split_text(source, [("", "word " * 400)], RULES)
     assert [len(p.text.split()) for p in long] == [120, 120, 120, 40]
+    tail = recipe.split_text(source, [("", "word " * 241)], RULES)
+    assert [len(p.text.split()) for p in tail] == [120, 120]
+    # A heading right after a paragraph doesn't relabel it; bad front matter doesn't crash.
+    _, parts = recipe.read_report("## A\nfirst paragraph\n## B\nsecond paragraph\n")
+    assert parts == [("A", "first paragraph"), ("B", "second paragraph")]
+    assert recipe.read_report("---\nnot closed\n")[0] == {}
+    assert recipe.read_report("---\n- a list\n---\ntext\n")[0] == {}
     # The committed reports read, each with its id.
     reports = recipe.internal_passages(recipe.PAPERS_DIR, RULES)
     assert {p.source.ident for p in reports} == {
@@ -145,24 +152,42 @@ def check_queries() -> None:
     assert sent == ["GalNAc siRNA delivery", "a b c d e f g h"], sent
     assert held == []
     assert recipe.clean_queries(None, bullets, RULES) == ([], [])
-    # A query that copies four or more words in a row from a bullet isn't sent, and neither is
-    # one that names anything on the never_send list, whatever the case.
+    # Held back: a never_send term in any spelling, a number from the outline, four or more
+    # words in a row from the title, a heading or a bullet. "PCSK9" and "GLP-1" aren't numbers.
+    outline = [
+        "Liver findings reversed within two weeks",
+        "What we saw",
+        "ALT rose 2.4-fold in 3 of 8.",
+    ]
     risky = {
         "queries": [
             "knockdown for fifty-six days after",
-            "cvn-114 PCSK9 siRNA",
+            "CVN 114 hepatotoxicity",
+            "CVN\u2011114 ALT",
+            "cvb r 2026 011",
             "corvane liver safety",
-            "PCSK9 siRNA durability",
+            "GalNAc siRNA ALT 2.4 fold",
+            "liver findings reversed within two weeks",
+            "PCSK9 GLP-1 siRNA durability",
         ]
     }
-    sent, held = recipe.clean_queries(risky, bullets, RULES)
-    assert sent == ["PCSK9 siRNA durability"]
-    assert held == [
-        "knockdown for fifty-six days after",
-        "cvn-114 PCSK9 siRNA",
-        "corvane liver safety",
-    ]
-    assert recipe.shared_run("EU AI Act marking", "The EU AI Act requires it") == 3
+    sent, held = recipe.clean_queries(
+        risky,
+        [*bullets, *outline],
+        RULES | {"search": RULES["search"] | {"queries_per_section": 9}},
+    )
+    assert sent == ["PCSK9 GLP-1 siRNA durability"], sent
+    assert [why for _, why in held] == [
+        "copies the outline's words",
+        "names something on the never_send list",
+        "names something on the never_send list",
+        "names something on the never_send list",
+        "names something on the never_send list",
+        "repeats a number from the outline",
+        "copies the outline's words",
+    ], held
+    assert recipe.numbers_in("PCSK9 at 30 mg/kg, 2.4-fold, 52%") == {"30", "2.4", "52"}
+    assert recipe.shared_run("GalNAc siRNA liver uptake", "GalNAc siRNA liver delivery") == 3
 
 
 def section_with(shown: dict[str, Passage]) -> SectionDraft:
@@ -191,9 +216,34 @@ def check_citations() -> None:
     assert recipe.check_citation(
         {"passage": "P1", "quote": "PCSK9 binds to and degrades"}, paren, RULES
     ).ok
-    assert cite("P1", "Conjugating GalNAc ... through the asialoglycoprotein receptor").ok
+    assert cite("P1", "Conjugating GalNAc to ... through the asialoglycoprotein receptor").ok
+    # With "...", every piece needs 3 words: two words can match almost anywhere.
+    short = cite("P1", "Conjugating GalNAc ... through the asialoglycoprotein receptor")
+    assert short.problem == "quotes too few words to check"
     assert not cite("P1", "through the asialoglycoprotein receptor ... Conjugating GalNAc").ok
     assert cite("P1", "Conjugating GalNAc ... the").problem == "quotes too few words to check"
+    assert cite("P1", "Conjugating GalNAc to . . . through the asialoglycoprotein receptor").ok
+    # "..." can't join two places far apart: a contradicting passage stays uncited.
+    far = {
+        "P1": internal(
+            "CVN-114 did not change ALT in any group "
+            + "of the animals we dosed in this study " * 4
+            + "while the statin arm reduced LDL cholesterol by half."
+        )
+    }
+    quote = {"passage": "P1", "quote": "CVN-114 did not ... reduced LDL cholesterol by half"}
+    assert recipe.check_citation(quote, far, RULES).problem == '"..." skips too much of the passage'
+    # Signs and Greek letters count: p < 0.05 isn't p > 0.05, and TGF-alpha isn't TGF-beta.
+    signs = {"P1": internal("The effect was significant (p < 0.05) for TGF-\u03b1 in all groups.")}
+    assert recipe.check_citation(
+        {"passage": "P1", "quote": "significant (p < 0.05)"}, signs, RULES
+    ).ok
+    assert not recipe.check_citation(
+        {"passage": "P1", "quote": "significant (p > 0.05)"}, signs, RULES
+    ).ok
+    assert not recipe.check_citation(
+        {"passage": "P1", "quote": "for TGF-\u03b2 in all"}, signs, RULES
+    ).ok
     assert cite("P2", "x").problem == "names a passage the model wasn't given"
     assert cite("P1", "delivered it to the kidney").problem == "the quote isn't in the passage"
     too_long = " ".join(["word"] * (RULES["write"]["max_quote_words"] + 1))

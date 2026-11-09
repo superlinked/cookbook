@@ -42,6 +42,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -163,8 +164,11 @@ def parse_outline(text: str) -> Outline:
         elif bullet and raw[:1] not in (" ", "\t") and sections:
             sections[-1].bullets.append(bullet.group(1).strip())
         elif raw[:1] in (" ", "\t") and line and sections and sections[-1].bullets:
-            joiner = "; " if bullet else " "
-            sections[-1].bullets[-1] += joiner + (bullet.group(1).strip() if bullet else line)
+            if bullet:  # a sub-bullet joins its bullet after a semicolon
+                text = sections[-1].bullets[-1].rstrip(".;: ")
+                sections[-1].bullets[-1] = f"{text}; {bullet.group(1).strip()}"
+            else:
+                sections[-1].bullets[-1] += " " + line
     sections = [section for section in sections if section.bullets]
     if not sections:
         raise SystemExit("Stopped: the outline has no `## Section` with `- bullet` lines.")
@@ -218,6 +222,8 @@ def split_text(
             continue
         for start in range(0, len(words), settings["max_words"]):
             piece = words[start : start + settings["max_words"]]
+            if len(piece) < settings["min_words"]:  # the short tail of a long paragraph
+                continue
             if buffer and len(" ".join(buffer).split()) + len(piece) > settings["max_words"]:
                 flush()
             buffer.append(" ".join(piece))
@@ -229,20 +235,21 @@ def read_report(text: str) -> tuple[dict[str, Any], list[tuple[str, str]]]:
     """An internal report: front matter (id, date, title), then `## Heading` sections of
     paragraphs separated by blank lines."""
     meta: dict[str, Any] = {}
-    if text.startswith("---"):
+    if text.startswith("---") and text.count("---") >= 2:
         _, front, text = text.split("---", 2)
-        meta = yaml.safe_load(front) or {}
+        loaded = yaml.safe_load(front)
+        meta = loaded if isinstance(loaded, dict) else {}
     parts: list[tuple[str, str]] = []
     heading, lines = "", []
     for line in [*text.splitlines(), ""]:
-        if line.startswith("#"):
-            heading = line.lstrip("#").strip()
-        elif line.strip():
+        if line.strip() and not line.startswith("#"):
             lines.append(line.strip())
             continue
-        if lines:
+        if lines:  # a blank line or a heading ends the paragraph above it
             parts.append((heading, " ".join(lines)))
             lines = []
+        if line.startswith("#"):
+            heading = line.lstrip("#").strip()
     return meta, parts
 
 
@@ -267,33 +274,54 @@ def paper_passages(paper: Paper, rules: dict[str, Any]) -> list[Passage]:
 
 
 def clean_queries(
-    reply: Any, bullets: list[str], rules: dict[str, Any]
-) -> tuple[list[str], list[str]]:
-    """The queries to send, and the ones held back. At most queries_per_section short queries,
-    with duplicates and empty ones dropped. A query that copies more than max_shared_words words
-    in a row from a bullet, or names anything on the never_send list, is held back: the model was
-    asked for the public topic, not the outline."""
+    reply: Any, outline_text: list[str], rules: dict[str, Any]
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """The queries to send, and the ones held back with the reason. At most queries_per_section
+    short queries, with duplicates and empty ones dropped. A query is held back when it names
+    anything on the never_send list (in any spelling: case, spaces, hyphens and dashes don't
+    count), repeats a number from the outline, or copies more than max_shared_words words in a
+    row from the outline's title, headings or bullets. The model was asked for the public topic;
+    this is what makes sure."""
     settings = rules["search"]
+    blocked = [squash(term) for term in settings["never_send"] if squash(term)]
+    numbers = {n for text in outline_text for n in numbers_in(text)}
     queries: list[str] = []
-    held_back: list[str] = []
+    held_back: list[tuple[str, str]] = []
     for query in reply.get("queries", []) if isinstance(reply, dict) else []:
         if not isinstance(query, str):
             continue
         words = query.replace('"', " ").split()[: settings["max_query_words"]]
         cleaned = " ".join(words)
-        if not cleaned or cleaned.lower() in {q.lower() for q in queries + held_back}:
+        seen = {q.lower() for q in queries} | {q.lower() for q, _ in held_back}
+        if not cleaned or cleaned.lower() in seen:
             continue
-        copies = any(shared_run(cleaned, b) > settings["max_shared_words"] for b in bullets)
-        internal = any(term.lower() in cleaned.lower() for term in settings["never_send"])
-        if copies or internal:
-            held_back.append(cleaned)
+        if any(term in squash(cleaned) for term in blocked):
+            held_back.append((cleaned, "names something on the never_send list"))
+        elif numbers & numbers_in(cleaned):
+            held_back.append((cleaned, "repeats a number from the outline"))
+        elif any(shared_run(cleaned, t) > settings["max_shared_words"] for t in outline_text):
+            held_back.append((cleaned, "copies the outline's words"))
         else:
             queries.append(cleaned)
     return queries[: settings["queries_per_section"]], held_back
 
 
+def squash(text: str) -> str:
+    """Lower case letters and digits only, after Unicode folding: "CVN\u2011114" is "cvn114"."""
+    return "".join(c for c in unicodedata.normalize("NFKC", text).lower() if c.isalnum())
+
+
+def numbers_in(text: str) -> set[str]:
+    """Numbers that stand on their own, like 30, 2.4 or 52%: not the 9 in PCSK9."""
+    return set(re.findall(r"(?<![A-Za-z0-9.])\d+(?:\.\d+)?", unicodedata.normalize("NFKC", text)))
+
+
 def words_of(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+    """Words, numbers and the signs that change a claim's meaning (< > = + % and the minus and
+    plus-minus signs), lower case, after Unicode folding. Other punctuation doesn't count, but
+    "p < 0.05" and "p > 0.05" stay different, and so do TGF-\u03b1 and TGF-\u03b2."""
+    folded = unicodedata.normalize("NFKC", text).lower()
+    return re.findall(r"[^\W_]+|[<>=+%\u2212\u00b1\u2264\u2265]", folded)
 
 
 def shared_run(a: str, b: str) -> int:
@@ -491,7 +519,7 @@ class SectionDraft:
     heading: str
     bullets: list[str]
     queries: list[str] = field(default_factory=list)
-    held_back: list[str] = field(default_factory=list)
+    held_back: list[tuple[str, str]] = field(default_factory=list)
     pmids: list[str] = field(default_factory=list)
     shown: dict[str, Passage] = field(default_factory=dict)
     supported: dict[int, list[tuple[str, float]]] = field(default_factory=dict)
@@ -550,7 +578,7 @@ def check_draft(
     return paragraphs
 
 
-ELLIPSIS = re.compile(r"\.\.\.|\u2026|\[\.\.\.\]")
+ELLIPSIS = re.compile(r"\[?(?:\.\s?){3}\]?|\[?\u2026\]?")
 
 
 def check_citation(
@@ -568,15 +596,20 @@ def check_citation(
     pieces = [piece for piece in pieces if piece]
     settings = rules["write"]
     count = sum(len(piece) for piece in pieces)
-    if count < settings["min_quote_words"] or any(len(p) < 2 for p in pieces[1:]):
+    if count < settings["min_quote_words"] or (
+        len(pieces) > 1 and any(len(p) < settings["min_quote_words"] for p in pieces)
+    ):
         return Citation(passage, quote, False, "quotes too few words to check")
     if count > settings["max_quote_words"]:
         return Citation(passage, quote, False, "quotes more words than allowed")
     text, start = words_of(html.unescape(shown[passage].text)), 0
-    for piece in pieces:
+    for number, piece in enumerate(pieces):
         found = find_run(text, piece, start)
         if found < 0:
             return Citation(passage, quote, False, "the quote isn't in the passage")
+        # "..." may skip a few words, not join two places far apart in the passage.
+        if number and found - start > settings["max_skipped_words"]:
+            return Citation(passage, quote, False, '"..." skips too much of the passage')
         start = found + len(piece)
     return Citation(passage, quote, True)
 
@@ -607,16 +640,18 @@ def draft_section(
         reply = chat_json(
             calls, client, rules, queries_prompt(outline, section, rules), "queries", QUERIES_SCHEMA
         )
-        out.queries, out.held_back = clean_queries(reply, section.bullets, rules)
+        outline_text = [outline.title, section.heading, *section.bullets]
+        out.queries, out.held_back = clean_queries(reply, outline_text, rules)
         if not out.queries:
             out.add_problem("the model wrote no PubMed query that could be sent")
         public: list[Passage] = []
         for query in out.queries:
             try:
                 pmids = pubmed.search(query, search["results_per_query"])
-                new = [pmid for pmid in pmids if pmid not in library.papers]
+                new = [p for p in pmids if p not in library.papers and p not in library.no_abstract]
                 for paper in pubmed.papers(new):
                     library.papers[paper.pmid] = paper
+                library.no_abstract.update(p for p in new if p not in library.papers)
             except SearchFailed as error:
                 out.add_problem(str(error))
                 continue
@@ -673,6 +708,7 @@ class Library:
     internal: list[Passage]
     internal_vectors: Any
     papers: dict[str, Paper] = field(default_factory=dict)
+    no_abstract: set[str] = field(default_factory=set)
 
 
 def pick_passages(kept: list[list[tuple[Passage, float]]], limit: int) -> dict[str, Passage]:
@@ -698,8 +734,8 @@ def references(drafts: list[SectionDraft]) -> dict[Source, int]:
 
 def reference_line(source: Source) -> str:
     if source.kind == "internal":
-        return f'Internal report {source.ident}, "{source.title}", {source.detail}.'
-    return f'"{source.title}" {source.detail}. PMID {source.ident}. {source.url}'
+        return f'Internal report {source.ident}, "{inert(source.title)}", {source.detail}.'
+    return f'"{inert(source.title)}" {inert(source.detail)}. PMID {source.ident}. {source.url}'
 
 
 def paper_markdown(outline: Outline, drafts: list[SectionDraft]) -> str:
@@ -799,19 +835,15 @@ def queries_markdown(drafts: list[SectionDraft], library: Library) -> str:
     lines = ["# What this run sent to PubMed", "", "## Search queries", ""]
     for draft in drafts:
         for query in draft.queries:
-            lines.append(f'- {draft.heading}: "{query}"')
-    held = [(d.heading, q) for d in drafts for q in d.held_back]
+            lines.append(f'- {draft.heading}: "{inert(query)}"')
+    held = [(d.heading, q, why) for d in drafts for q, why in d.held_back]
     if held:
-        lines += [
-            "",
-            "## Held back, not sent: they copied the outline or named something internal",
-            "",
-        ]
-        lines += [f'- {heading}: "{query}"' for heading, query in held]
+        lines += ["", "## Held back, not sent", ""]
+        lines += [f'- {heading}: "{inert(query)}": {why}' for heading, query, why in held]
     lines += ["", "## Abstracts read", ""]
     for pmid in dict.fromkeys(pmid for d in drafts for pmid in d.pmids):
         paper = library.papers.get(pmid)
-        lines.append(f"- PMID {pmid}" + (f": {paper.title}" if paper else ", no abstract"))
+        lines.append(f"- PMID {pmid}" + (f": {inert(paper.title)}" if paper else ", no abstract"))
     return "\n".join(lines) + "\n"
 
 
@@ -820,16 +852,28 @@ def run(args: argparse.Namespace) -> None:
     outline = parse_outline(args.outline.read_text(encoding="utf-8"))
     client, calls = make_client(), Calls()
     search = rules["search"]
-    pubmed = PubMed(search["api"], search["user_agent"], search["timeout_s"])
+    pubmed = PubMed(
+        search["api"], search["user_agent"], search["timeout_s"], search["tool"], search["email"]
+    )
     started = time.monotonic()
     internal = internal_passages(args.papers, rules)
-    vectors = embed(calls, client, rules, [p.text for p in internal], False) if internal else None
+    try:
+        vectors = (
+            embed(calls, client, rules, [p.text for p in internal], False) if internal else None
+        )
+    except CallFailed as error:
+        raise SystemExit(f"Stopped: couldn't embed the internal reports: {error}") from None
     library = Library(internal, vectors)
     print(f"Read {len(internal)} passages from {args.papers.name}/", flush=True)
-    drafts = []
+    drafts: list[SectionDraft] = []
+    stopped: SIEStopped | None = None
     for section in outline.sections:
         print(f"Drafting: {section.heading}", flush=True)
-        drafts.append(draft_section(outline, section, calls, client, pubmed, library, rules))
+        try:
+            drafts.append(draft_section(outline, section, calls, client, pubmed, library, rules))
+        except SIEStopped as error:  # write what's drafted so far, then stop
+            stopped = error
+            break
     seconds = time.monotonic() - started
 
     out_dir = RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -842,6 +886,8 @@ def run(args: argparse.Namespace) -> None:
     (out_dir / "run.json").write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
     print("\n".join(f"{key}: {value}" for key, value in summary.items()))
     print(f"Wrote {out_dir.relative_to(ROOT)}/")
+    if stopped:
+        raise SystemExit(f"Stopped after {len(drafts)} sections: {stopped}")
 
 
 def run_summary(
@@ -882,10 +928,7 @@ def main() -> None:
     parser.add_argument("--papers", type=Path, default=PAPERS_DIR, help="the internal reports")
     parser.add_argument("--rules", type=Path, default=RULES_PATH, help="another rules.yaml to try")
     args = parser.parse_args()
-    try:
-        run(args)
-    except SIEStopped as error:
-        raise SystemExit(f"Stopped: {error}") from None
+    run(args)
 
 
 if __name__ == "__main__":

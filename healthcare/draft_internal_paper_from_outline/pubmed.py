@@ -36,8 +36,10 @@ class Paper:
 
 
 class PubMed:
-    def __init__(self, api: str, user_agent: str, timeout_s: float):
+    def __init__(self, api: str, user_agent: str, timeout_s: float, tool: str, email: str = ""):
         self.api, self.user_agent, self.timeout_s = api.rstrip("/"), user_agent, timeout_s
+        # NCBI asks every client to send a tool name, and an email it can write to if needed.
+        self.identity = {"tool": tool, **({"email": email} if email else {})}
         self.requests = 0
         self.last = 0.0
 
@@ -45,7 +47,7 @@ class PubMed:
         wait = MIN_GAP_S - (time.monotonic() - self.last)
         if wait > 0:
             time.sleep(wait)
-        query = urllib.parse.urlencode(params)
+        query = urllib.parse.urlencode({**params, **self.identity})
         request = urllib.request.Request(
             f"{self.api}/{endpoint}?{query}", headers={"User-Agent": self.user_agent}
         )
@@ -92,7 +94,7 @@ class PubMed:
         for article in root.iter("PubmedArticle"):
             paragraphs = tuple(
                 (part.get("Label", ""), " ".join("".join(part.itertext()).split()))
-                for part in article.iter("AbstractText")
+                for part in article.findall(".//Article/Abstract/AbstractText")  # not translations
             )
             pmid = article.findtext(".//PMID") or ""
             if not pmid or not any(text for _, text in paragraphs):
