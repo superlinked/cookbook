@@ -67,6 +67,7 @@ recipe's SIE requests (one request can carry many items).
 | [Add outside visit notes to your chart, marked new, matching or different](healthcare/add_outside_notes_to_chart) | gliner2-large-v1, Qwen3-Reranker-4B | 48 | 16 s |
 | [Pseudonymize clinical notes and log every replacement](healthcare/pseudonymize_clinical_notes) | pii-redact | 4 | 1 s |
 | [Search clinical guidance and put the passage that answers first](healthcare/search_clinical_guidance) | Qwen3-Reranker-4B | 16 | 6 s |
+| [Draft a short internal paper from a scientist's outline, citing your own study reports and PubMed](healthcare/draft_internal_paper_from_outline) | Qwen3.8-27B-FP8, Qwen3-Embedding-4B, Qwen3-Reranker-4B | 22 | 52 s |
 
 ### Insurance
 
