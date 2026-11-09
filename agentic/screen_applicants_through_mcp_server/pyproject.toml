@@ -1,0 +1,22 @@
+[project]
+name = "sie-screen-applicants-through-mcp-server"
+version = "0.1.0"
+description = "Screen job applicants blind: an MCP server wraps small models on SIE, and a Claude Agent SDK client runs the loop."
+requires-python = ">=3.12"
+dependencies = [
+    "claude-agent-sdk>=0.2.180",
+    "mcp>=2.3.0",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+    "starlette>=1.3.1",
+    "uvicorn>=0.40.0",
+]
+
+[dependency-groups]
+data = [
+    "pillow>=12.3.0,<13",
+]
+
+[tool.uv]
+package = false
