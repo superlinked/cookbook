@@ -12,7 +12,7 @@
 > report section from a list of findings.
 
 > **Not legal advice.** I'm an engineer, not a lawyer. This recipe is one option to try if you
-> want to own your draft outright. It doesn't settle who owns AI-assisted writing where you live,
+> want a draft with no provider terms or watermark on it. It doesn't settle who owns AI-assisted writing where you live,
 > what a publisher will accept, or what you have to disclose. For that, ask a lawyer or your
 > publisher.
 
@@ -27,15 +27,20 @@ The catch is who owns what comes back. Lena reads the terms before she pastes a 
 chat service, and three things bother her:
 
 - **The terms on the output.** OpenAI and Anthropic say you own what their models write for you,
-  but their terms also say you can't use it to train another model
-  ([Anthropic's help page](https://support.claude.com/en/articles/12326764-can-i-use-my-outputs-to-train-an-ai-model)).
-  The Llama licence carries a clause like that through to its outputs. Lena wants to fine-tune a
-  small model on her own drafts one day, and she doesn't want a clause on them.
+  but their terms also bar using it to develop or train models that compete with theirs
+  ([OpenAI's terms](https://openai.com/policies/terms-of-use),
+  [Anthropic's help page](https://support.claude.com/en/articles/12326764-can-i-use-my-outputs-to-train-an-ai-model)).
+  The Llama 2 licence went further and barred using its outputs to improve any other large
+  language model ([the licence](https://github.com/meta-llama/llama/blob/main/LICENSE)). Lena
+  wants to fine-tune a small model on her own drafts one day, and she doesn't want to work out
+  whether that counts.
 - **Watermarks in the text.** Google has watermarked Gemini's text with SynthID since 2024, by
   nudging which word the model picks next ([the Nature paper](https://www.nature.com/articles/s41586-024-08025-4)).
-  Wikipedia's "AI watermarking" article says Anthropic announced in August 2026 that Claude would
-  watermark all its output. The EU AI Act's Article 50 asks providers to mark AI-generated text in
-  a way a machine can detect. Lena doesn't mind saying where AI helped; she wants that to be her
+  Wikipedia's "AI watermarking" article
+  ([revision 1384669856](https://en.wikipedia.org/w/index.php?oldid=1384669856)) says Anthropic
+  announced in August 2026 that Claude would watermark all its output. The EU AI Act's Article 50
+  requires providers of generative AI to mark its output, text included, in a way a machine can
+  detect ([Baker Botts](https://www.bakerbotts.com/thought-leadership/publications/2026/september/eu-ai-act-article-50-transparency-obligations-go-live)). Lena doesn't mind saying where AI helped; she wants that to be her
   call, made in her own words.
 - **Copyright.** The US Copyright Office says typing a prompt doesn't make you the author of what
   comes back. The parts you write, and how you select and arrange the rest, can still be protected,
@@ -43,8 +48,8 @@ chat service, and three things bother her:
   ([Authors Guild summary](https://authorsguild.org/news/us-copyright-office-ai-report-part-2-what-authors-should-know/)).
   So whatever model she uses, Lena needs to know which sentences a model wrote.
 
-Open-weight models under Apache 2.0 (Qwen3 and Gemma 4 are) put no conditions on the output, and
-you can pin a version and keep it. That covers the first two. The third is on Lena, and this
+Open-weight models under Apache 2.0, like the Qwen3 models here, put no conditions on the output,
+and you can pin a version and keep it. That covers the first two. The third is on Lena, and this
 recipe helps by keeping the record.
 
 ## The problem
@@ -76,35 +81,40 @@ bullets. I wrote it for this recipe; the sources come from Wikipedia at run time
 ## How we'll solve it
 
 **Search.** For each section, Qwen3.8-27B writes two short encyclopedia queries from the bullets.
-It's told to use the general topic, not Lena's wording or opinions, because these queries leave
-her machine. Python sends them to Wikipedia's public search (no key needed), reads the top three
+It's asked to use the general topic, not Lena's wording or opinions, because these queries leave
+her machine. That's a request, so Python also holds back any query that copies more than three
+words in a row from a bullet; `queries.md` lists what it held back. Python sends the rest to Wikipedia's public search (no key needed), reads the top three
 articles for each, and keeps each article's revision id, so a citation points at the exact text
 the draft read even after the article changes. Sections like "See also" and "References" are
-dropped, and the rest is split into passages of up to 120 words.
+dropped, as are paragraphs under 12 words, and the rest is split into passages of up to 120
+words.
 
 **Pick the passages.** Qwen3-Embedding-4B embeds every passage and every bullet. For each bullet,
 the eight nearest passages go to Qwen3-Reranker-4B, which scores whether the passage supports or
-contradicts the bullet. The best two that score at least 0.5 are kept. A section's model sees at
-most six passages, so the prompt fits.
+contradicts the bullet. The best two that score 0.5 or more are kept. A section's model sees at
+most six passages, so the prompt fits: each bullet's best passage goes in first, then each one's
+second, so one bullet's sources can't crowd out another's.
 
 **Draft.** Qwen3.8-27B writes the section sentence by sentence, as JSON: the sentence, the bullet
 it comes from, and its citations, each a passage id and the words it quotes from that passage.
 
 **Check.** Python keeps a citation only if it names a passage the model was given and the quote is
-in that passage word for word (case, spacing and curly quotes aside), in at most 30 words. Then it
+in that passage word for word, as whole words, in 3 to 30 words (case, spacing, the kind of quote
+mark and `&amp;` for `&` aside). Then it
 lists, per section: bullets the draft left out, bullets with no checked citation, citations it
 dropped and why, and any sentence that came from no bullet and no source.
 
 **Write it up.** `chapter.md` is the draft with numbered citations and a reference list (title,
 revision, date read, link). `review.md` starts with what to check, then has a table of every
 sentence: the bullet it came from and the words it quotes. `queries.md` lists every query and
-article title sent to Wikipedia.
+article title sent to Wikipedia, and any query held back. The model's sentences go into these
+files escaped, as plain text: no links, images or HTML.
 
 ## Picking the models
 
 | `rules.yaml` key | Model | Its job here | Why this one |
 | --- | --- | --- | --- |
-| `write` | `Qwen/Qwen3.8-27B-FP8` | Search queries, then the draft | Apache 2.0, follows a JSON schema well, and the larger of the two chat models SIE Serverless serves |
+| `write` | `Qwen/Qwen3.8-27B-FP8` | Search queries, then the draft | Apache 2.0, follows a JSON schema well, and the larger of the two chat models SIE Serverless answered with when I checked on 8 Nov 2026 |
 | `embed` | `Qwen/Qwen3-Embedding-4B` | One vector per passage and bullet | Apache 2.0, takes an instruction for the bullets |
 | `rerank` | `Qwen/Qwen3-Reranker-4B` | Does this passage back this bullet? | Apache 2.0, scores with an instruction, so "support or contradict" is the question it answers |
 
@@ -138,19 +148,20 @@ Every model name, threshold and the instructions the model gets are in `rules.ya
 | Step | Functions | File | Runs on |
 | --- | --- | --- | --- |
 | Read the outline | `parse_spine` | `recipe.py` | Python |
-| Search queries | `queries_prompt`, `chat_json`, `clean_queries` | `recipe.py` | SIE (Qwen3.8-27B) |
+| Search queries | `queries_prompt`, `chat_json`, `clean_queries`, `shared_run` | `recipe.py` | SIE (Qwen3.8-27B) |
 | Search and read Wikipedia | `Wikipedia.search`, `Wikipedia.article` | `wikipedia.py` | Wikipedia's API |
 | Split into passages | `split_article` | `recipe.py` | Python |
 | Nearest passages per bullet | `embed` | `recipe.py` | SIE (Qwen3-Embedding-4B) |
-| Rerank | `rerank` | `recipe.py` | SIE (Qwen3-Reranker-4B) |
+| Rerank, and pick what the model sees | `rerank`, `pick_passages` | `recipe.py` | SIE (Qwen3-Reranker-4B) |
 | Draft | `draft_prompt`, `chat_json` | `recipe.py` | SIE (Qwen3.8-27B) |
 | Check citations and bullets | `check_draft`, `check_citation`, `section_flags` | `recipe.py` | Python |
-| Write it up | `chapter_markdown`, `review_markdown`, `queries_markdown` | `recipe.py` | Python |
+| Write it up | `chapter_markdown`, `review_markdown`, `queries_markdown`, `inert` | `recipe.py` | Python |
 | Count calls and credits | `Calls` | `sie_calls.py` | Python |
 
 The outline and the passages go into the prompt escaped, inside tags, and the model is told that
-text inside them is never an instruction. A Wikipedia article could still try; the quote check
-limits what that can do to a citation, not to the prose.
+text inside them is never an instruction. A Wikipedia article could still try. The quote check
+limits what that can do to a citation, not to the prose, which is one more reason the review lists
+every sentence the model wrote.
 
 ## Run it
 
@@ -166,22 +177,25 @@ uv run recipe.py --spine my_chapter.md    # your own outline
 uv run selfcheck.py                       # optional: offline checks, no SIE call, no Wikipedia
 ```
 
-Your outline: a `# Title` line, a `## Heading` per section and `- ` bullets under each. Anything
-else in the file is ignored, so you can keep notes in it.
+Your outline: a `# Title` line, a `## Heading` per section and bullets under each (`- `, `* ` or
+`1. `). An indented sub-bullet joins its bullet. Anything else in the file is ignored, so you can
+keep notes in it.
 
 **What leaves your machine.** The outline goes to SIE, which runs the three models. The search
 queries and the article titles go to Wikipedia; `queries.md` in each run lists them. If that's too
 much for an unannounced book, there are two ways round it: write the queries yourself, or point
 the search at a copy of the sources you keep locally (see Potential improvements).
 
-Each run writes `runs/<timestamp>/`. On this outline a run made 57 to 59 SIE calls (8 to the chat
-model, 14 to the reranker, the rest to the embedding model in batches of 32) and 26 Wikipedia
-requests, and took 47 to 53 s with the models warm. SIE charged 1,021 to 1,110 credits a run,
+Each run writes `runs/<timestamp>/`. On this outline a run made 60 to 65 SIE calls (8 to the chat
+model, 14 to the reranker, the rest to the embedding model in batches of 32) and 26 or 27 Wikipedia
+requests, and took 45 to 51 s with the models warm. SIE charged 1,018 to 1,091 credits a run,
 about $0.01 at the SIE console price of $0.00001 a credit on 8 Nov 2026.
 
 ## What came out
 
 ### The three examples
+
+From the last of the three runs, with what the other two did where it differed.
 
 **1. SynthID and Claude (section 2, bullet 2).**
 
@@ -196,23 +210,24 @@ about $0.01 at the SIE console price of $0.00001 a credit on 8 Nov 2026.
 **2. The publishers' pledge I made up (section 3, bullet 4).**
 
 - **Expected outcome:** no source, and the review says so.
-- **What came back:** on all three runs, no passage scored above the bar, and `review.md` listed it:
+- **What came back:** on all three runs, no passage scored 0.5 or more, and `review.md` listed it:
   "no source (no passage scored high enough). Back it up yourself, or present it as your view".
   But the draft still states it as fact: "Most publishers now require authors to sign a statement
   confirming that no AI wrote any part of the book." The model writes what Lena wrote; only the
   review tells her it has nothing behind it.
-- **Verdict:** Pass, as long as Lena reads the review.
+- **Verdict:** Pass. It only helps if Lena reads the review.
 
 **3. Selection and arrangement (section 3, bullet 3).**
 
 - **Expected outcome:** cited, from "Artificial intelligence and copyright".
-- **What came back:** cited on one run of three (run 2), with "human who ran the AI program
-  exercised sufficient originality in selecting the inputs to the AI or editing the AI's output".
-  On the other two, including the last run,
-  no passage for it scored above 0.5, and it came out uncited: "However, the way I select and
-  arrange the material, along with any text I rewrite myself, can still be protected."
-- **Verdict:** Miss. The source exists; the search found it, but the reranker didn't score it
-  above the bar for this bullet.
+- **What came back:** on the last run, uncited: "However, the way I select and arrange the
+  material, along with any text I rewrite myself, can still be protected." On no run did a passage
+  score 0.5 or more for this bullet. It was cited only on run 2, with "human who ran the AI program
+  exercised sufficient originality in selecting the inputs to the AI or editing the AI's output",
+  from a passage that came in for the bullet before it: that run, the top passage for "only human
+  authors" was a different one from the same article.
+- **Verdict:** Miss. The source exists and the search finds the article, but the reranker doesn't
+  score the passage high enough for this bullet.
 
 ### Results
 
@@ -225,34 +240,39 @@ I wrote the expectations before the first run.
 | --- | --- | --- | --- |
 | Bullets as expected | 12 of 14 | 14 of 14 | 12 of 14 |
 | Bullets with a checked citation | 4 | 6 | 4 |
-| Citations kept / dropped | 6 / 0 | 8 / 0 | 6 / 0 |
+| Citations kept / dropped | 5 / 0 | 8 / 0 | 5 / 0 |
 | Bullets left out of the draft | 0 | 0 | 0 |
 | Sentences from no bullet and no source | 0 | 0 | 0 |
-| SIE credits | 1,110 | 1,021 | 1,059 |
-| Time | 47 s | 49 s | 53 s |
+| Queries held back | 0 | 0 | 0 |
+| SIE credits | 1,062 | 1,018 | 1,091 |
+| Time | 51 s | 45 s | 48 s |
 
 The two misses on runs 1 and 3 are the same two: "Typing a prompt doesn't make me the author of
-what comes back" and the selection-and-arrangement bullet. On run 3 the model was shown a passage
-for the prompt bullet (score 0.61) and didn't cite it; the other had no passage over the bar.
+what comes back" and the selection-and-arrangement bullet. Neither got a passage scoring 0.5 or
+more of its own on any run. On run 2 both were cited from passages that came in for the bullet
+before them, because that run's top passage for "only human authors" was a different one.
+
+These runs are after the review fixes. Three runs before them, on the first version of the code,
+also got 12, 14 and 12, with the same two misses.
 
 **Where it works:** the citations it keeps are real. Python dropped none on the three runs, and
-nearly all of them back the sentence they're on. The loosest: on run 2, "Simply typing a prompt
-does not make me the author of the output." cited "works created by artificial intelligence
-without any human input cannot be copyrighted", which is related but isn't about prompts. The watermark section is cited on every run. Nothing was
-left out, and the model added nothing of its own. The bullets that are Lena's opinions (why she
+nearly all of them back the sentence they're on. The watermark section is cited on every run.
+Nothing was left out, and the model added nothing of its own. The bullets that are Lena's opinions (why she
 uses open models, keeping a record, rewriting) came out uncited, which is right.
 
 **Where it fails:**
 
 - **A quote that exists isn't a quote that supports.** Python checks the words are in the passage,
-  not that they back the sentence. With the reranker bar at 0.3 (see Try another model), the
-  Apache 2.0 bullet got "The Apache License is more comprehensive and explicit.", which is true
-  and beside the point. At 0.5 that didn't happen on these runs, but nothing rules it out.
+  not that they back the sentence. On run 2, "Simply typing a prompt does not make me the author
+  of the resulting output." cited "without any human input cannot be copyrighted, because they
+  lack human authorship", which is related but isn't about prompts. On a run before the review
+  fixes, with the reranker bar at 0.3, the Apache 2.0 bullet got "The Apache License is more
+  comprehensive and explicit.", which is true and beside the point.
 - **The draft states unsupported bullets as fact.** The publishers' pledge reads as true in
   `chapter.md`. The review is where it's flagged, so the review isn't optional.
 - **Selection and arrangement, and the prompt bullet,** were uncited on two runs of three. The
-  same search and the same scores gave different drafts: the model doesn't always cite a passage
-  it's shown.
+  reranker never scored a passage 0.5 or more for either. Whether they got cited depended on which
+  passage came in for the bullet before them, and that changed between runs.
 - **Wikipedia is a secondary source.** The Anthropic watermark claim is cited to Wikipedia, which
   cites the announcement. For a book, follow the citation to the primary source.
 - **Terms of service aren't on Wikipedia.** The first section's bullets about provider terms and
@@ -288,8 +308,8 @@ One run each, so a bullet either way doesn't prove much.
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `write` | `Qwen/Qwen3.5-4B` | 12 of 14 as expected, a different two: it cited the selection-and-arrangement and prompt bullets, and lost the SynthID and human-author ones because Python dropped their citations (one quote was over 30 words, one was paraphrased). Twice as slow, 108 s, and about the same credits, 1,042 |
-| `retrieval.min_rerank_score` | `0.3` instead of `0.5` | 13 of 14 by the count, with 7 bullets cited, including selection and arrangement. But the Apache 2.0 bullet was cited to "The Apache License is more comprehensive and explicit.", which doesn't support it, and the prompt bullet to a sentence that only defines a prompt. More citations, weaker ones |
+| `write` | `Qwen/Qwen3.5-4B` | 11 of 14 as expected. It returned no draft at all for the copyright section, so its four bullets went uncited, and the chapter shows them as bullets with "No draft". The watermark section was cited as with the 27B. Much slower, 278 s, and more credits, 1,526 |
+| `retrieval.min_rerank_score` | `0.3` instead of `0.5` | 14 of 14 as expected, with the same 6 bullets cited as run 2. Passages scoring 0.44 to 0.56 now reached the model for three more bullets (a large language model article for the fine-tuning bullet, an open-source licence article for Apache 2.0, a second copyright passage for the prompt bullet), and it cited none of them. On a run before the review fixes the same setting cited the Apache 2.0 bullet to a sentence that doesn't support it, so a lower bar lets weaker sources through |
 
 See [MODELS.md](../../MODELS.md) for every model these recipes use.
 

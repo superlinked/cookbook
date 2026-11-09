@@ -13,6 +13,8 @@ search:
   user_agent: sie-cookbook-draft-book-chapter/0.1 (https://github.com/superlinked/cookbook)
   queries_per_section: 2
   max_query_words: 8
+  # A query that copies more than this many words in a row from a bullet isn't sent.
+  max_shared_words: 3
   results_per_query: 3
   timeout_s: 30
   # Article sections that list other pages rather than say anything.
@@ -35,6 +37,7 @@ write:
   # Qwen3.8-27B gets an 8,192-token window on SIE Serverless, shared by the prompt and the reply.
   max_completion_tokens: 3000
   temperature: 0
+  min_quote_words: 3         # a shorter quote proves nothing, so the citation is dropped
   max_quote_words: 30        # a citation quotes at most this many words of its passage
 
 system: |

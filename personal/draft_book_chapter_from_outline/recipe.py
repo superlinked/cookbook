@@ -124,6 +124,9 @@ def make_client() -> SIEClient:
 # --- The outline -------------------------------------------------------------------------------
 
 
+BULLET = re.compile(r"^(?:[-*]|\d+[.)])\s+(.+)$")
+
+
 @dataclass
 class Section:
     heading: str
@@ -137,19 +140,22 @@ class Spine:
 
 
 def parse_spine(text: str) -> Spine:
-    """`# Title`, then `## Section` headings, each with `- bullet` lines. An indented line carries
-    on the bullet above it. Anything else is ignored."""
+    """`# Title`, then `## Section` headings, each with bullets (`- `, `* ` or `1. `). An indented
+    line carries on the bullet above it, and an indented sub-bullet joins it after a semicolon.
+    Anything else is ignored."""
     title, sections = "", []
     for raw in text.splitlines():
         line = raw.strip()
+        bullet = BULLET.match(line)
         if raw.startswith("# "):
             title = line[2:].strip()
         elif raw.startswith("## "):
             sections.append(Section(line[3:].strip()))
-        elif raw.startswith(("- ", "* ")) and sections:
-            sections[-1].bullets.append(line[2:].strip())
+        elif bullet and raw[:1] not in (" ", "\t") and sections:
+            sections[-1].bullets.append(bullet.group(1).strip())
         elif raw[:1] in (" ", "\t") and line and sections and sections[-1].bullets:
-            sections[-1].bullets[-1] += " " + line
+            joiner = "; " if bullet else " "
+            sections[-1].bullets[-1] += joiner + (bullet.group(1).strip() if bullet else line)
     sections = [section for section in sections if section.bullets]
     if not sections:
         raise SystemExit("Stopped: the outline has no `## Section` with `- bullet` lines.")
@@ -184,9 +190,8 @@ def split_article(article: Article, rules: dict[str, Any]) -> list[Passage]:
     buffer: list[str] = []
 
     def flush() -> None:
-        text = " ".join(buffer).strip()
-        if len(text.split()) >= settings["min_words"]:
-            passages.append(Passage(article.title, article.revision, heading, text))
+        if buffer:
+            passages.append(Passage(article.title, article.revision, heading, " ".join(buffer)))
         buffer.clear()
 
     for line in article.text.splitlines():
@@ -198,28 +203,57 @@ def split_article(article: Article, rules: dict[str, Any]) -> list[Passage]:
                 skipping = name.lower() in skip
             heading = name
             continue
-        line = line.strip()
-        if skipping or not line:
+        words = line.split()
+        if skipping or len(words) < settings["min_words"]:
             continue
-        if buffer and len(" ".join(buffer).split()) + len(line.split()) > settings["max_words"]:
-            flush()
-        buffer.append(line)
+        # A paragraph longer than max_words is cut into pieces of max_words.
+        for start in range(0, len(words), settings["max_words"]):
+            piece = words[start : start + settings["max_words"]]
+            if buffer and len(" ".join(buffer).split()) + len(piece) > settings["max_words"]:
+                flush()
+            buffer.append(" ".join(piece))
     flush()
     return passages
 
 
-def clean_queries(reply: Any, rules: dict[str, Any]) -> list[str]:
-    """At most queries_per_section short queries, with duplicates and empty ones dropped."""
+def clean_queries(
+    reply: Any, bullets: list[str], rules: dict[str, Any]
+) -> tuple[list[str], list[str]]:
+    """The queries to send, and the ones held back. At most queries_per_section short queries,
+    with duplicates and empty ones dropped. A query that copies more than max_shared_words words
+    in a row from a bullet is held back: the model was asked for the topic, not the outline."""
     settings = rules["search"]
     queries: list[str] = []
+    held_back: list[str] = []
     for query in reply.get("queries", []) if isinstance(reply, dict) else []:
         if not isinstance(query, str):
             continue
         words = query.replace('"', " ").split()[: settings["max_query_words"]]
         cleaned = " ".join(words)
-        if cleaned and cleaned.lower() not in {q.lower() for q in queries}:
+        if not cleaned or cleaned.lower() in {q.lower() for q in queries + held_back}:
+            continue
+        if any(shared_run(cleaned, b) > settings["max_shared_words"] for b in bullets):
+            held_back.append(cleaned)
+        else:
             queries.append(cleaned)
-    return queries[: settings["queries_per_section"]]
+    return queries[: settings["queries_per_section"]], held_back
+
+
+def words_of(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def shared_run(a: str, b: str) -> int:
+    """The longest run of words two texts share, in order."""
+    left, right = words_of(a), words_of(b)
+    best = 0
+    for i in range(len(left)):
+        for j in range(len(right)):
+            n = 0
+            while i + n < len(left) and j + n < len(right) and left[i + n] == right[j + n]:
+                n += 1
+            best = max(best, n)
+    return best
 
 
 # --- Calls to SIE ----------------------------------------------------------------------------
@@ -319,7 +353,8 @@ def rerank(
         lambda r: (
             isinstance(r, dict)
             and isinstance(r.get("scores"), list)
-            and {e.get("item_id") for e in r["scores"] if isinstance(e, dict)} == set(ids)
+            and all(isinstance(e, dict) for e in r["scores"])
+            and {e.get("item_id") for e in r["scores"]} == set(ids)
             and all(isinstance(e.get("score"), (int, float)) for e in r["scores"])
         ),
         "a score for every passage",
@@ -369,11 +404,19 @@ def draft_prompt(
 
 # --- Checks in Python --------------------------------------------------------------------------
 
-_MARKS = str.maketrans({0x2018: "'", 0x2019: "'", 0x201C: '"', 0x201D: '"', 0x2013: "-"})
+_MARKS: dict[int, str] = {
+    0x2018: "'",
+    0x2019: "'",
+    0x201C: "'",
+    0x201D: "'",
+    0x22: "'",
+    0x2013: "-",
+}
 
 
 def normalise(text: str) -> str:
-    """Lower case, straight quotes, single spaces: how a model's copy can differ harmlessly."""
+    """Lower case, one kind of quote mark, single spaces: how a model's copy can differ
+    harmlessly."""
     return " ".join(text.translate(_MARKS).lower().split())
 
 
@@ -401,17 +444,27 @@ class SectionDraft:
     heading: str
     bullets: list[str]
     queries: list[str] = field(default_factory=list)
+    held_back: list[str] = field(default_factory=list)
     shown: dict[str, Passage] = field(default_factory=dict)
     supported: dict[int, list[tuple[str, float]]] = field(default_factory=dict)
     paragraphs: list[list[Sentence]] = field(default_factory=list)
     problem: str = ""
 
+    def add_problem(self, text: str) -> None:
+        self.problem = f"{self.problem}; {text}" if self.problem else text
+
     def sentences(self) -> list[Sentence]:
         return [s for paragraph in self.paragraphs for s in paragraph]
 
     def missing_bullets(self) -> list[int]:
+        """Bullets a draft left out. A section with no draft at all is a failure, not this."""
+        if not self.paragraphs:
+            return []
         used = {s.bullet for s in self.sentences()}
         return [n for n in range(1, len(self.bullets) + 1) if n not in used]
+
+    def cited_bullets(self) -> list[int]:
+        return sorted({s.bullet for s in self.sentences() if s.cited and s.bullet})
 
     def uncited_bullets(self) -> list[int]:
         """Bullets in the draft that no checked citation backs."""
@@ -436,7 +489,7 @@ def check_draft(
             if not isinstance(raw, dict) or not str(raw.get("text", "")).strip():
                 continue
             bullet = raw.get("bullet")
-            if not isinstance(bullet, int) or not 0 <= bullet <= len(section.bullets):
+            if type(bullet) is not int or not 0 <= bullet <= len(section.bullets):
                 bullet = 0
             citations = [
                 check_citation(c, section.shown, rules)
@@ -455,11 +508,15 @@ def check_citation(
     passage, quote = str(raw.get("passage", "")).strip(), str(raw.get("quote", "")).strip()
     if passage not in shown:
         return Citation(passage, quote, False, "names a passage the model wasn't given")
-    if not quote:
-        return Citation(passage, quote, False, "quotes nothing")
-    if len(quote.split()) > rules["write"]["max_quote_words"]:
+    # The model saw the passage escaped (&amp; for &), so it may copy it that way.
+    wanted = normalise(html.unescape(quote)).strip(" .,;:\"'")
+    settings = rules["write"]
+    if len(wanted.split()) < settings["min_quote_words"]:
+        return Citation(passage, quote, False, "quotes too few words to check")
+    if len(wanted.split()) > settings["max_quote_words"]:
         return Citation(passage, quote, False, "quotes more words than allowed")
-    if normalise(quote.strip(" .\"'")) not in normalise(shown[passage].text):
+    pattern = r"(?<!\w)" + re.escape(wanted) + r"(?!\w)"
+    if not re.search(pattern, normalise(shown[passage].text)):
         return Citation(passage, quote, False, "the quote isn't in the passage")
     return Citation(passage, quote, True)
 
@@ -482,22 +539,24 @@ def draft_section(
         reply = chat_json(
             calls, client, rules, queries_prompt(spine, section, rules), "queries", QUERIES_SCHEMA
         )
-        out.queries = clean_queries(reply, rules)
+        out.queries, out.held_back = clean_queries(reply, section.bullets, rules)
+        if not out.queries:
+            out.add_problem("the model wrote no search query that could be sent")
         passages: list[Passage] = []
         seen: set[tuple[str, int, str]] = set()
         for query in out.queries:
             try:
                 titles = wiki.search(query, search["results_per_query"])
             except SearchFailed as error:
-                out.problem = str(error)
+                out.add_problem(str(error))
                 continue
             for title in titles:
                 if title not in articles:
                     try:
                         articles[title] = wiki.article(title)
-                    except SearchFailed as error:
-                        out.problem = str(error)
-                        articles[title] = None
+                    except SearchFailed as error:  # not remembered, so a later query can retry
+                        out.add_problem(str(error))
+                        continue
                 article = articles[title]
                 for passage in split_article(article, rules) if article else []:
                     if passage.key not in seen:
@@ -506,20 +565,20 @@ def draft_section(
         if passages:
             vectors = embed(calls, client, rules, [p.text for p in passages], False)
             claims = embed(calls, client, rules, section.bullets, True)
-            picked: dict[tuple[str, int, str], tuple[Passage, float]] = {}
-            for number, (bullet, claim) in enumerate(zip(section.bullets, claims, strict=True), 1):
+            kept: list[list[tuple[Passage, float]]] = []
+            for bullet, claim in zip(section.bullets, claims, strict=True):
                 nearest = np.argsort(-(vectors @ claim))[: settings["embed_top_k"]]
                 ranked = rerank(calls, client, rules, bullet, [passages[int(i)] for i in nearest])
-                kept = [(p, s) for p, s in ranked if s >= settings["min_rerank_score"]]
-                for passage, score in kept[: settings["per_bullet"]]:
-                    best = picked.get(passage.key)
-                    if best is None or score > best[1]:
-                        picked[passage.key] = (passage, score)
-                    out.supported.setdefault(number, []).append((passage.key[0], round(score, 3)))
-            best_first = sorted(picked.values(), key=lambda item: -item[1])
-            out.shown = {
-                f"P{n}": p for n, (p, _) in enumerate(best_first[: settings["max_passages"]], 1)
-            }
+                good = [(p, s) for p, s in ranked if s >= settings["min_rerank_score"]]
+                kept.append(good[: settings["per_bullet"]])
+            out.shown = pick_passages(kept, settings["max_passages"])
+            shown_keys = {p.key for p in out.shown.values()}
+            for number, good in enumerate(kept, 1):
+                for passage, score in good:
+                    if passage.key in shown_keys:
+                        out.supported.setdefault(number, []).append(
+                            (passage.title, round(score, 3))
+                        )
         reply = chat_json(
             calls,
             client,
@@ -530,10 +589,21 @@ def draft_section(
         )
         out.paragraphs = check_draft(reply, out, rules)
         if not out.paragraphs:
-            out.problem = out.problem or "the model returned no draft"
+            out.add_problem("the model returned no draft")
     except CallFailed as error:
-        out.problem = str(error)
+        out.add_problem(str(error))
     return out
+
+
+def pick_passages(kept: list[list[tuple[Passage, float]]], limit: int) -> dict[str, Passage]:
+    """At most `limit` passages, taking each bullet's best first, then each one's second, so
+    one bullet's sources can't crowd out another's."""
+    chosen: dict[tuple[str, int, str], Passage] = {}
+    for rank in range(max((len(good) for good in kept), default=0)):
+        for good in kept:
+            if rank < len(good) and len(chosen) < limit:
+                chosen.setdefault(good[rank][0].key, good[rank][0])
+    return {f"P{n}": passage for n, passage in enumerate(chosen.values(), 1)}
 
 
 def references(drafts: list[SectionDraft]) -> dict[tuple[str, int], int]:
@@ -564,7 +634,7 @@ def chapter_markdown(spine: Spine, drafts: list[SectionDraft], fetched: str) -> 
                         for c in sentence.cited
                     }
                 )
-                parts.append(sentence.text + "".join(f" [{n}]" for n in marks))
+                parts.append(inert(sentence.text) + "".join(f" [{n}]" for n in marks))
             lines += [" ".join(parts), ""]
     if numbers:
         lines += ["## References", ""]
@@ -613,28 +683,44 @@ def section_flags(draft: SectionDraft) -> list[str]:
         for n in draft.missing_bullets()
     ]
     for n in draft.uncited_bullets():
-        why = "no citation held up" if n in draft.supported else "no passage scored high enough"
+        dropped = any(not c.ok for s in draft.sentences() if s.bullet == n for c in s.citations)
+        if dropped:
+            why = "its citation didn't hold up"
+        elif n in draft.supported:
+            why = "the model didn't cite the passage it was shown"
+        else:
+            why = "no passage scored high enough"
         flags.append(
             f"{at}, bullet {n}: no source ({why}). Back it up yourself, or present it as your "
             f'view: "{draft.bullets[n - 1]}"'
         )
     for sentence in draft.sentences():
         flags += [
-            f'{at}: a citation was dropped because it {c.problem}: "{sentence.text}"'
+            f'{at}: a citation was dropped because it {c.problem}: "{inert(sentence.text)}"'
             for c in sentence.citations
             if not c.ok
         ]
         if sentence.bullet == 0 and not sentence.cited:
             flags.append(
-                f'{at}: the model added this, from no bullet and no source: "{sentence.text}"'
+                f"{at}: the model added this, from no bullet and no source: "
+                f'"{inert(sentence.text)}"'
             )
     if draft.problem:
         flags.append(f"{at}: {draft.problem}")
     return flags
 
 
+def inert(text: str) -> str:
+    """Model text as plain words in Markdown: on one line, with no HTML, links, images or code
+    spans, so a sentence can't load a remote image or forge a heading when the file is opened."""
+    text = " ".join(text.split())
+    for mark in ("\\", "<", ">", "[", "]", "`", "#"):
+        text = text.replace(mark, "\\" + mark)
+    return text
+
+
 def cell(text: str) -> str:
-    return text.replace("|", "\\|").replace("\n", " ")
+    return inert(text).replace("|", "\\|")
 
 
 def queries_markdown(drafts: list[SectionDraft], articles: dict[str, Article | None]) -> str:
@@ -642,11 +728,14 @@ def queries_markdown(drafts: list[SectionDraft], articles: dict[str, Article | N
     for draft in drafts:
         for query in draft.queries:
             lines.append(f'- {draft.heading}: "{query}"')
+    held = [(d.heading, q) for d in drafts for q in d.held_back]
+    if held:
+        lines += ["", "## Held back, not sent: they copied the outline's words", ""]
+        lines += [f'- {heading}: "{query}"' for heading, query in held]
     lines += ["", "## Articles read", ""]
     for title, article in articles.items():
-        lines.append(
-            f"- {title}" + (f", revision {article.revision}" if article else ", not found")
-        )
+        found = f", revision {article.revision}" if article else ", no such article"
+        lines.append(f"- {title}{found}")
     return "\n".join(lines) + "\n"
 
 
@@ -685,8 +774,7 @@ def run_summary(
     return {
         "Sections drafted": f"{sum(1 for d in drafts if d.paragraphs)} of {len(drafts)}",
         "Bullets with a checked citation": (
-            f"{bullets - sum(len(d.uncited_bullets()) + len(d.missing_bullets()) for d in drafts)}"
-            f" of {bullets}"
+            f"{sum(len(d.cited_bullets()) for d in drafts)} of {bullets}"
         ),
         "Bullets left out": sum(len(d.missing_bullets()) for d in drafts),
         "Sentences": len(sentences),

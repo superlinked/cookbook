@@ -6,12 +6,15 @@ after the article changes.
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+MAX_REPLY_BYTES = 5_000_000  # far more than the plain text of the longest articles
 
 
 class SearchFailed(Exception):
@@ -43,8 +46,11 @@ class Wikipedia:
         self.requests += 1
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
-                reply = json.load(response)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+                body = response.read(MAX_REPLY_BYTES + 1)
+            if len(body) > MAX_REPLY_BYTES:
+                raise SearchFailed(f"Wikipedia's reply was over {MAX_REPLY_BYTES} bytes")
+            reply = json.loads(body)
+        except (OSError, http.client.HTTPException, ValueError) as error:
             raise SearchFailed(f"Wikipedia didn't answer: {error}") from error
         if not isinstance(reply, dict) or "error" in reply:
             raise SearchFailed(f"Wikipedia refused the request: {str(reply)[:200]}")
@@ -73,4 +79,7 @@ class Wikipedia:
             return None
         page = pages[0]
         revisions = page.get("revisions") or [{}]
-        return Article(page["title"], int(revisions[0].get("revid", 0)), page["extract"])
+        revision = revisions[0].get("revid")
+        if not isinstance(revision, int) or revision <= 0:
+            return None  # a citation has to point at a fixed revision
+        return Article(page["title"], revision, page["extract"])
