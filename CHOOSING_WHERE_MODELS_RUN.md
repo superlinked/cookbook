@@ -16,15 +16,17 @@ SIE packages its models into images. Each image serves a set of model families w
 
 The groups overlap: most recipes that use the large LLM also need a second image. If you're in GitHub Codespaces, there's no GPU, so it's SIE Serverless.
 
+One exception: `Qwen/Qwen3-Embedding-4B` runs using SIE Serverless but has no published image in v0.10.1. Seven recipes use it, two of them in the one-image row above (categorize_products_into_taxonomy and flag_unusual_logs_and_investigate). To run those yourself, set `Qwen/Qwen3-Embedding-8B` in `rules.yaml` and check the similarity thresholds again, since the two models give different vectors ([SELF_HOSTING.md](SELF_HOSTING.md#which-images-a-recipe-needs) has the details).
+
 ## Moving between them is one line
 
-The model ids in each `rules.yaml` are the same on all three, so once your recipe fits where you want it, moving is one line in the root `.env`:
+The model ids in each `rules.yaml` are the same on all three, so once your recipe fits where you want it (and you've swapped `Qwen/Qwen3-Embedding-4B` if it uses it), moving is one line in the root `.env`:
 
 ```bash
 SIE_BASE_URL=http://localhost:8080   # your SIE Local server or your SIE Cluster gateway
 ```
 
-With `SIE_BASE_URL` set, the API key is optional; set `SIE_API_KEY` only if your server or gateway checks a token. With no `SIE_BASE_URL` and an API key, recipes use SIE Serverless. If your key is for the EU region, set `SIE_BASE_URL=https://eu.api.superlinked.com`. Easy peasy.
+With `SIE_BASE_URL` set, the API key is optional; set `SIE_API_KEY` only if your server or gateway checks a token. The recipes send whatever `SIE_API_KEY` is in `.env` to that URL, so remove your SIE Serverless key when you switch, and use https for a gateway that isn't on your machine. With no `SIE_BASE_URL` and an API key, recipes use SIE Serverless. If your key is for the EU region, set `SIE_BASE_URL=https://eu.api.superlinked.com`. Easy peasy.
 
 SIE is open source (Apache 2.0) and SIE Cluster and SIE Local serve the same model configurations and API as SIE Serverless. SIE Serverless puts its own gateway and queue in front, so you'll see slightly different timing and error behavior, but your code doesn't change.
 
@@ -103,7 +105,7 @@ Keep it for your LLM. Most recipes here also need models that sit outside an LLM
 
 ### Are we locked in?
 
-SIE is Apache 2.0, the model ids are the same on all three, and moving is one line in `.env`. Don't take my word for it: run one recipe using SIE Serverless and again using SIE Local, and compare what it decides.
+SIE is Apache 2.0, the model ids are the same on all three, and moving is one line in `.env` (plus the embedding swap above for the seven recipes that use `Qwen/Qwen3-Embedding-4B`). Don't take my word for it: run one recipe using SIE Serverless and again using SIE Local, and compare what it decides.
 
 ## What we haven't checked yet
 
