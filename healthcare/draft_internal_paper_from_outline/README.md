@@ -22,16 +22,17 @@
 ## Background
 
 Take Corvane Bio, a made-up biotech. Its scientists used to share results in slide decks and
-long quarterly updates, which nobody could search and nobody wanted to write. So the company
+long quarterly updates, which nobody could search and nobody wanted to write. The company
 started an internal paper series: whenever a program has something worth sharing about a
 compound or a study, someone writes a short paper, two or three sections, citing the study
 reports it rests on. The papers go into an internal library that everyone, and later the
 company's own research agents, can read.
 
-Writing one is still the slow part. The scientist knows what she wants to say: an outline, the
-sections and the points under each. Then she spends half a day turning it into prose and digging
-up the report behind every number. The results and the conclusions are the team's. A model can do
-the part in between: put her points into sentences and find the report each one came from.
+Writing one is still the slow part. The scientist knows what she wants to say, and she has it as
+an outline: the sections and the points under each. Then she spends half a day turning it into
+prose and digging up the report behind every number. The results and the conclusions are the
+team's. A model can do the part in between: put her points into sentences and find the report
+each one came from.
 
 Three things make a hosted chat service the wrong place for that here:
 
@@ -41,8 +42,9 @@ Three things make a hosted chat service the wrong place for that here:
   the draft stay on the company's own servers.
 - **The company wants its own research agents.** Corvane plans to fine-tune agents on its internal
   papers: one that answers "what did we see in the 28-day study?", one that drafts the next
-  paper. A steady series of short, cited papers is exactly the material for that. Open weights under Apache 2.0, like the Qwen3 models here, put no conditions on the
-  output, and the team can pin a version and fine-tune it on its own servers.
+  paper. A steady series of short, cited papers is exactly the material for that. Open weights
+  under Apache 2.0, like the Qwen3 models here, put no conditions on the output, and the team can
+  pin a version and fine-tune it on its own servers.
 - **It needs to know which sentences a model wrote.** The scientist edits the draft; she doesn't
   rewrite every sentence. So the record of what a model drafted travels with the paper: for
   disclosure, and so the team knows how much of its fine-tuning data a model wrote. The US
@@ -58,9 +60,9 @@ That clause binds the provider's own customer. If someone else wrote a paper wit
 and you fine-tune on it, you never agreed to those terms; the paper's copyright and licence apply,
 as with any text. Lemley and Henderson argue the clause is hard to enforce even against the
 customer ([summary](https://spicyip.com/2025/01/discussing-lemley-and-hendersons-the-mirage-of-artificial-intelligence-terms-of-use-restrictions.html)),
-and fine-tuning an internal research agent is a long way from building a rival chatbot. So for
-Corvane the terms are a footnote. The reasons above, keeping the papers in-house and owning the
-models it fine-tunes, are what matter.
+and fine-tuning an internal research agent is a long way from building a rival chatbot. For
+Corvane the terms are a footnote. It uses open models to keep its papers in-house and to own the
+models it fine-tunes.
 
 ## The problem
 
@@ -203,8 +205,10 @@ uv run selfcheck.py                                            # optional: offli
 
 Your outline: a `# Title` line, a `## Heading` per section and bullets under each (`- `, `* ` or
 `1. `). An indented sub-bullet joins its bullet. Your reports: Markdown files with `id`, `date`
-and `title` between `---` lines at the top, then `## Heading` sections. Put your own code names
-and report id prefixes in `never_send` in `rules.yaml` before the first run.
+and `title` between `---` lines at the top, then `## Heading` sections.
+
+**Pro-tip:** put your own code names and report id prefixes in `never_send` in `rules.yaml`
+before the first run, not after you spot one in `queries.md`.
 
 **What leaves the company.** With SIE Serverless, the outline and the internal passages go to SIE
 to run the models. That's fine for this made-up example; for real unpublished work, run the same
@@ -234,8 +238,8 @@ From the last of three runs. The other two came out the same.
 - **Expected outcome:** no source, and the review says so.
 - **What came back:** the liver safety report scored 0.59 for it, so the model was shown it, and
   rightly didn't cite it: the report says nothing about another company. `review.md` lists the
-  bullet with no source. The paper still states it as fact: "A similar finding in rats led another
-  company to halve its top dose last year."
+  bullet with no source. The paper still states it as fact, with a straight face: "A similar
+  finding in rats led another company to halve its top dose last year."
 - **Verdict:** Pass. It only helps if the scientist reads the review.
 
 **3. The team's view (section 3, bullet 1).**
@@ -246,7 +250,8 @@ From the last of three runs. The other two came out the same.
   dose that gives most of the LDL effect. [5]", quoting the liver report's own interpretation, and
   tied that sentence to the same bullet. So the bullet counts as cited.
 - **Verdict:** Miss by my rule, though a fair one: the report does back the reasoning behind the
-  view. My expectation was stricter than the evidence.
+  view. My expectation was stricter than the evidence, which is a strange thing to lose a point
+  over, but those are the rules I wrote down before the run.
 
 ### Results
 
