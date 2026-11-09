@@ -146,6 +146,7 @@ These recipes also need an `ANTHROPIC_API_KEY`. Claude runs the agent loop, and 
 | [Group every log line in Python, embed only what's new, and hand the odd cases to an agent](agentic/flag_unusual_logs_and_investigate) | Claude Opus 5.5 (Anthropic API), Qwen3-Embedding-4B, Qwen3-Reranker-4B, pii-redact | 29 | 47 s |
 | [Fix a laptop that fails its security checks, with small models checking each step](agentic/fix_laptop_compliance_with_guarded_agent) | Claude Opus 5.5 (Anthropic API), Qwen3-Reranker-4B, LightOnOCR-3-4B, pii-redact, GLiNER2.5-Decide | 48 | 160 s |
 | [Send each coding task to the cheapest model that passes its tests](agentic/route_coding_tasks_to_open_models_first) | Claude Opus 5.5 (Anthropic API), GLiNER2.5-Decide, Qwen3.8-27B-FP8 | 78 | 398 s |
+| [Screen job applicants blind, with an MCP server that masks who they are](agentic/screen_applicants_through_mcp_server) | Claude Opus 5.5 (Anthropic API), LightOnOCR-3-4B, pii-redact, Qwen3-Reranker-4B | 30 | 117 s |
 
 ### Personal agents
 

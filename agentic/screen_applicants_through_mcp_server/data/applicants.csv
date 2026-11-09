@@ -1,0 +1,8 @@
+applicant_id,resume_file,name,email,phone,applied
+A-101,A-101.txt,Marcus Bell,marcus.bell.hvac@example.com,(555) 014-2290,2026-10-27
+A-102,A-102.png,Elena Sokolova,e.sokolova@example.com,(555) 018-5521,2026-10-30
+A-103,A-103.txt,Priya Raman,priya.raman.work@example.com,555-017-3348,2026-10-31
+A-104,A-104.txt,Darnell Washington,darnell.washington@example.com,(555) 019-6612,2026-11-02
+A-105,A-105.png,Tomas Herrera,therrera.hvac@example.com,555-013-7764,2026-11-03
+A-106,A-106.txt,Kayla Morgan,kmorgan.facilities@example.com,555-012-8873,2026-11-04
+A-107,A-107.txt,Brandon Fisk,brandon.fisk@example.com,555-016-2045,2026-11-05

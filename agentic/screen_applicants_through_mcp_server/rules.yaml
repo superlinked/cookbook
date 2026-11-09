@@ -1,0 +1,80 @@
+# Models, the role, the masking settings and the reranker settings. Thresholds are starting points,
+# not tuned values.
+
+models:
+  agent: claude-opus-5-5                 # runs the loop in recipe.py, through the Claude Agent SDK
+  ocr: lightonai/LightOnOCR-3-4B         # reads scanned and photographed resumes (server.py)
+  pii: superlinked/pii-redact            # finds names, contacts and schools to mask (server.py)
+  rerank: Qwen/Qwen3-Reranker-4B         # scores resume lines against one requirement (server.py)
+
+server:
+  host: 127.0.0.1                        # loopback only; put it behind HTTPS and sign-in to expose it
+  port: 8765
+  path: /mcp
+
+role:
+  title: Commercial HVAC Service Technician
+  company: Fernhill Facility Services
+  as_of: 2026-11-09                      # the date years of experience are counted to
+  must_have:
+    epa_608_universal: >-
+      Holds EPA Section 608 Universal certification. Holding Type I, Type II and Type III
+      together counts as Universal.
+    commercial_3_years: >-
+      At least 3 years servicing commercial HVAC equipment such as rooftop units, chillers,
+      boilers or air handlers. Residential work and refrigeration-only work don't count.
+    drivers_license: Holds a valid driver's license today, to drive a company van between sites.
+  nice_to_have:
+    building_automation: Has worked with building automation systems such as BACnet or Niagara.
+    safety_training: Holds OSHA 10 or OSHA 30 training.
+  # Claude reads these through get_role. The check in recipe.py (expected_decision) applies the
+  # same order: any not_met is reject, then any unclear is needs_person, else advance. To send a
+  # case like A-104 to a person, change when a must-have counts as unclear, not this order.
+  decisions:
+    advance: Every must-have is met, and you can quote the resume line that shows it.
+    reject: At least one must-have is clearly not met, and you can quote the line that shows it.
+    needs_person: >-
+      Nothing clearly rules the applicant out, but at least one must-have is pending, unclear or
+      not mentioned. A recruiter reads these.
+
+masking:
+  # superlinked/pii-redact label -> the placeholder Claude sees, as [kind]. Schools are masked
+  # because a school name can point to an applicant's age, gender, race or religion.
+  labels:
+    person: person
+    email: email
+    phone number: phone
+    address: address
+    school: school
+    url: link
+  # Text from the applicant record (data/applicants.csv) is masked wherever it appears, whatever
+  # the model finds, along with each part of the name on its own.
+  record_fields:
+    name: person
+    email: email
+    phone: phone
+  # Plain rules that run alongside the model.
+  patterns:
+    email: '[\w.+-]+@[\w-]+(?:\.[\w-]+)+'
+    phone: '(?<!\d)(?:\(?\d{3}\)?[ .-]?)\d{3}[ .-]\d{4}(?!\d)'
+    link: '\b(?:https?://)?(?:www\.)?linkedin\.com/\S+'
+  window_words: 250
+  window_overlap_words: 40
+  min_score: 0.4                          # spans the model scores lower than this stay unmasked
+  min_name_part_chars: 3                  # name parts shorter than this aren't masked on their own
+  min_spread_chars: 3                     # found values shorter than this aren't masked elsewhere
+
+evidence:
+  instruction: >-
+    Given a hiring requirement for an HVAC technician job, judge whether this line from a resume
+    shows the applicant meets it.
+  top_k: 3                                # resume lines returned per requirement
+  strong_score: 0.6                       # a line at or above this is marked strong
+
+agent:
+  effort: medium                          # low to max
+  max_turns: 16                           # turns per prompt to Claude (the first and each revision)
+  revisions: 1                            # times Python sends a failed decision back to Claude
+  # How long the Claude Code CLI waits on one MCP tool call. Its default is 300 s, shorter than a
+  # cold start on SIE Serverless, so a first read_resume on a scan can time out and be retried.
+  tool_wait_s: 960
