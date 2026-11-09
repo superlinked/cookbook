@@ -87,6 +87,7 @@ recipe's SIE requests (one request can carry many items).
 | [Alert the right person when the news mentions one of your counterparties](finance/alert_on_counterparty_news) | NuNER_Zero, GLiNER2.5-Decide | 7 | 2 s |
 | [Answer your standing questions on a new filing, next to last year's answers](finance/answer_questions_on_new_filing) | Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 28 | 29 s |
 | [Keep a case summary current, with a source for every line and no card data](finance/summarize_case_with_sources) | pii-redact, Qwen3.8-27B-FP8 | 6 | 8 s |
+| [Draft a research note from an analyst's outline, with checked citations](finance/draft_research_note_from_outline) | Qwen3.8-27B-FP8, Qwen3-Embedding-4B, Qwen3-Reranker-4B | 51 | 56 s |
 
 ### E-commerce
 
@@ -150,7 +151,6 @@ These recipes also need an `ANTHROPIC_API_KEY`. Claude runs the agent loop, and 
 | --- | --- | --- | --- |
 | [Turn messages into calendar holds, payments, replies and to-dos](personal/turn_messages_into_actions) | parakeet-tdt-0.6b-v3, LightOnOCR-3-4B, GLiNER2.5-Decide, gliner2-large-v1 | 30 | 11 s |
 | [Keep a fact sheet current from your notes, voice memos and scans](personal/keep_facts_current_from_notes) | parakeet-tdt-0.6b-v3, LightOnOCR-3-4B, Qwen3-Embedding-4B, Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 38 | 26 s |
-| [Draft a book chapter from your own outline, with checked citations](personal/draft_book_chapter_from_outline) | Qwen3.8-27B-FP8, Qwen3-Embedding-4B, Qwen3-Reranker-4B | 65 | 48 s |
 
 ## Contributing a recipe
 

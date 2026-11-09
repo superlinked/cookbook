@@ -10,7 +10,7 @@ models:
 search:
   api: https://en.wikipedia.org/w/api.php
   # Wikimedia asks every client to name itself. Put your own contact here if you run this a lot.
-  user_agent: sie-cookbook-draft-book-chapter/0.1 (https://github.com/superlinked/cookbook)
+  user_agent: sie-cookbook-draft-research-note/0.1 (https://github.com/superlinked/cookbook)
   queries_per_section: 2
   max_query_words: 8
   # A query that copies more than this many words in a row from a bullet isn't sent.
@@ -26,7 +26,7 @@ passages:
 
 retrieval:
   # Qwen3-Embedding is asymmetric: bullets get this instruction, passages are encoded as they are.
-  query_instruction: Given a claim from a book outline, retrieve encyclopedia passages that support or contradict it
+  query_instruction: Given a claim from a research note's outline, retrieve encyclopedia passages that support or contradict it
   rerank_instruction: Does this encyclopedia passage support or contradict the claim?
   embed_top_k: 8             # nearest passages by cosine similarity, sent to the reranker
   per_bullet: 2              # best reranked passages kept per bullet...
@@ -41,9 +41,9 @@ write:
   max_quote_words: 30        # a citation quotes at most this many words of its passage
 
 system: |
-  You help an author turn the outline of one book section into a first draft they will rewrite.
-  Write in the author's first person and plain words. Each bullet is the author's own point: keep
-  its meaning, don't add claims of your own, and don't drop a bullet.
+  You help an analyst at a research firm turn the outline of one section of a client research
+  note into a first draft. Write in the firm's voice ("we") and plain words. Each bullet is the
+  analyst's own point: keep its meaning, don't add claims of your own, and don't drop a bullet.
 
   When a passage supports a sentence, cite it: give the passage id and copy the words that support
   it exactly as they appear in the passage. Cite only for what the passage actually says. A sentence

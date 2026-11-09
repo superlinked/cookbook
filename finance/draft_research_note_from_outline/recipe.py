@@ -1,14 +1,16 @@
-"""Draft a book chapter from your own outline with open models, with checked citations.
+"""Draft a research note from an analyst's outline with open models, with checked citations.
 
-Use case:  A first draft of a nonfiction chapter from the author's outline, written by open-weight
-           models whose licence puts no conditions on the output, with a citation behind every
-           claim it can find one for and a record of which sentences the model wrote.
-Who:       An author who wants to own the draft outright: no provider terms on what they do with
-           it, no provider watermark in it, and a record for rewriting and disclosure.
-Input:     data/spine.md: the chapter title, a ## heading per section and the author's bullets.
+Use case:  A first draft of a client research note from the analyst's outline, written by
+           open-weight models whose licence puts no conditions on the output, with a citation
+           behind every fact it can find one for and a record of which sentences the model wrote.
+Who:       An analyst at a research firm whose reports are its product, and which wants to train
+           its own models on them one day: no provider terms on the text, no provider watermark in
+           it, and a record of what a model drafted.
+Input:     data/outline.md: the note's title, a ## heading per section and the analyst's bullets.
 SIE pipeline, per section:
            chat_completions Qwen/Qwen3.8-27B-FP8  a few short search queries
-           (Python)                              search Wikipedia, read the articles, split them
+           (Python)                              hold back a query that copies the outline;
+                                                 search Wikipedia, read the articles, split them
                                                  into passages, keep each revision id
            encode   Qwen/Qwen3-Embedding-4B      embed the passages and each bullet
            score    Qwen/Qwen3-Reranker-4B       rerank the nearest passages against each bullet
@@ -17,13 +19,13 @@ SIE pipeline, per section:
            (Python)                              a citation must name a passage the model was
                                                  given and quote it word for word; every bullet
                                                  must be in the draft
-Output:    runs/<time>/chapter.md (the draft and its references), review.md (what to check
-           first, then where every sentence came from), queries.md (everything sent to
-           Wikipedia) and run.json.
+Output:    runs/<time>/note.md (the draft and its references), review.md (what to check first,
+           then where every sentence came from), queries.md (everything sent to Wikipedia) and
+           run.json.
 Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
     uv run recipe.py
-    uv run recipe.py --spine my_chapter.md
+    uv run recipe.py --outline my_note.md
 """
 
 from __future__ import annotations
@@ -49,7 +51,7 @@ from wikipedia import Article, SearchFailed, Wikipedia
 
 ROOT = Path(__file__).resolve().parent
 RULES_PATH = ROOT / "rules.yaml"
-SPINE_PATH = ROOT / "data" / "spine.md"
+OUTLINE_PATH = ROOT / "data" / "outline.md"
 RUNS_DIR = ROOT / "runs"
 EMBED_BATCH = 32
 
@@ -134,12 +136,12 @@ class Section:
 
 
 @dataclass
-class Spine:
+class Outline:
     title: str
     sections: list[Section]
 
 
-def parse_spine(text: str) -> Spine:
+def parse_outline(text: str) -> Outline:
     """`# Title`, then `## Section` headings, each with bullets (`- `, `* ` or `1. `). An indented
     line carries on the bullet above it, and an indented sub-bullet joins it after a semicolon.
     Anything else is ignored."""
@@ -159,7 +161,7 @@ def parse_spine(text: str) -> Spine:
     sections = [section for section in sections if section.bullets]
     if not sections:
         raise SystemExit("Stopped: the outline has no `## Section` with `- bullet` lines.")
-    return Spine(title or "Untitled chapter", sections)
+    return Outline(title or "Untitled note", sections)
 
 
 # --- Passages from Wikipedia -----------------------------------------------------------------
@@ -370,20 +372,20 @@ def escape(text: str) -> str:
     return html.escape(text, quote=False)
 
 
-def queries_prompt(spine: Spine, section: Section, rules: dict[str, Any]) -> str:
+def queries_prompt(outline: Outline, section: Section, rules: dict[str, Any]) -> str:
     settings = rules["search"]
     bullets = "\n".join(f"- {escape(b)}" for b in section.bullets)
     return (
-        f"Chapter: {escape(spine.title)}\nSection: {escape(section.heading)}\n"
+        f"Note: {escape(outline.title)}\nSection: {escape(section.heading)}\n"
         f"<outline>\n{bullets}\n</outline>\n\n"
         f"Write {settings['queries_per_section']} short encyclopedia search queries, each at most "
         f"{settings['max_query_words']} words, that would find articles to back up these points. "
-        "Use the general topic, not the author's wording or opinions."
+        "Use the general topic, not the analyst's wording or views."
     )
 
 
 def draft_prompt(
-    spine: Spine, section: Section, shown: dict[str, Passage], rules: dict[str, Any]
+    outline: Outline, section: Section, shown: dict[str, Passage], rules: dict[str, Any]
 ) -> str:
     bullets = "\n".join(f"{n}. {escape(b)}" for n, b in enumerate(section.bullets, start=1))
     passages = "\n".join(
@@ -391,8 +393,8 @@ def draft_prompt(
         for pid, p in shown.items()
     )
     return (
-        f"Chapter: {escape(spine.title)}\nSection: {escape(section.heading)}\n\n"
-        f"The author's bullets, numbered:\n<outline>\n{bullets}\n</outline>\n\n"
+        f"Note: {escape(outline.title)}\nSection: {escape(section.heading)}\n\n"
+        f"The analyst's bullets, numbered:\n<outline>\n{bullets}\n</outline>\n\n"
         f"Passages from Wikipedia:\n{passages or '(none found)'}\n\n"
         "Write this section as one to three paragraphs. For every sentence give its text, the "
         "number of the bullet it comes from (0 if it only links two points), and its citations: "
@@ -521,11 +523,11 @@ def check_citation(
     return Citation(passage, quote, True)
 
 
-# --- One section, then the chapter -----------------------------------------------------------
+# --- One section, then the note -----------------------------------------------------------
 
 
 def draft_section(
-    spine: Spine,
+    outline: Outline,
     section: Section,
     calls: Calls,
     client: SIEClient,
@@ -537,7 +539,7 @@ def draft_section(
     settings, search = rules["retrieval"], rules["search"]
     try:
         reply = chat_json(
-            calls, client, rules, queries_prompt(spine, section, rules), "queries", QUERIES_SCHEMA
+            calls, client, rules, queries_prompt(outline, section, rules), "queries", QUERIES_SCHEMA
         )
         out.queries, out.held_back = clean_queries(reply, section.bullets, rules)
         if not out.queries:
@@ -583,7 +585,7 @@ def draft_section(
             calls,
             client,
             rules,
-            draft_prompt(spine, section, out.shown, rules),
+            draft_prompt(outline, section, out.shown, rules),
             "draft",
             DRAFT_SCHEMA,
         )
@@ -617,9 +619,9 @@ def references(drafts: list[SectionDraft]) -> dict[tuple[str, int], int]:
     return numbers
 
 
-def chapter_markdown(spine: Spine, drafts: list[SectionDraft], fetched: str) -> str:
+def note_markdown(outline: Outline, drafts: list[SectionDraft], fetched: str) -> str:
     numbers = references(drafts)
-    lines = [f"# {spine.title}", ""]
+    lines = [f"# {outline.title}", ""]
     for draft in drafts:
         lines += [f"## {draft.heading}", ""]
         if not draft.paragraphs:
@@ -658,8 +660,8 @@ def review_markdown(drafts: list[SectionDraft]) -> str:
     lines += [
         "## Where every sentence came from",
         "",
-        "The model wrote every sentence below. Rewrite each in your own words before it goes in "
-        "the book.",
+        "The model drafted every sentence below. Edit what you want; keep this record of what a "
+        "model wrote, for disclosure and for knowing what you train on later.",
         "",
     ]
     for draft in drafts:
@@ -676,7 +678,7 @@ def review_markdown(drafts: list[SectionDraft]) -> str:
 
 
 def section_flags(draft: SectionDraft) -> list[str]:
-    """One line per thing the author should look at in this section."""
+    """One line per thing the analyst should look at in this section."""
     at = f"- **{draft.heading}**"
     flags = [
         f'{at}, bullet {n}: left out of the draft: "{draft.bullets[n - 1]}"'
@@ -741,7 +743,7 @@ def queries_markdown(drafts: list[SectionDraft], articles: dict[str, Article | N
 
 def run(args: argparse.Namespace) -> None:
     rules = load_rules(args.rules)
-    spine = parse_spine(args.spine.read_text(encoding="utf-8"))
+    outline = parse_outline(args.outline.read_text(encoding="utf-8"))
     client, calls = make_client(), Calls()
     search = rules["search"]
     wiki = Wikipedia(search["api"], search["user_agent"], search["timeout_s"])
@@ -749,14 +751,14 @@ def run(args: argparse.Namespace) -> None:
     started = time.monotonic()
     fetched = datetime.now(UTC).strftime("%Y-%m-%d")
     drafts = []
-    for section in spine.sections:
+    for section in outline.sections:
         print(f"Drafting: {section.heading}", flush=True)
-        drafts.append(draft_section(spine, section, calls, client, wiki, articles, rules))
+        drafts.append(draft_section(outline, section, calls, client, wiki, articles, rules))
     seconds = time.monotonic() - started
 
     out_dir = RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "chapter.md").write_text(chapter_markdown(spine, drafts, fetched), encoding="utf-8")
+    (out_dir / "note.md").write_text(note_markdown(outline, drafts, fetched), encoding="utf-8")
     (out_dir / "review.md").write_text(review_markdown(drafts), encoding="utf-8")
     (out_dir / "queries.md").write_text(queries_markdown(drafts, articles), encoding="utf-8")
     summary = run_summary(drafts, calls, wiki, seconds)
@@ -792,7 +794,7 @@ def run_summary(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--spine", type=Path, default=SPINE_PATH, help="the chapter's outline")
+    parser.add_argument("--outline", type=Path, default=OUTLINE_PATH, help="the note's outline")
     parser.add_argument("--rules", type=Path, default=RULES_PATH, help="another rules.yaml to try")
     args = parser.parse_args()
     try:
