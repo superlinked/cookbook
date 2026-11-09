@@ -1,31 +1,45 @@
 # Choosing between SIE Serverless, SIE Cluster and SIE Local
 
-You've got a recipe that calls an embedder, a reranker and an LLM, the code runs on your machine, and now you have to decide where the models run: SIE Serverless, SIE Cluster in your own cloud, or SIE Local on your own machine. If you already serve an LLM with SGLang or vLLM on your own GPUs, you're really comparing four things, the three SIE options and what you have today.
+You've run a recipe, it does the job, and now you have to decide where its models run: SIE Serverless (we run the GPUs and you pay per call), SIE Cluster (you run SIE in your own cloud with Helm), or SIE Local (SIE on your own machine). Your recipe code runs on your machine in all three cases. Only the models move.
 
-This page helps you pick. I put the three side by side first, then start from your situation, then cover what you agree to when several models share one GPU, and end with the questions teams ask before they switch. Facts about SIE's behavior come from the [SIE SDK](https://github.com/superlinked/sie/blob/main/packages/sie_sdk/README.md) and [SIE server](https://github.com/superlinked/sie/blob/main/packages/sie_server/README.md) docs. The cookbook's own numbers all come from SIE Serverless; we haven't run the recipes using SIE Cluster or SIE Local yet (see [What we haven't checked yet](#what-we-havent-checked-yet)).
+Start with your recipe, because for most of them the recipe makes part of the choice for you. Then pick from your situation, and read what changes once you run the models yourself. The run times and call counts in each recipe README come from SIE Serverless. We haven't run the recipes using SIE Cluster or SIE Local yet (see [What we haven't checked yet](#what-we-havent-checked-yet)).
+
+## First, check what your recipe needs
+
+SIE packages its models into images. Each image serves a set of model families whose dependencies fit together (e.g. `cuda12-default` for most embedders, rerankers and extractors, `cuda13-sglang-cu130` for the large LLM). One SIE server runs one image. Find your recipe's row in [SELF_HOSTING.md](SELF_HOSTING.md#which-images-a-recipe-needs):
+
+| Your recipe needs | Where it can run | Recipes |
+| --- | --- | --- |
+| One image, and no `cuda13-sglang-cu130` | All three. One SIE Local server or one `docker run`; each model passed SIE's smoke test on an NVIDIA L4 (24 GB) on its own, but check that your recipe's models fit together (two 4B models in BF16 take about 16 GB before they do any work) | 15 of 46 |
+| `cuda13-sglang-cu130` (that's `Qwen/Qwen3.8-27B-FP8`) | SIE Serverless, or your own H100 80GB, H200 or RTX PRO 6000 with NVIDIA driver 580 or newer | 16 of 46 |
+| Two or more images | SIE Serverless or SIE Cluster. One SIE Local server can't hold them | 29 of 46 |
+
+The groups overlap: most recipes that use the large LLM also need a second image. If you're in GitHub Codespaces, there's no GPU, so it's SIE Serverless.
 
 ## Moving between them is one line
 
-`SIEClient` picks its server in this order: the `base_url` you pass, then `SIE_BASE_URL`, then SIE Serverless when it finds an API key. The model ids in each `rules.yaml` are the same on all three, so moving a recipe from SIE Serverless to SIE Local is one line in `.env`:
+The model ids in each `rules.yaml` are the same on all three, so once your recipe fits where you want it, moving is one line in the root `.env`:
 
 ```bash
-SIE_BASE_URL=http://localhost:8080
+SIE_BASE_URL=http://localhost:8080   # your SIE Local server or your SIE Cluster gateway
 ```
 
-SIE is open source (Apache 2.0), so SIE Cluster and SIE Local run the same server that SIE Serverless runs. You can start using one and move later without rewriting anything. Easy peasy.
+With `SIE_BASE_URL` set, the API key is optional; set `SIE_API_KEY` only if your server or gateway checks a token. With no `SIE_BASE_URL` and an API key, recipes use SIE Serverless. If your key is for the EU region, set `SIE_BASE_URL=https://eu.api.superlinked.com`. Easy peasy.
+
+SIE is open source (Apache 2.0) and SIE Cluster and SIE Local serve the same model configurations and API as SIE Serverless. SIE Serverless puts its own gateway and queue in front, so you'll see slightly different timing and error behavior, but your code doesn't change.
 
 ## The three side by side
 
 | | SIE Serverless | SIE Cluster | SIE Local |
 | --- | --- | --- | --- |
+| Recipes it runs | All 46 | All 46, with a worker pool per image your recipes use | The 15 single-image L4 recipes; fewer on Apple Silicon |
 | Who runs the GPU | Superlinked | You, in your cloud, with Helm | You, on your machine |
 | What you pay for | Each call (see [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run)) | GPU hours, busy or idle | Hardware you already have |
-| First call to an unused model | Can take minutes | Minutes if the pool scaled to zero; you decide what stays loaded | Slow once, while the model loads |
-| Which models you can use | Every model in [MODELS.md](MODELS.md) | What your GPUs hold | What your machine holds; see below for Apple Silicon |
-| What you can see and tune | Error codes, retries, timeouts and timing headers | Metrics, eviction and out-of-memory settings | Same as SIE Cluster, on one machine |
-| Where your data goes | To Superlinked, and possibly partner capacity | Stays in your cloud | Stays on your machine |
-| Versions | Whatever Superlinked has deployed | The image tags you pin (v0.10.1 in [SELF_HOSTING.md](SELF_HOSTING.md)) | The latest `sie-server` from pip |
-| Setup | An [API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run) | Helm, GPU nodes, one worker pool per SIE image | `pip install "sie-server[local]"` |
+| First call to a model nobody's using | Can take minutes; recipes wait up to 15 minutes (`WAIT_S`) | The same if the pool scaled to zero; you decide what stays loaded | Slow once, while the model downloads and loads |
+| Where your data goes | To Superlinked, and possibly partner capacity (see below) | Stays in your cloud | Stays on your machine |
+| Versions | Whatever Superlinked has deployed | The image tags you pin | The `sie-server` version you install |
+| Setup | An [API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run) | Helm, GPU nodes, one worker pool per image ([SELF_HOSTING.md](SELF_HOSTING.md#several-images-sie-cluster)) | `pip install "sie-server[local]"`, then `sie-server serve` (add `--device cuda` on NVIDIA) |
+| Results we've checked | Every recipe README | Not yet | Not yet |
 
 ## Start from your situation
 
@@ -39,93 +53,63 @@ You find out whether the models do the job before anyone sizes a GPU, and a reci
 
 Each model is one line in `rules.yaml`, and [MODELS.md](MODELS.md) lists the swaps we ran. Trying five rerankers on your own hardware means finding room for five rerankers.
 
-#### Your traffic is spiky, or a batch job runs a few times a day
+#### Your recipe runs a few times a day, or your traffic is spiky
 
-SIE Serverless fits, as long as you can wait out a cold start: the first call to a model nobody's using can take minutes while SIE loads it. SIE Cluster can do the same, since each worker pool can scale to zero, and then you pay the same cold start.
+You pay for the calls you make and nothing in between. The catch is the cold start: the first call to a model nobody's using can take minutes, so a recipe run can take several minutes longer than its README says. SIE Cluster can scale each worker pool to zero too, and then you wait the same way.
 
-#### You need a model bigger than your GPUs
+#### Your recipe uses `Qwen/Qwen3.8-27B-FP8` and you don't have an H100-class GPU
 
-`Qwen/Qwen3.8-27B-FP8` needs an H100 80GB or larger. Call it using SIE Serverless and run the rest wherever you like, or have your SIE Cluster pass that one model through to SIE Serverless (see [Mixing them](#mixing-them)).
+Call it using SIE Serverless and run the rest on your own GPUs (see [Mixing them](#mixing-them)). The inputs to that one model still go to Superlinked.
 
 ### Use SIE Cluster
 
 #### Your data can't leave your cloud
 
-SIE Serverless sends your inputs to Superlinked, and the SDK docs say it can serve some models on partner capacity through SIE Relay (it answers `403 RelayUnavailableError` when it won't). If your rules allow only your own cloud, that settles it.
+SIE Serverless sends your inputs to Superlinked, and it can serve some models on partner capacity through SIE Relay. If your rules allow only your own cloud, use SIE Cluster. If your rule is only "no third parties", [ask us](mailto:support@superlinked.com) whether Relay can be turned off for your key before you rule SIE Serverless out.
 
-#### You have a few L4s or A100s and already run SGLang for an LLM
+#### Your recipe needs more than one image
 
-Keep SGLang for the LLM and run SIE Cluster for the small models around it: the embedder, reranker, extractors and OCR. An LLM wants its spare GPU memory for its KV cache (the attention state it keeps for each request), and small models packed beside it compete for that memory. Every small model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB), so the small models can share a card of their own. SIE can also pass LLM calls through to your SGLang endpoint under the same model name (see [We already run SGLang](#we-already-run-sglang-why-add-sie)).
+29 of the 46 recipes do. SIE Cluster puts a gateway in front of one worker pool per image and routes each model to the right pool, so the recipe still has one `SIE_BASE_URL`.
 
-#### Your traffic keeps a GPU busy most of the day
+#### Your recipes keep a GPU busy most of the day
 
-Price SIE Cluster against SIE Serverless. With SIE Serverless you pay per call. With SIE Cluster you pay for GPU hours whether the GPU is busy or not, so the busier it is, the better SIE Cluster looks. Where the two cross depends on SIE Serverless pricing and your traffic, so run your own numbers.
+With SIE Serverless you pay per call; with SIE Cluster you pay for GPU hours whether they're busy or not, so the busier the GPU, the better SIE Cluster looks. Each recipe README lists its SIE calls per run, so you can work out where the two cross: calls per run × runs per day × the [price per call](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run#pricing), against the hourly price of an L4 node (and an H100 node if you use the large LLM).
 
 ### Use SIE Local
 
-#### You're developing, or checking that answers match
+#### You're developing, or your data can't leave your laptop
 
-On Apple Silicon, SIE Local serves embeddings and reranking, with generation in a separate process, so a recipe that needs several SIE images may not run on one SIE Local server.
+Iterating on `rules.yaml` costs nothing per call, and nothing leaves your machine. It works for the 15 recipes that need one image and fit an L4 (the two `cuda12-transformers5` recipes need the Transformers 5 install from the [SIE server README](https://github.com/superlinked/sie/blob/main/packages/sie_server/README.md#installation), since one Python environment holds only one `transformers` version). On Apple Silicon, the [SIE quickstart](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run) says SIE Local serves embeddings and reranking, with generation in a separate process on another port, so start with recipes that only embed and rerank. We haven't run any recipe there yet.
 
-**Pro-tip:** run a recipe using SIE Serverless, run it again using SIE Local, and compare the files in `runs/`. It's the cheapest way to find out whether the answers match before you trust either.
+**Pro-tip:** run a recipe using SIE Serverless, run it again using SIE Local, and compare the files in `runs/`. Expect most of what the recipe decides to match and the scores to differ, because batch size, rounding and the GPU all move them. In SIE's own tests, scoring the same pair alone or among 20 candidates moved `Qwen/Qwen3-Reranker-4B`'s score by up to 0.019 on an H100 and up to 0.097 on an L4, and on an L4 `Qwen/Qwen3-Reranker-0.6B` picked a different top candidate in 3 of 60 questions. Compare what the recipe decides, and look twice at anything whose score sits close to a threshold in `rules.yaml`.
 
 ### Mixing them
 
-An SIE server can serve a model through another SIE deployment or through an OpenAI-compatible endpoint, and your code still calls it by the same model name. This is on SIE's `main` branch ([remote backends](https://github.com/superlinked/sie/blob/main/packages/sie_server/REMOTE_BACKENDS.md)); check that the release you deploy includes it.
+An SIE server can serve one model through another SIE deployment, or through an OpenAI-compatible endpoint, and your code still calls it by the same model name. The usual reason is the one above: keep `Qwen/Qwen3.8-27B-FP8` on SIE Serverless and run everything else on your own L4s. This is SIE's [remote backends](https://github.com/superlinked/sie/blob/main/packages/sie_server/REMOTE_BACKENDS.md) feature, in SIE 0.10.0 and later.
 
-## What sharing a GPU costs you
+## What changes when you run the models yourself
 
-SIE saves you GPU money by putting several models on one GPU. The catch is that those models compete for its memory, and I'd rather you know what that looks like before you choose than find out from a latency graph.
+SIE saves you GPU money by putting several models on one GPU. They share its memory, so when it runs short, SIE unloads the model that was used least recently, and that model's next call waits while it loads again. That's fine for a model you tried once last week and annoying for a reranker that's called every couple of minutes.
 
-### A busy model can push an idle one off the GPU
-
-When memory runs short in the middle of a request, SIE first clears its cache, then unloads the least recently used model, then splits the batch in half, down to 16 pieces. Separately, it unloads least recently used models once the GPU is 95% full. So if your LLM gets a burst of long prompts while your reranker sits idle for a minute, the reranker may be unloaded, and its next call waits while it loads again. Your reranker didn't do anything wrong; it just wasn't busy at the wrong moment.
-
-### When memory runs out, your call gets slower before it fails
-
-| What happens on the server | What your call gets |
-| --- | --- |
-| SIE frees enough memory by itself | 200, 1 to 3 seconds slower |
-| It doesn't, and an SDK retry succeeds | 200, 5 to 35 seconds slower |
-| Three retries fail | `ResourceExhaustedError` |
-
-### Some memory isn't counted against the model using it
-
-CUDA graphs (recorded GPU work that SIE replays to run small models faster) can take up to 4% of the GPU, about 900 MB on an L4. That memory isn't charged to the model that recorded the graphs, so when SIE picks a model to unload, it may pick a different one.
-
-### What you can do about it depends on where the models run
-
-Using SIE Serverless you see the extra latency but not the cause, and you can only change your side (e.g. smaller batches, a time budget with `provision_timeout_s`, and a fallback to a smaller model with `max_oom_retries=0`). Using SIE Cluster or SIE Local you can also see the eviction metrics and change the settings (`SIE_MEMORY_PRESSURE_THRESHOLD_PERCENT`, `SIE_IDLE_EVICT_S` and the `SIE_OOM_RECOVERY__*` group).
-
-### When to give a model its own GPU
-
-If a model has a latency target it can never miss, I prefer giving it its own SIE server, the same way you'd give a hot service its own node. I'd do the same for an LLM with long prompts, because its KV cache is the thing most likely to push everything else off.
-
-What we don't know yet is what happens to the other models after a GPU fault that isn't out-of-memory, such as an illegal memory access. That's in the last section.
+- **Keep the models you need loaded** by pinning them with `SIE_PINNED_MODELS`. Pinned models are never unloaded to make room.
+- **Models on one GPU also slow each other down**, even when nothing is unloaded, because they share its compute. If a model has a latency target, give it its own SIE server, the same way you'd give a hot service its own node.
+- **Under memory pressure, a call can take up to about 35 seconds longer** while the server and the SDK retry, and then fail with `ResourceExhaustedError`. Using SIE Serverless that's all you see. Using SIE Cluster or SIE Local you can also see which model was unloaded and why in SIE's metrics, and tune it ([SIE server docs](https://github.com/superlinked/sie/blob/main/packages/sie_server/README.md#memory--oom-resilience)).
 
 ## Questions teams ask before switching
 
-### We already run SGLang. Why add SIE?
+### We already run SGLang or vLLM for our LLM. Why add SIE?
 
-Keep SGLang for your LLM. Most recipes here also need models SGLang isn't built for: rerankers, GLiNER extractors, OCR, docling, speech and segmentation. SIE serves them behind one API (`encode`, `score`, `extract`, `chat_completions`), and with remote backends it can pass LLM calls through to your SGLang endpoint under the same model name.
-
-### Why not MIG, run:ai or HAMi?
-
-Those split a GPU between containers. MIG gives each slice its own memory and isolates faults in hardware, so a slice that runs out of memory doesn't touch the others. The catch is that each slice's size is fixed, and memory sits unused while one model is idle and another is short. SIE shares one GPU among models and moves memory by unloading the least recently used one: better use of the GPU, with the slowdowns described above. You can use both. Give a model that can't take those slowdowns its own GPU or its own MIG slice, running its own SIE server.
-
-### Why not dynamic LoRA adapters on one base model?
-
-LoRA works when your models are versions of one base LLM. A reranker, an OCR model and a GLiNER extractor are different architectures, so they can't be adapters of anything. SIE serves LoRA adapters too, so you can use both.
+Keep it for your LLM. Most recipes here also need models that sit outside an LLM server: GLiNER extractors, OCR, docling, speech and segmentation, plus the embedders and rerankers. SIE serves them behind one API (`encode`, `score`, `extract`, `chat_completions`), and with remote backends it can pass LLM calls through to your existing endpoint under the same model name.
 
 ### Are we locked in?
 
-SIE is Apache 2.0, the model ids are the same on all three, and moving is one line in `.env`. Don't take my word for it: run one recipe using SIE Serverless and again using SIE Local, and compare the outputs.
+SIE is Apache 2.0, the model ids are the same on all three, and moving is one line in `.env`. Don't take my word for it: run one recipe using SIE Serverless and again using SIE Local, and compare what it decides.
 
 ## What we haven't checked yet
 
 We'll fill these in as we run them. Until then, treat the parts of this page that depend on them as what the SIE docs say, not what we measured.
 
 - We haven't run the recipes using SIE Cluster or SIE Local, so nobody has compared outputs across the three.
-- Whether SIE Serverless puts different customers' models on one GPU, and so whether someone else's burst can unload your model. To confirm with the SIE team.
-- Whether models in one SIE image share one process and CUDA context, and what happens to the others after a GPU fault that isn't out-of-memory (an Xid error or an illegal memory access). To confirm with the SIE team.
+- Whether SIE Serverless puts different customers' models on one GPU, so that someone else's traffic can unload your model.
+- Whether SIE Relay can be turned off per key.
 - SIE Serverless pricing, for the point where GPU hours cost less than calls.
