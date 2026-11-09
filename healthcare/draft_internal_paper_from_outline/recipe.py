@@ -1,13 +1,14 @@
-"""Draft an internal research report from a scientist's outline with open models, with checked
-citations to the company's own reports and to PubMed.
+"""Draft a short internal paper from a scientist's outline with open models, with checked
+citations to the company's own study reports and to PubMed.
 
-Use case:  A first draft of an internal research report from the scientist's outline, written by
-           open-weight models, citing the company's own reports and public abstracts, with a
-           record of which sentences the model wrote.
-Who:       A research team at a biotech company whose unpublished results must stay in-house, and
-           which plans to fine-tune its own research agents on its internal papers.
-Input:     data/outline.md (the report's title, a ## heading per section and the bullets) and
-           data/papers/ (the internal reports, one Markdown file each).
+Use case:  A first draft of a short internal paper, written whenever a program has something to
+           share about a compound or a study, from the scientist's outline. Open-weight models
+           write it, citing the company's study reports and public abstracts, with a record of
+           which sentences the model wrote.
+Who:       Scientists on any program at a biotech company whose unpublished results must stay
+           in-house, and which plans to fine-tune its own research agents on these papers.
+Input:     data/outline.md (the paper's title, a ## heading per section and the bullets) and
+           data/papers/ (the study reports and earlier papers, one Markdown file each).
 SIE pipeline:
            encode   Qwen/Qwen3-Embedding-4B      embed the internal reports' passages, once
            per section:
@@ -23,14 +24,14 @@ SIE pipeline:
            (Python)                              a citation must name a passage the model was
                                                  given and quote it word for word; every bullet
                                                  must be in the draft
-Output:    runs/<time>/report.md (the draft and its references), review.md (what to check first,
+Output:    runs/<time>/paper.md (the draft and its references), review.md (what to check first,
            then where every sentence came from), queries.md (everything sent to PubMed, and what
            was held back) and run.json.
 Run using: SIE Cluster or SIE Local with SIE_BASE_URL to keep everything in-house, or SIE
            Serverless.
 
     uv run recipe.py
-    uv run recipe.py --outline my_report.md --papers ~/our-reports
+    uv run recipe.py --outline my_paper.md --papers ~/our-reports
 """
 
 from __future__ import annotations
@@ -167,7 +168,7 @@ def parse_outline(text: str) -> Outline:
     sections = [section for section in sections if section.bullets]
     if not sections:
         raise SystemExit("Stopped: the outline has no `## Section` with `- bullet` lines.")
-    return Outline(title or "Untitled report", sections)
+    return Outline(title or "Untitled paper", sections)
 
 
 # --- Sources and passages ------------------------------------------------------------------
@@ -426,7 +427,7 @@ def queries_prompt(outline: Outline, section: Section, rules: dict[str, Any]) ->
     settings = rules["search"]
     bullets = "\n".join(f"- {escape(b)}" for b in section.bullets)
     return (
-        f"Report: {escape(outline.title)}\nSection: {escape(section.heading)}\n"
+        f"Paper: {escape(outline.title)}\nSection: {escape(section.heading)}\n"
         f"<outline>\n{bullets}\n</outline>\n\n"
         f"Write {settings['queries_per_section']} short PubMed search queries, each at most "
         f"{settings['max_query_words']} words, that would find published papers on the public "
@@ -451,7 +452,7 @@ def draft_prompt(
         for pid, p in shown.items()
     )
     return (
-        f"Report: {escape(outline.title)}\nSection: {escape(section.heading)}\n\n"
+        f"Paper: {escape(outline.title)}\nSection: {escape(section.heading)}\n\n"
         f"The scientist's bullets, numbered:\n<outline>\n{bullets}\n</outline>\n\n"
         f"Passages from our internal reports and from PubMed abstracts:\n"
         f"{passages or '(none found)'}\n\n"
@@ -588,7 +589,7 @@ def find_run(words: list[str], run: list[str], start: int) -> int:
     return -1
 
 
-# --- One section, then the report -----------------------------------------------------------
+# --- One section, then the paper ------------------------------------------------------------
 
 
 def draft_section(
@@ -701,7 +702,7 @@ def reference_line(source: Source) -> str:
     return f'"{source.title}" {source.detail}. PMID {source.ident}. {source.url}'
 
 
-def report_markdown(outline: Outline, drafts: list[SectionDraft]) -> str:
+def paper_markdown(outline: Outline, drafts: list[SectionDraft]) -> str:
     numbers = references(drafts)
     lines = [f"# {outline.title}", ""]
     for draft in drafts:
@@ -833,7 +834,7 @@ def run(args: argparse.Namespace) -> None:
 
     out_dir = RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "report.md").write_text(report_markdown(outline, drafts), encoding="utf-8")
+    (out_dir / "paper.md").write_text(paper_markdown(outline, drafts), encoding="utf-8")
     (out_dir / "review.md").write_text(review_markdown(drafts), encoding="utf-8")
     (out_dir / "queries.md").write_text(queries_markdown(drafts, library), encoding="utf-8")
     summary = run_summary(drafts, calls, pubmed, seconds)
@@ -877,7 +878,7 @@ def run_summary(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--outline", type=Path, default=OUTLINE_PATH, help="the report's outline")
+    parser.add_argument("--outline", type=Path, default=OUTLINE_PATH, help="the paper's outline")
     parser.add_argument("--papers", type=Path, default=PAPERS_DIR, help="the internal reports")
     parser.add_argument("--rules", type=Path, default=RULES_PATH, help="another rules.yaml to try")
     args = parser.parse_args()

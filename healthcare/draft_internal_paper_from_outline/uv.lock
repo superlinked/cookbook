@@ -876,7 +876,7 @@ wheels = [
 ]
 
 [[package]]
-name = "sie-draft-research-report-from-outline"
+name = "sie-draft-internal-paper-from-outline"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

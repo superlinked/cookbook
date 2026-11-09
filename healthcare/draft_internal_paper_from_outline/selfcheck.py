@@ -93,8 +93,8 @@ def check_outline() -> None:
     except SystemExit:
         pass
     data = recipe.parse_outline(recipe.OUTLINE_PATH.read_text(encoding="utf-8"))
-    assert len(data.sections) == 4
-    assert sum(len(s.bullets) for s in data.sections) == 11
+    assert len(data.sections) == 3
+    assert sum(len(s.bullets) for s in data.sections) == 9
 
 
 def check_passages() -> None:
@@ -276,7 +276,7 @@ def check_outputs() -> None:
     )
     outline = recipe.Outline("Update", [recipe.Section("Delivery", section.bullets)])
     failed = SectionDraft("Safety", ["Liver enzymes."], problem="the model returned no draft")
-    report = recipe.report_markdown(outline, [section, failed])
+    report = recipe.paper_markdown(outline, [section, failed])
     assert "GalNAc takes siRNA to the liver. [1] [2] That's my view." in report
     assert (
         '1. "GalNAc delivery of siRNA" J Test, 2024. PMID 12345. '

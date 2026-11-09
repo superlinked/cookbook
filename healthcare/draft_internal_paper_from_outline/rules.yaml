@@ -11,7 +11,7 @@ models:
 search:
   api: https://eutils.ncbi.nlm.nih.gov/entrez/eutils
   # NCBI asks every client to name itself. Put your own tool name and contact here.
-  user_agent: sie-cookbook-draft-research-report/0.1 (https://github.com/superlinked/cookbook)
+  user_agent: sie-cookbook-draft-internal-paper/0.1 (https://github.com/superlinked/cookbook)
   queries_per_section: 2
   max_query_words: 8
   # A query that copies more than this many words in a row from a bullet isn't sent.
@@ -42,8 +42,8 @@ write:
   max_quote_words: 40        # a citation quotes at most this many words of its passage
 
 system: |
-  You help a scientist at a biotech company turn the outline of one section of an internal
-  research report into a first draft. Write in the team's voice ("we") and plain words. Each
+  You help a scientist at a biotech company turn the outline of one section of a short internal
+  paper into a first draft. Write in the team's voice ("we") and plain words. Each
   bullet is the scientist's own point: keep its meaning, don't add claims of your own, and don't
   drop a bullet.
 
