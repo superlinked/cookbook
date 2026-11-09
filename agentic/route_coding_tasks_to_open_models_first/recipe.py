@@ -27,11 +27,13 @@ Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL, plus A
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import difflib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -129,6 +131,13 @@ def test_env(root: Path) -> dict[str, str]:
     }
 
 
+def stop_group(process: subprocess.Popen[str]) -> None:
+    """Stop a test run and anything it started, since they share its process group."""
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    process.communicate()
+
+
 class Workspace:
     """A temporary copy of the library and one task's tests. Every path a model names must stay
     inside it, and a model may only write .py files in the writable folder."""
@@ -207,50 +216,65 @@ class Workspace:
             raise ToolError("content must be the whole file, as text")
         if len(content) > self.settings["max_file_chars"]:
             raise ToolError(f"that file is over {self.settings['max_file_chars']} characters")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise ToolError(f"couldn't write {path!r}: {type(error).__name__}") from error
         return f"wrote {path} ({len(content)} characters)"
 
     def run(self, args: list[str]) -> tuple[bool, str]:
-        """Run one fixed command inside the copy, with a time limit and no API keys."""
+        """Run one fixed command inside the copy, with a time limit and no API keys. On the time
+        limit, everything the command started is stopped too, not just the command."""
+        process = subprocess.Popen(
+            [sys.executable, "-m", *args],
+            cwd=self.root,
+            env=test_env(self.root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
         try:
-            result = subprocess.run(
-                [sys.executable, "-m", *args],
-                cwd=self.root,
-                env=test_env(self.root),
-                capture_output=True,
-                text=True,
-                timeout=self.settings["test_timeout_s"],
-                check=False,
-            )
+            output, _ = process.communicate(timeout=self.settings["test_timeout_s"])
         except subprocess.TimeoutExpired:
+            stop_group(process)
             return False, f"stopped after {self.settings['test_timeout_s']} s"
-        output = clip(result.stdout + result.stderr, self.settings["output_chars"])
-        return result.returncode == 0, output
+        stop_group(process)
+        return process.returncode == 0, clip(output, self.settings["output_chars"])
 
-    def restore_tests(self) -> None:
-        """Put the tests back as they were, whatever happened to them."""
-        tests_dir = self.root / "tests"
-        if tests_dir.is_symlink() or tests_dir.is_file():
-            tests_dir.unlink()
-        for path in tests_dir.rglob("*") if tests_dir.is_dir() else []:
-            relative = path.relative_to(self.root).as_posix()
-            if (path.is_file() or path.is_symlink()) and relative not in self.tests:
-                path.unlink()
-        for path, text in self.tests.items():
+    def restore(self, keep: dict[str, str]) -> None:
+        """Put back every file outside the writable folder as it was, and delete any other file
+        there, such as a conftest.py that the model's code wrote while tests ran. Without this,
+        code from an earlier test run could change how pytest decides the next one."""
+        writable = self.settings["writable"]
+        expected = {
+            **{p: t for p, t in self.original.items() if not p.startswith(f"{writable}/")},
+            **self.tests,
+            **keep,
+        }
+        for path in sorted(self.root.rglob("*"), reverse=True):
+            relative = path.relative_to(self.root)
+            if relative.parts[0] == writable and not path.is_symlink():
+                continue
+            if path.is_symlink() or path.is_file():
+                if relative.as_posix() not in expected or path.is_symlink():
+                    path.unlink()
+            elif path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
+        for path, text in expected.items():
             self.put(path, text)
 
     def check(self) -> tuple[bool, str]:
         """Do the tests pass? Python decides this, not the model."""
-        self.restore_tests()
+        self.restore({})
         return self.run(["pytest", "-q", "--no-header", "-p", "no:cacheprovider", "tests"])
 
     def ci(self) -> bool | None:
         """The checks the team keeps back for CI, which the model never saw. None if none."""
         if not self.ci_tests:
             return None
-        for path, text in self.ci_tests.items():
-            self.put(path, text)
+        self.restore(self.ci_tests)
         return self.run(["pytest", "-q", "--no-header", "-p", "no:cacheprovider", "ci"])[0]
 
     def diff(self) -> str:
@@ -490,7 +514,8 @@ class ClaudeChat:
         self.usage.cache_write_tokens += response.usage.cache_creation_input_tokens or 0
         if response.stop_reason in ("refusal", "max_tokens"):
             return Turn(calls=[], stop=f"Claude stopped: {response.stop_reason}")
-        self.messages.append({"role": "assistant", "content": response.content})
+        if response.content:  # an empty reply can't go back in the conversation
+            self.messages.append({"role": "assistant", "content": response.content})
         return Turn(
             calls=[
                 ToolCall(block.id, block.name, dict(block.input))
@@ -639,6 +664,7 @@ def run_level(
                 anthropic.RateLimitError,
                 anthropic.InternalServerError,
                 anthropic.APIConnectionError,
+                anthropic.BadRequestError,  # about this conversation, such as one too long
             ) as error:
                 attempt.stopped = f"the Claude API failed: {type(error).__name__}"
             attempt.usage = chat.usage
@@ -1006,7 +1032,6 @@ def main() -> None:
         anthropic.AuthenticationError,
         anthropic.PermissionDeniedError,
         anthropic.NotFoundError,
-        anthropic.BadRequestError,
     ) as error:
         raise SystemExit(
             f"Stopped: the Claude API refused the request, {type(error).__name__}: {error}. Check "

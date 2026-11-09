@@ -61,6 +61,7 @@ claude:
   max_tokens: 16000
   effort: medium
   # Re-run a request Claude's safety classifier declines on the model Anthropic recommends.
+  # This recipe still prices those tokens as the model above.
   fallbacks: default
   fallback_beta: server-side-fallback-2026-07-01
 

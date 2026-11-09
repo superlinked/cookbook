@@ -3,7 +3,7 @@
 > **This example:** a dev team that maintains Ledgerline, a made-up invoicing library, and works
 > through a backlog of fifteen issues.
 >
-> **How it works:** a small model on SIE sorts each issue into a kind of task, which decides where it
+> **How it works:** a classifier on SIE sorts each issue into a kind of task, which decides where it
 > starts: a linter with no model, an open model on SIE, or Claude. The tests
 > decide when a task is done, and a task that still fails moves up one level. Every task also goes to
 > Claude alone, so you can see what the routing saved.
@@ -105,14 +105,16 @@ passes, the way CI runs more than the issue's own tests.
 
 The tools only touch the copy. A model can write `.py` files under `ledgerline/` and nothing else: not the
 tests, not a path with `..`, not through a link. The tests run as a fixed command with a 60 s limit and no API
-keys in their environment. But the tests import the code the model wrote, so **that code runs on your machine.
-Run this recipe in a container.**
+keys in their environment. Before each test run, every file outside `ledgerline/` is put back as it was and
+any new one deleted, so a `conftest.py` the code wrote during an earlier run can't make the tests pass. But the
+tests import the code the model wrote, so **that code runs on your machine.
+Run this recipe in a container** that holds nothing but this folder and your two API keys.
 
 ## Picking the models
 
 | Level | Model | Its job here | Why this one |
 | --- | --- | --- | --- |
-| router | `fastino/GLiNER2.5-Decide` | Picks the kind of task | One cheap call per issue (4 SIE credits), with a score for every kind |
+| router | `fastino/GLiNER2.5-Decide` | Picks the kind of task | One cheap call per issue (4 to 6 SIE credits), with a score for every kind |
 | tool | `ruff`, no model | Lint and formatting | It's what you'd run by hand, and it can't make anything up |
 | open | `Qwen/Qwen3.8-27B-FP8` | Docstrings, type hints, fixes and features | The larger of the two open chat models SIE Serverless answered tool calls with, and the cheaper one per task |
 | claude | Claude Opus 5.5 | Anything unclear, and whatever fails below | The model you'd otherwise send everything to |
@@ -132,7 +134,7 @@ in my runs, at $0.00001 a credit; Claude's are list prices.
 
 | Model | Input | Output | Blended, on this work (91% input) |
 | --- | --- | --- | --- |
-| Qwen3.5-4B on SIE Serverless | $0.31 | $1.52 | $0.44 |
+| Qwen3.5-4B on SIE Serverless | $0.31 | $1.52 | $0.41 |
 | Qwen3.8-27B on SIE Serverless | about $0.06 | about $2.59 | $0.28 |
 | Claude Haiku 5.5 | $0.10 | $0.50 | about $0.13 |
 | Claude Sonnet 5.5 | $2 | $10 | about $2.69 |
@@ -154,8 +156,9 @@ flowchart TD
     T --> K{"Python runs<br/>the tests"}
     O --> K
     C --> K
-    K -->|"fail"| U["Next level up,<br/>fresh copy"]
+    K -->|"fail, after one retry"| U["Next level up,<br/>fresh copy"]
     U --> K
+    K -->|"fail at Claude"| P["Back to a person"]
     K -->|"pass"| CI["Checks kept<br/>back for CI"]
     CI --> D["Diff, test result and cost<br/>for the developer"]
 ```
@@ -176,7 +179,7 @@ files, because this repo's lint hooks would otherwise fix the very lint problems
 | --- | --- | --- | --- |
 | Sort the issue | `route_task` | `recipe.py` | GLiNER2.5-Decide |
 | Make a copy and keep paths in it | `Workspace`, `Workspace.safe` | `recipe.py` | Python |
-| Run the tests, with the tests put back | `Workspace.check`, `Workspace.run` | `recipe.py` | pytest, in a subprocess |
+| Run the tests, with every file outside `ledgerline/` put back | `Workspace.check`, `Workspace.restore`, `Workspace.run` | `recipe.py` | pytest, in a subprocess |
 | Talk to an open model | `OpenModelChat` | `recipe.py` | Qwen3.8-27B |
 | Talk to Claude | `ClaudeChat` | `recipe.py` | Claude |
 | The tool loop | `work_loop` | `recipe.py` | Python |
@@ -249,7 +252,8 @@ Serverless starts a cold model.
 
 14 of 15 tasks came out as expected on the last of three live runs on 8 Nov 2026 (UTC), and the same 14 on the other two. A task
 counts when its tests pass, its CI checks pass where it has them, and the level I wrote down before the run is the one that
-finished it. The tests passed on all 15 tasks on every run, for the router and for Claude alone. Every CI check passed except
+finished it. I expected ruff to finish T01 and T02, the open model T03 to T09, T12 and T15, and Claude
+T10, T11, T13 and T14. The tests passed on all 15 tasks on every run, for the router and for Claude alone. Every CI check passed except
 T15's from the open model. The router's picks and scores were the same on every run.
 
 | | Router | Claude alone |
@@ -264,7 +268,7 @@ T15's from the open model. The router's picks and scores were the same on every 
 
 That's about a third of the Claude, and about 40% of the cost once the SIE credits are counted: the SIE console sold
 5,000,000 credits for $50 on 8 Nov 2026, so a credit is $0.00001, and `sie_credit_usd` in `rules.yaml` holds that price. The
-router saved $0.34 to $0.36 a run, and was a little quicker. Nearly all its credits are the open model's, about 100 to 430 a
+router saved $0.34 to $0.36 a run, and was a little quicker. Nearly all its credits are the open model's, about 100 to 495 a
 task, and the router itself cost 4 to 6 a task.
 
 **How this version came about.** Read the 14 of 15 with this in mind: I wrote those expectations after the runs below, so they're
@@ -286,15 +290,14 @@ the open model did. Lint and formatting cost nothing. No model tried to write to
   and every caller who passes a rate like `0.07` would now be charged 0.07% tax. T07 counts as expected by my rule, so read the 14 of
   15 as 13 good changes. A reviewer has to catch the rest.
 - **The router.** It picked "change" once, for T13, with a score of 0.30, under the bar, so Claude did it. It called T07 (a new
-  method), T09 (a rounding bug), T14 (a parser) and T11 (three modules) style, which cost a wasted ruff attempt each where the score
-  cleared the bar. Most of its top scores were under 0.5. GLiNER2.5-Decide picks well from short, distinct options, and "what kind
+  method), T09 (a rounding bug) and T14 (a parser) style, which cost a wasted ruff attempt each. Most of its top scores were under 0.5. GLiNER2.5-Decide picks well from short, distinct options, and "what kind
   of coding task is this?" isn't that.
-- **T10 and T13 went to Claude** because the router scored them 0.33 and 0.30, under the bar. I expected that, but the open model
+- **T10, T11 and T13 went to Claude** because the router scored them 0.33, 0.29 and 0.30, under the bar. I expected that, but the open model
   might well have done them for a fraction of the cost.
 - **T14 needs more room than SIE Serverless gives the 27B.** It ran out of its 8,192-token window before the tests passed. With
   2,000 output tokens a request instead of 4,000 it got further, still without passing (see Try another model). SIE Serverless
   also lists a 256k-token profile of the model, but answered "Generation route is unavailable for this deployment".
-- **Fifteen tasks in a 150-line library aren't a benchmark.** Each file fits in one read, and every issue says what to change.
+- **Fifteen tasks in a library of about 100 lines aren't a benchmark.** Each file fits in one read, and every issue says what to change.
   Real issues are vaguer and real code is bigger, and I'd expect the open model to fail more often there.
 
 ### What you do next
@@ -322,7 +325,7 @@ changed nothing else and ran once using SIE Serverless on 8 Nov 2026 (UTC). One 
 
 | `rules.yaml` key | Swap in | What happened on this data |
 | --- | --- | --- |
-| `models`, `levels`, `routing` | Add `small: Qwen/Qwen3.5-4B` as a level below the 27B, with docs and small fixes starting there (three runs, all fifteen tasks) | The same 15 of 15 passing tests, done by tool 2, small 8, open 1, Claude 4. It cost more and took longer: $0.24 to $0.25 a run, 5,221 to 5,481 SIE credits and 302 to 308 s. The 4B failed T14 and T15, which the 27B then passed (T15 with its CI checks too), and on T07 it kept `float` in the tax sum |
+| `models`, `levels`, `routing` | Add `small: Qwen/Qwen3.5-4B` as a level below the 27B, with docs and small fixes starting there (three runs, all fifteen tasks) | The same 15 of 15 passing tests, done by tool 2, small 8, open 1, Claude 4. It cost more and took longer: $0.24 to $0.25 a run, 5,221 to 5,481 SIE credits and 302 to 308 s. The 4B failed T14 and T15. The 27B then passed T15, CI checks included, and T14 went on to Claude, and on T07 it kept `float` in the tax sum |
 | `claude` | `claude-sonnet-5-5` (for the Claude level and for Claude alone), on the first twelve tasks, with the 4B level | The same routes and the same 12 of 12. Claude cost about half: $0.0393 for the router, or about $0.07 with its SIE credits, and $0.1796 for Claude alone, with Claude alone the quicker at 95 s |
 | `open` | `Qwen/Qwen3.8-27B-FP8:h100-256k` (the same model with a 256k-token window), T14 only, twice | Didn't run: SIE Serverless answered "Generation route is unavailable for this deployment", so T14 went on to Claude |
 | `open_models.max_completion_tokens.open` | `2000` instead of `4000`, T14 only, twice, with the 4B level | The 27B got through 11 and 12 requests instead of 8 or 9, and 1,118 and 1,168 credits, still without passing, before its window filled up again. Claude passed it both times |

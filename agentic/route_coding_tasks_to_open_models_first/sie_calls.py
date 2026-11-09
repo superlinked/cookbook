@@ -7,15 +7,19 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sie_sdk.client.errors import (
+    AccountInactiveError,
     InputTooLongError,
+    InsufficientCreditsError,
     ModelLoadFailedError,
     RateLimitError,
     RequestError,
     SIEError,
+    SpendLimitError,
 )
 
 WAIT_S = 900  # how long one call may wait for SIE Serverless to start a cold model
 ERROR_CHARS = 200
+FATAL_STATUS = {401, 402, 403, 404}  # a bad key, no credits, no access, no such model
 
 
 class SIEStopped(Exception):
@@ -41,17 +45,19 @@ def jsonable(value: Any) -> Any:
 def is_fatal(error: SIEError) -> bool:
     """A refusal that fails every call the same way: a bad key, no credits, an unknown model.
 
-    A rate limit, an over-long input, a timeout, a lost connection, a model still loading and a
-    5xx are passing or per-item failures. So is a conversation that has outgrown the model's
-    context window, which SIE reports as a plain request error.
+    Anything else is a passing or per-call failure: a rate limit, an over-long input, a timeout, a
+    lost connection, a model still loading, a 5xx, or a 400 about one conversation, such as one
+    that has outgrown the model's context window. That ends one attempt, not the run.
     """
     if isinstance(error, ModelLoadFailedError):
         return bool(error.permanent)
-    if "context_length" in str(error):
-        return False
-    return isinstance(error, RequestError) and not isinstance(
+    if isinstance(error, (InsufficientCreditsError, SpendLimitError, AccountInactiveError)):
+        return True
+    if not isinstance(error, RequestError) or isinstance(
         error, (RateLimitError, InputTooLongError)
-    )
+    ):
+        return False
+    return error.status_code in FATAL_STATUS or "not found" in str(error).lower()
 
 
 def credits_of(reply: Any) -> float | None:
@@ -101,6 +107,10 @@ class Calls:
         try:
             reply = jsonable(work())
         except SIEError as error:
+            # A failed call can still be charged, and says so in the same metadata.
+            charged = credits_of({"request": getattr(error, "request", None)})
+            if charged is not None:
+                self.credits[model] = self.credits.get(model, 0.0) + charged
             if is_fatal(error):
                 raise SIEStopped(
                     f"SIE refused the call to {model}, {short(error)}. Check SIE_API_KEY, "

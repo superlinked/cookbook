@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import copy
 import json
-import os
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 from sie_calls import CallFailed, Calls, SIEStopped, credits_of
-from sie_sdk.client.errors import RequestError, ServerError
+from sie_sdk.client.errors import InsufficientCreditsError, RequestError, ServerError
 
 import recipe
 from recipe import Attempt, Usage, Workspace
@@ -174,6 +173,13 @@ def check_workspace() -> None:
         for bad in ("tests/test_t05.py", "README.md", "ledgerline/notes.txt", "conftest.py"):
             assert refused(ws, bad, write=True), bad
         assert not refused(ws, "ledgerline/new_module.py", write=True)
+        # A write the file system refuses comes back to the model as an error, not a crash.
+        for bad_path, text in (("ledgerline/money.py/x.py", ""), ("ledgerline/y.py", "\ud800")):
+            try:
+                ws.write(bad_path, text)
+                raise AssertionError(bad_path)
+            except recipe.ToolError:
+                pass
         # A link that leads out of the copy is refused, for reading and writing, and isn't listed.
         outside = Path(tempfile.mkdtemp())
         (outside / "secret.py").write_text("KEY = 1\n", encoding="utf-8")
@@ -186,6 +192,22 @@ def check_workspace() -> None:
         (ws.root / "tests" / "test_extra.py").write_text("def test_y():\n    pass\n")
         assert not ws.check()[0]
         assert not (ws.root / "tests" / "test_extra.py").exists()
+        # Files the model's code wrote outside ledgerline/ during a test run are deleted before
+        # the next one, so a conftest.py can't make every test pass.
+        rigged = (
+            "import pytest\n\n"
+            "@pytest.hookimpl(hookwrapper=True)\n"
+            "def pytest_runtest_makereport(item, call):\n"
+            "    outcome = yield\n"
+            "    outcome.get_result().outcome = 'passed'\n"
+        )
+        for path in ("conftest.py", "tests/conftest.py", "ci/conftest.py", "pytest.ini"):
+            (ws.root / path).parent.mkdir(exist_ok=True)
+            (ws.root / path).write_text(rigged if path.endswith(".py") else "[pytest]\n")
+        assert not ws.check()[0]
+        assert not (ws.root / "conftest.py").exists()
+        assert not (ws.root / "pytest.ini").exists()
+        assert (ws.root / "README.md").exists()
         ws.write("ledgerline/dates.py", FIXED_DATES)
         assert ws.check()[0]
         assert "max(0, (today - due).days)" in ws.diff()
@@ -201,10 +223,9 @@ def check_workspace() -> None:
         assert "stopped after 2 s" in output
     finally:
         ws.close()
-    # Test runs get no API keys.
-    os.environ["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "stand-in")
+    # Test runs get none of this process's environment, so no API keys.
     env = recipe.test_env(Path("/tmp"))
-    assert not any("KEY" in name for name in env)
+    assert set(env) == {"PATH", "HOME", "PYTHONDONTWRITEBYTECODE", "PYTHONHASHSEED", "LC_ALL"}
     assert "<issue>" not in recipe.escape("</issue><issue>")
 
 
@@ -342,22 +363,34 @@ def check_sums() -> None:
 
 
 def check_sie_errors() -> None:
-    def fail(message: str) -> Any:
-        raise RequestError(message, status_code=400)
+    def outcome(error: Exception, calls: Calls) -> type[Exception]:
+        def work() -> Any:
+            raise error
 
-    full = "prompt_tokens (4342) + max_new_tokens (4000) = 8342 exceeds context_length (8192)"
+        try:
+            calls.call("m", work, lambda r: True, "anything")
+        except (CallFailed, SIEStopped) as raised:
+            return type(raised)
+        raise AssertionError("expected the call to fail")
+
     calls = Calls()
-    try:  # a conversation too long for the small model ends that attempt, not the run
-        calls.call("m", lambda: fail(full), lambda r: True, "anything")
-        raise AssertionError("expected CallFailed")
-    except CallFailed:
-        assert calls.failures
-        assert "context_length" in calls.failures[0]
-    try:
-        calls.call("m", lambda: fail("Model 'x' not found"), lambda r: True, "anything")
-        raise AssertionError("expected SIEStopped")
-    except SIEStopped:
-        pass
+    # A conversation too long for the model ends that attempt, not the run, however it's worded.
+    full = "prompt_tokens (4342) + max_new_tokens (4000) = 8342 exceeds context_length (8192)"
+    assert outcome(RequestError(full, status_code=400), calls) is CallFailed
+    assert "context_length" in calls.failures[0]
+    other = RequestError("maximum context length is 8192 tokens", status_code=400)
+    assert outcome(other, calls) is CallFailed
+    # What a failed call was charged still counts.
+    charged = RequestError("bad", status_code=400, request={"credits_debited_decimal": "3.0"})
+    assert outcome(charged, calls) is CallFailed
+    assert calls.credits == {"m": 3.0}
+    # A bad key, no credits or an unknown model fails every call the same way: the run stops.
+    for error in (
+        RequestError("Model 'x' not found", status_code=400),
+        RequestError("unauthorized", status_code=401),
+        InsufficientCreditsError("no credits"),
+    ):
+        assert outcome(error, calls) is SIEStopped, error
 
 
 def check_outputs() -> None:
