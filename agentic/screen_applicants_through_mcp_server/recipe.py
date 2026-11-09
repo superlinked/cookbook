@@ -11,13 +11,15 @@ Agent:     Claude, through the Claude Agent SDK, with no built-in tools. It reac
            find_evidence               Qwen/Qwen3-Reranker-4B on SIE
            search_applicants           the same, across every applicant
            and one local tool, submit_decision, that records its decision.
-Checks:    Quotes      every quote Claude gives for a requirement must be in the masked resume
-           Rules       the decision must follow from the verdicts (any not_met is a reject)
-           Leaks       nothing Claude saw may hold the applicant's name, email or phone number
-           A decision that fails the first two goes back to Claude once to fix.
-Output:    runs/<timestamp>/: decisions.csv, decisions/<applicant>.md, transcripts/<applicant>.json
-           and server.log. A status says what Python found: advance, reject, needs_person,
-           check_failed or no_decision.
+Checks:    Quotes      every quote Claude gives must be in the screened applicant's masked resume
+           Rules       one verdict per must-have, and the decision must follow from them (any
+                       not_met is reject, then any unclear is needs_person, else advance)
+           Leaks       nothing Claude saw or wrote may hold any applicant's name, email or phone
+                       number from data/applicants.csv
+           A decision that fails the first two goes back to Claude (agent.revisions times).
+Output:    runs/<timestamp>/: decisions.csv, decisions/<applicant>.md, transcripts/<applicant>.json,
+           server.log and workdir/ (the agent's empty working folder). A status says what Python
+           found: advance, reject, needs_person, check_failed, out_of_turns or no_decision.
 Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL, plus ANTHROPIC_API_KEY.
 
     uv run recipe.py
@@ -29,6 +31,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import http.client
 import json
 import os
 import re
@@ -36,6 +39,7 @@ import secrets
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -65,6 +69,7 @@ SERVER_TOOLS = ("get_role", "list_applicants", "read_resume", "find_evidence", "
 DECISIONS = ("advance", "reject", "needs_person")
 VERDICTS = ("met", "not_met", "unclear")
 FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+REFUSED = "SIE refused"  # how server.py starts a tool error for a refusal that stops the run
 SERVER_START_S = 60
 
 SYSTEM_PROMPT = """You screen job applicants for a recruiter. You never see who an applicant is:
@@ -141,7 +146,10 @@ def check_decision(
     if not masked:
         problems.append("No resume was read, so no quote can be checked. Call read_resume first.")
     needed = list(rules["role"]["must_have"])
-    given = {item.get("requirement_id"): item for item in decision.get("must_haves", [])}
+    items = decision.get("must_haves", [])
+    given = {item.get("requirement_id"): item for item in items}
+    if len(given) != len(items):
+        problems.append("Give exactly one verdict per must-have; a must-have appears twice.")
     missing = [key for key in needed if key not in given]
     if missing:
         problems.append(f"Give a verdict for every must-have; missing: {', '.join(missing)}.")
@@ -168,19 +176,43 @@ def check_decision(
     return problems
 
 
+def folded(text: str) -> str:
+    """Lower case, without accents, with straight quotes, so "JOSÉ" and "jose" compare equal."""
+    text = text.replace("\u2019", "'").replace("\u2018", "'")
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+
+
 def identity_leaks(seen: str, record: dict[str, str], rules: dict[str, Any]) -> list[str]:
-    """Which of the applicant's own details appear in what Claude saw: each part of the name, the
-    email address and the phone number in any format. Values aren't returned, only what kind."""
+    """Which of one applicant's details from the record appear in `seen`: each part of the name,
+    the email address and the phone number in any format. Values aren't returned, only what kind.
+
+    It knows only what data/applicants.csv holds, so it confirms the record-based masking; a name
+    the record doesn't have, such as a reference's, is the PII model's job and isn't checked."""
     leaks: list[str] = []
+    text = folded(seen)
     shortest = rules["masking"]["min_name_part_chars"]
-    for part in re.split(r"[\s.-]+", record["name"]):
-        if len(part) >= shortest and re.search(rf"(?i)(?<!\w){re.escape(part)}(?!\w)", seen):
+    for part in re.split(r"[\s.'-]+", folded(record["name"])):
+        if len(part) >= shortest and re.search(rf"(?<!\w){re.escape(part)}(?!\w)", text):
             leaks.append("name")
-    if record["email"].lower() in seen.lower():
+    email = folded(record["email"]).strip()
+    if email and email in text:
         leaks.append("email")
-    if re.search(phone_pattern(record["phone"]), seen):
+    if record["phone"].strip() and re.search(phone_pattern(record["phone"]), seen):
         leaks.append("phone")
     return sorted(set(leaks))
+
+
+def all_leaks(
+    seen: str, applicant_id: str, applicants: dict[str, dict[str, str]], rules: dict[str, Any]
+) -> list[str]:
+    """Leaks of the screened applicant's details as "name", "phone"..., and of any other
+    applicant's (search_applicants shows lines from every resume) as "A-103:name"."""
+    found = identity_leaks(seen, applicants[applicant_id], rules)
+    for other, record in applicants.items():
+        if other != applicant_id:
+            found += [f"{other}:{kind}" for kind in identity_leaks(seen, record, rules)]
+    return found
 
 
 # --- One applicant through the agent ------------------------------------------------------------
@@ -194,6 +226,7 @@ class Screening:
     masked: str = ""
     problems: list[str] = field(default_factory=list)
     revisions: int = 0
+    out_of_turns: bool = False
     tool_calls: int = 0
     seconds: float = 0.0
     cost_usd: float = 0.0
@@ -201,10 +234,36 @@ class Screening:
     output_tokens: int = 0
 
     def seen(self) -> str:
-        """Every tool result Claude read, and everything it wrote, as one text."""
-        parts = [str(e.get("result", "")) for e in self.events if e["kind"] == "tool"]
-        parts += [str(e.get("text", "")) for e in self.events if e["kind"] == "text"]
-        return "\n".join(parts + [json.dumps(d) for d in self.decisions])
+        """Every tool result Claude read, and everything it wrote, as one plain text. Tool results
+        arrive as JSON, where a newline is the two characters "\\n"; they're decoded first, so a
+        name at the start of a line, or one with an accent, is still found."""
+        parts = [
+            text
+            for e in self.events
+            if e["kind"] in ("tool", "text")
+            for text in strings(decoded(str(e.get("result", e.get("text", "")))))
+        ]
+        parts += [text for d in self.decisions for text in strings(d)]
+        return "\n".join(parts)
+
+
+def decoded(text: str) -> Any:
+    """The JSON value in a tool result, or the text itself when it isn't JSON."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+def strings(value: Any) -> list[str]:
+    """Every string inside a JSON value, keys included."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for k, v in value.items() for s in (*strings(k), *strings(v))]
+    if isinstance(value, list):
+        return [s for item in value for s in strings(item)]
+    return [str(value)] if value is not None else []
 
 
 def result_text(block: ToolResultBlock) -> str:
@@ -246,6 +305,7 @@ def options(
         setting_sources=[],  # and their settings, hooks and CLAUDE.md files
         max_turns=rules["agent"]["max_turns"],
         cwd=str(workdir),
+        env={"CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": str(rules["agent"]["tool_wait_s"] * 1000)},
     )
 
 
@@ -274,12 +334,20 @@ async def run_turn(client: ClaudeSDKClient, screening: Screening, prompt: str) -
                             "result": text,
                         }
                     )
-                    if "SIE refused" in text:
+                    if block.is_error and REFUSED in text:
                         raise Stopped(text)
-                    if name.endswith("__read_resume") and not block.is_error:
+                    # Quotes are checked against this applicant's resume only, even if Claude
+                    # read another one.
+                    reader = str(tool_input.get("applicant_id", "")).strip()
+                    if (
+                        name.endswith("__read_resume")
+                        and not block.is_error
+                        and reader == screening.applicant_id
+                    ):
                         screening.masked = masked_text(text) or screening.masked
         elif isinstance(message, ResultMessage):
-            screening.cost_usd += message.total_cost_usd or 0.0
+            # total_cost_usd is a running total for the session, so it replaces, not adds.
+            screening.cost_usd = message.total_cost_usd or screening.cost_usd
             usage = message.usage or {}
             screening.input_tokens += (
                 int(usage.get("input_tokens", 0))
@@ -287,7 +355,10 @@ async def run_turn(client: ClaudeSDKClient, screening: Screening, prompt: str) -
                 + int(usage.get("cache_creation_input_tokens", 0))
             )
             screening.output_tokens += int(usage.get("output_tokens", 0))
-            if message.is_error and message.subtype != "error_max_turns":
+            if message.subtype == "error_max_turns":
+                screening.out_of_turns = True
+                screening.events.append({"kind": "result_error", "subtype": message.subtype})
+            elif message.is_error:
                 raise Stopped(
                     f"the agent stopped: {message.subtype} {message.errors or ''}".strip()
                 )
@@ -330,7 +401,7 @@ async def screen(
 
 def status_of(screening: Screening) -> str:
     if not screening.decisions:
-        return "no_decision"
+        return "out_of_turns" if screening.out_of_turns else "no_decision"
     if screening.problems:
         return "check_failed"
     return str(screening.decisions[-1]["decision"])
@@ -343,7 +414,7 @@ def health(base: str) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(f"{base}/healthz", timeout=2) as response:
             return dict(json.load(response))
-    except OSError:
+    except (OSError, ValueError, http.client.HTTPException):
         return None
 
 
@@ -356,21 +427,31 @@ def start_server(
         raise Stopped(
             f"something already answers on {base}; stop it or change server.port in rules.yaml"
         )
-    log = log_path.open("wb")
-    process = subprocess.Popen(
-        [sys.executable, str(HERE / "server.py"), "--rules", str(rules_path)],
-        cwd=HERE,
-        env={**os.environ, "MCP_TOKEN": token},
-        stdout=log,
-        stderr=subprocess.STDOUT,
-    )
+    with log_path.open("wb") as log:  # the server keeps its own copy of the file handle
+        process = subprocess.Popen(
+            [sys.executable, str(HERE / "server.py"), "--rules", str(rules_path)],
+            cwd=HERE,
+            env={**os.environ, "MCP_TOKEN": token},
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
     deadline = time.monotonic() + SERVER_START_S
     while health(base) is None:
         if process.poll() is not None or time.monotonic() > deadline:
-            process.kill()
+            stop_server(process)
             raise Stopped(f"the MCP server didn't start; see {log_path}")
         time.sleep(0.5)
     return process, f"{base}{settings['path']}"
+
+
+def stop_server(process: subprocess.Popen[bytes]) -> None:
+    """Stop the server; kill it if it's still finishing a long SIE call after 10 s."""
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
 
 
 # --- Output -------------------------------------------------------------------------------------
@@ -390,12 +471,10 @@ def verdict(screening: Screening, key: str) -> str:
     return ""
 
 
-def report_markdown(
-    screening: Screening, status: str, leaks: list[str], rules: dict[str, Any]
-) -> str:
+def report_markdown(screening: Screening, status: str, leaks: list[str]) -> str:
     lines = [f"# {screening.applicant_id}: {status}", ""]
     if leaks:
-        lines += [f"**Identity leak:** Claude saw the applicant's {', '.join(leaks)}.", ""]
+        lines += [f"**Identity leak:** Claude saw {', '.join(leaks)}.", ""]
     if screening.problems:
         lines += ["**Checks that failed:**", *[f"- {p}" for p in screening.problems], ""]
     if screening.decisions:
@@ -448,15 +527,18 @@ async def run(args: argparse.Namespace) -> None:
         (out / folder).mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(24)
     process, url = start_server(rules, rules_path, token, out / "server.log")
+    base = url.rsplit("/", 1)[0]
     rows: list[dict[str, Any]] = []
     try:
         for applicant_id in chosen:
+            if process.poll() is not None or health(base) is None:
+                raise Stopped(f"the MCP server stopped; see {out / 'server.log'}")
             print(f"{applicant_id} ...", flush=True)
             screening = await screen(applicant_id, rules, url, token, out / "workdir")
             status = status_of(screening)
-            leaks = identity_leaks(screening.seen(), applicants[applicant_id], rules)
+            leaks = all_leaks(screening.seen(), applicant_id, applicants, rules)
             (out / "decisions" / f"{applicant_id}.md").write_text(
-                report_markdown(screening, status, leaks, rules), encoding="utf-8"
+                report_markdown(screening, status, leaks), encoding="utf-8"
             )
             (out / "transcripts" / f"{applicant_id}.json").write_text(
                 json.dumps(
@@ -488,11 +570,12 @@ async def run(args: argparse.Namespace) -> None:
                 flush=True,
             )
             write_outputs(out, rows)
-        served = health(url.rsplit("/", 1)[0]) or {}
+        served = health(base) or {}
     finally:
-        process.terminate()
-        process.wait(timeout=10)
+        stop_server(process)
     print(f"SIE calls made by the server: {served.get('sie_calls', {})}")
+    if served.get("sie_failures"):
+        print(f"SIE calls that failed: {served['sie_failures']}; see {out / 'server.log'}")
     print(f"Wrote {out}")
 
 

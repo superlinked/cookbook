@@ -1,17 +1,18 @@
 """The resume-screening MCP server: job-specific tools over small models on SIE.
 
 Who:       Fernhill's recruiting team. recipe.py connects to it, and so can a recruiter's own
-           Claude Code or Claude Desktop.
+           Claude Code (Claude Desktop and claude.ai need it behind HTTPS and sign-in).
 Input:     data/applicants.csv (the applicant record) and data/resumes/ (text and scans).
 Tools:     get_role           plain Python, the role's requirements from rules.yaml
-           list_applicants    plain Python, applicant ids and nothing else
+           list_applicants    plain Python, applicant ids and the date each applied
            read_resume        lightonai/LightOnOCR-3-4B for a scan, then superlinked/pii-redact
                               and the applicant record mask names, contacts and schools
            find_evidence      Qwen/Qwen3-Reranker-4B scores the masked resume's lines against
                               one requirement
            search_applicants  the same, across every applicant
-Boundary:  Raw resume text never leaves this process. Every tool that returns resume text
-           returns the masked copy, and a masking failure returns an error, not the raw text.
+Boundary:  Raw resume text goes only to the SIE models that read and mask it; it never reaches
+           the MCP client. Every tool that returns resume text returns the masked copy, and a
+           failed read or mask returns an error that carries no resume text.
 Transport: streamable HTTP on 127.0.0.1, with a bearer token from MCP_TOKEN.
 Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
 
@@ -137,12 +138,14 @@ def record_patterns(record: dict[str, str], rules: dict[str, Any]) -> list[tuple
     return [(rf"(?i)(?<!\w){pattern}(?!\w)", kind) for pattern, kind in found]
 
 
-def every_occurrence(text: str, spans: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
+def every_occurrence(
+    text: str, spans: list[tuple[int, int, str]], shortest: int
+) -> list[tuple[int, int, str]]:
     """Add every other place each masked text appears, so a name the model found once is masked
-    where it missed it too."""
+    where it missed it too. Values shorter than `shortest` characters aren't spread."""
     extra: list[tuple[int, int, str]] = []
     for value, kind in {(text[start:end].strip(), kind) for start, end, kind in spans}:
-        if len(value) < 3:
+        if len(value) < shortest:
             continue
         pattern = rf"(?i)(?<!\w){re.escape(value)}(?!\w)"
         extra += [(m.start(), m.end(), kind) for m in re.finditer(pattern, text)]
@@ -150,15 +153,18 @@ def every_occurrence(text: str, spans: list[tuple[int, int, str]]) -> list[tuple
 
 
 def valid_entity(window: str, entity: Any) -> bool:
-    """A span counts only if its offsets are in range."""
+    """A span counts only if its offsets are in range, it has a label, and, when the reply gives
+    the span's text, the offsets point at that text. Offsets counted in bytes or tokens instead
+    of characters would otherwise mask the wrong words after the first accent or bullet."""
     if not isinstance(entity, dict):
         return False
-    start, end = entity.get("start"), entity.get("end")
+    start, end, text = entity.get("start"), entity.get("end"), entity.get("text")
     return (
         isinstance(start, int)
         and isinstance(end, int)
         and 0 <= start < end <= len(window)
         and isinstance(entity.get("label"), str)
+        and (not isinstance(text, str) or window[start:end].strip() == text.strip())
     )
 
 
@@ -166,7 +172,8 @@ def model_spans(
     calls: Calls, client: SIEClient, key: str, text: str, rules: dict[str, Any]
 ) -> list[tuple[int, int, str]]:
     """Spans superlinked/pii-redact finds, window by window. Raises CallFailed when a call fails or
-    a reply has a span it can't place, so the text is never returned half-masked."""
+    a reply has a span it can't place, and SIEStopped on a refusal, so the text is never
+    returned half-masked."""
     model = rules["models"]["pii"]
     settings = rules["masking"]
     kinds: dict[str, str] = settings["labels"]
@@ -215,7 +222,7 @@ def mask(
     patterns = [(p, k) for k, p in rules["masking"]["patterns"].items()]
     for pattern, kind in patterns + record_patterns(record, rules):
         spans += [(m.start(), m.end(), kind) for m in re.finditer(pattern, text)]
-    return replace_spans(text, every_occurrence(text, spans))
+    return replace_spans(text, every_occurrence(text, spans, rules["masking"]["min_spread_chars"]))
 
 
 def tables_to_lines(text: str) -> str:
@@ -305,16 +312,21 @@ class Store:
             ),
             "any text",
         )
-        text = next(
+        # A scan can come back as several markdown entities (one per page); keep them all.
+        text = "\n\n".join(
             str(e["text"])
             for e in reply["entities"]
-            if isinstance(e, dict) and e.get("label") == "markdown"
+            if isinstance(e, dict)
+            and e.get("label") == "markdown"
+            and str(e.get("text", "")).strip()
         )
         return tables_to_lines(text), "scan"
 
     def resume(self, applicant_id: str) -> Resume:
         record = self.record(applicant_id)
         key = record["applicant_id"]
+        if key in self.resumes:  # a cached read doesn't wait behind another applicant's OCR
+            return self.resumes[key]
         with self.lock:
             if key in self.resumes:
                 return self.resumes[key]
@@ -322,7 +334,7 @@ class Store:
                 text, source = self.raw_text(record)
                 found = model_spans(self.calls, self.client, key, text, self.rules)
             except (CallFailed, SIEStopped) as error:
-                raise ToolError(f"couldn't read {key}'s resume: {error}") from error
+                raise sie_tool_error(f"read {key}'s resume", error) from error
             masked, counts = mask(text, record, self.rules, found)
             self.resumes[key] = Resume(masked, counts, source)
             log.info("read %s (%s): masked %s", key, source, json.dumps(counts, sort_keys=True))
@@ -344,17 +356,29 @@ class Store:
                 lambda r: (
                     isinstance(r, dict)
                     and isinstance(r.get("scores"), list)
-                    and {e.get("item_id") for e in r["scores"] if isinstance(e, dict)} == set(ids)
+                    and all(isinstance(e, dict) for e in r["scores"])
+                    and {e.get("item_id") for e in r["scores"]} == set(ids)
                     and all(isinstance(e.get("score"), (int, float)) for e in r["scores"])
                 ),
                 "a score for every line",
             )
         except (CallFailed, SIEStopped) as error:
-            raise ToolError(f"couldn't score {key}'s resume: {error}") from error
+            raise sie_tool_error(f"score {key}'s resume", error) from error
         by_id = dict(zip(ids, lines, strict=True))
         return sorted(
             ((float(e["score"]), by_id[e["item_id"]]) for e in reply["scores"]), reverse=True
         )
+
+
+def sie_tool_error(action: str, error: CallFailed | SIEStopped) -> ToolError:
+    """A tool error that carries no SIE message: a 4xx reply can echo the request, and the request
+    holds raw resume text. The full message goes to server.log only. recipe.py stops the run when
+    an error starts with "SIE refused"."""
+    log.warning("couldn't %s: %s", action, error)
+    kind = type(error.__cause__).__name__ if error.__cause__ else "an invalid reply"
+    if isinstance(error, SIEStopped):
+        return ToolError(f"SIE refused the call ({kind}) to {action}; see server.log")
+    return ToolError(f"couldn't {action} ({kind}); see server.log")
 
 
 # --- The MCP server ----------------------------------------------------------------------------
@@ -444,7 +468,9 @@ def build_server(store: Store) -> MCPServer:
 
     @server.custom_route("/healthz", methods=["GET"])  # type: ignore[untyped-decorator]
     async def healthz(request: Request) -> Response:
-        return JSONResponse({"status": "ok", "sie_calls": store.calls.count})
+        with store.calls.lock:
+            counts, failures = dict(store.calls.count), list(store.calls.failures)
+        return JSONResponse({"status": "ok", "sie_calls": counts, "sie_failures": len(failures)})
 
     return server
 
@@ -454,7 +480,7 @@ def require_token(app: ASGIApp, token: str) -> ASGIApp:
     expected = f"Bearer {token}".encode()
 
     async def guarded(scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and scope.get("path") != "/healthz":
+        if scope["type"] != "lifespan" and scope.get("path") != "/healthz":
             given = dict(scope.get("headers", [])).get(b"authorization", b"")
             if not secrets.compare_digest(given, expected):
                 await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -19,7 +20,8 @@ ERROR_CHARS = 200
 
 
 class SIEStopped(Exception):
-    """SIE refused a call in a way that would fail every call. The run stops."""
+    """SIE refused a call in a way that would fail every call. The server returns it as a tool
+    error starting "SIE refused", and recipe.py stops the run when it sees one."""
 
 
 class CallFailed(Exception):
@@ -39,7 +41,8 @@ def jsonable(value: Any) -> Any:
 
 
 def is_fatal(error: SIEError) -> bool:
-    """A refusal that fails every call the same way: a bad key, no credits, an unknown model.
+    """A refusal that fails every call the same way: a bad key, no credits, an unknown model, or any
+    other 4xx refusal.
 
     A rate limit, an over-long input, a timeout, a lost connection, a model still loading and a
     5xx are passing or per-item failures.
@@ -57,10 +60,12 @@ def short(error: SIEError) -> str:
 
 @dataclass
 class Calls:
-    """Every SIE call the run made, and the failures among them."""
+    """Every SIE call the run made, and the failures among them. The server runs tools on worker
+    threads, so the counts are updated under a lock."""
 
     count: dict[str, int] = field(default_factory=dict)  # model -> calls
     failures: list[str] = field(default_factory=list)
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
     @property
     def total(self) -> int:
@@ -70,7 +75,8 @@ class Calls:
         self, model: str, work: Callable[[], Any], valid: Callable[[Any], bool], expected: str
     ) -> Any:
         """Run one SIE call and return its reply, which `valid` must accept."""
-        self.count[model] = self.count.get(model, 0) + 1
+        with self.lock:
+            self.count[model] = self.count.get(model, 0) + 1
         try:
             reply = jsonable(work())
         except SIEError as error:
@@ -79,9 +85,11 @@ class Calls:
                     f"SIE refused the call to {model}, {short(error)}. Check SIE_API_KEY, "
                     "SIE_BASE_URL, the model name in rules.yaml and your SIE account."
                 ) from error
-            self.failures.append(f"{model}: {short(error)}")
+            with self.lock:
+                self.failures.append(f"{model}: {short(error)}")
             raise CallFailed(f"the SIE call failed: {short(error)}") from error
         if not valid(reply):
-            self.failures.append(f"{model}: replied without {expected}")
+            with self.lock:
+                self.failures.append(f"{model}: replied without {expected}")
             raise CallFailed(f"{model} replied without {expected}")
         return reply
