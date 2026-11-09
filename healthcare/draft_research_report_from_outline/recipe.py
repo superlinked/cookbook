@@ -1,31 +1,36 @@
-"""Draft a research note from an analyst's outline with open models, with checked citations.
+"""Draft an internal research report from a scientist's outline with open models, with checked
+citations to the company's own reports and to PubMed.
 
-Use case:  A first draft of a client research note from the analyst's outline, written by
-           open-weight models whose licence puts no conditions on the output, with a citation
-           behind every fact it can find one for and a record of which sentences the model wrote.
-Who:       An analyst at a research firm whose reports are its product, and which wants to train
-           its own models on them one day: no provider terms on the text, no provider watermark in
-           it, and a record of what a model drafted.
-Input:     data/outline.md: the note's title, a ## heading per section and the analyst's bullets.
-SIE pipeline, per section:
-           chat_completions Qwen/Qwen3.8-27B-FP8  a few short search queries
-           (Python)                              hold back a query that copies the outline;
-                                                 search Wikipedia, read the articles, split them
-                                                 into passages, keep each revision id
-           encode   Qwen/Qwen3-Embedding-4B      embed the passages and each bullet
-           score    Qwen/Qwen3-Reranker-4B       rerank the nearest passages against each bullet
+Use case:  A first draft of an internal research report from the scientist's outline, written by
+           open-weight models, citing the company's own reports and public abstracts, with a
+           record of which sentences the model wrote.
+Who:       A research team at a biotech company whose unpublished results must stay in-house, and
+           which plans to fine-tune its own research agents on its internal papers.
+Input:     data/outline.md (the report's title, a ## heading per section and the bullets) and
+           data/papers/ (the internal reports, one Markdown file each).
+SIE pipeline:
+           encode   Qwen/Qwen3-Embedding-4B      embed the internal reports' passages, once
+           per section:
+           chat_completions Qwen/Qwen3.8-27B-FP8  a few short PubMed queries
+           (Python)                              hold back a query that copies the outline or
+                                                 names anything internal; search PubMed and read
+                                                 the abstracts
+           encode   Qwen/Qwen3-Embedding-4B      embed the abstracts and each bullet
+           score    Qwen/Qwen3-Reranker-4B       rerank the nearest internal and public passages
+                                                 against each bullet
            chat_completions Qwen/Qwen3.8-27B-FP8  the draft, sentence by sentence, each with the
                                                  bullet it came from and its citations
            (Python)                              a citation must name a passage the model was
                                                  given and quote it word for word; every bullet
                                                  must be in the draft
-Output:    runs/<time>/note.md (the draft and its references), review.md (what to check first,
-           then where every sentence came from), queries.md (everything sent to Wikipedia) and
-           run.json.
-Run using: SIE Serverless, or SIE Cluster or SIE Local with SIE_BASE_URL.
+Output:    runs/<time>/report.md (the draft and its references), review.md (what to check first,
+           then where every sentence came from), queries.md (everything sent to PubMed, and what
+           was held back) and run.json.
+Run using: SIE Cluster or SIE Local with SIE_BASE_URL to keep everything in-house, or SIE
+           Serverless.
 
     uv run recipe.py
-    uv run recipe.py --outline my_note.md
+    uv run recipe.py --outline my_report.md --papers ~/our-reports
 """
 
 from __future__ import annotations
@@ -44,14 +49,15 @@ from typing import Any, cast
 import numpy as np
 import yaml
 from dotenv import load_dotenv
+from pubmed import Paper, PubMed, SearchFailed
 from sie_calls import WAIT_S, CallFailed, Calls, SIEStopped
 from sie_sdk import SIEClient
 from sie_sdk.types import Item
-from wikipedia import Article, SearchFailed, Wikipedia
 
 ROOT = Path(__file__).resolve().parent
 RULES_PATH = ROOT / "rules.yaml"
 OUTLINE_PATH = ROOT / "data" / "outline.md"
+PAPERS_DIR = ROOT / "data" / "papers"
 RUNS_DIR = ROOT / "runs"
 EMBED_BATCH = 32
 
@@ -161,54 +167,54 @@ def parse_outline(text: str) -> Outline:
     sections = [section for section in sections if section.bullets]
     if not sections:
         raise SystemExit("Stopped: the outline has no `## Section` with `- bullet` lines.")
-    return Outline(title or "Untitled note", sections)
+    return Outline(title or "Untitled report", sections)
 
 
-# --- Passages from Wikipedia -----------------------------------------------------------------
+# --- Sources and passages ------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Source:
+    kind: str  # "internal" or "pubmed"
+    ident: str  # the report id, or the PMID
+    title: str
+    detail: str  # the report's date, or the journal and year
+    url: str = ""
 
 
 @dataclass(frozen=True)
 class Passage:
-    title: str
-    revision: int
+    source: Source
     heading: str
     text: str
 
     @property
-    def key(self) -> tuple[str, int, str]:
-        return (self.title, self.revision, self.text[:80])
+    def key(self) -> tuple[str, str, str]:
+        return (self.source.kind, self.source.ident, self.text[:80])
 
 
-HEADING = re.compile(r"^(={2,})\s*(.+?)\s*\1\s*$")
-
-
-def split_article(article: Article, rules: dict[str, Any]) -> list[Passage]:
-    """An article's paragraphs, packed into passages of up to max_words words. Sections that
-    only list other pages are skipped."""
+def split_text(
+    source: Source, parts: list[tuple[str, str]], rules: dict[str, Any]
+) -> list[Passage]:
+    """(heading, paragraph) pairs, packed into passages of up to max_words words. Paragraphs
+    under min_words are dropped, and one longer than max_words is cut into pieces."""
     settings = rules["passages"]
-    skip = {name.lower() for name in rules["search"]["skip_headings"]}
     passages: list[Passage] = []
-    heading, skipping = "", False
+    heading = ""
     buffer: list[str] = []
 
     def flush() -> None:
         if buffer:
-            passages.append(Passage(article.title, article.revision, heading, " ".join(buffer)))
+            passages.append(Passage(source, heading, " ".join(buffer)))
         buffer.clear()
 
-    for line in article.text.splitlines():
-        match = HEADING.match(line.strip())
-        if match:
+    for part_heading, paragraph in parts:
+        if part_heading != heading:
             flush()
-            level, name = len(match.group(1)), match.group(2)
-            if level == 2:
-                skipping = name.lower() in skip
-            heading = name
+            heading = part_heading
+        words = paragraph.split()
+        if len(words) < settings["min_words"]:
             continue
-        words = line.split()
-        if skipping or len(words) < settings["min_words"]:
-            continue
-        # A paragraph longer than max_words is cut into pieces of max_words.
         for start in range(0, len(words), settings["max_words"]):
             piece = words[start : start + settings["max_words"]]
             if buffer and len(" ".join(buffer).split()) + len(piece) > settings["max_words"]:
@@ -218,12 +224,54 @@ def split_article(article: Article, rules: dict[str, Any]) -> list[Passage]:
     return passages
 
 
+def read_report(text: str) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    """An internal report: front matter (id, date, title), then `## Heading` sections of
+    paragraphs separated by blank lines."""
+    meta: dict[str, Any] = {}
+    if text.startswith("---"):
+        _, front, text = text.split("---", 2)
+        meta = yaml.safe_load(front) or {}
+    parts: list[tuple[str, str]] = []
+    heading, lines = "", []
+    for line in [*text.splitlines(), ""]:
+        if line.startswith("#"):
+            heading = line.lstrip("#").strip()
+        elif line.strip():
+            lines.append(line.strip())
+            continue
+        if lines:
+            parts.append((heading, " ".join(lines)))
+            lines = []
+    return meta, parts
+
+
+def internal_passages(folder: Path, rules: dict[str, Any]) -> list[Passage]:
+    passages = []
+    for path in sorted(folder.glob("*.md")):
+        meta, parts = read_report(path.read_text(encoding="utf-8"))
+        source = Source(
+            "internal",
+            str(meta.get("id", path.stem)),
+            str(meta.get("title", path.stem)),
+            str(meta.get("date", "")),
+        )
+        passages += split_text(source, parts, rules)
+    return passages
+
+
+def paper_passages(paper: Paper, rules: dict[str, Any]) -> list[Passage]:
+    detail = ", ".join(part for part in (paper.journal, paper.year) if part)
+    source = Source("pubmed", paper.pmid, paper.title, detail, paper.url)
+    return split_text(source, [(label.title(), text) for label, text in paper.paragraphs], rules)
+
+
 def clean_queries(
     reply: Any, bullets: list[str], rules: dict[str, Any]
 ) -> tuple[list[str], list[str]]:
     """The queries to send, and the ones held back. At most queries_per_section short queries,
     with duplicates and empty ones dropped. A query that copies more than max_shared_words words
-    in a row from a bullet is held back: the model was asked for the topic, not the outline."""
+    in a row from a bullet, or names anything on the never_send list, is held back: the model was
+    asked for the public topic, not the outline."""
     settings = rules["search"]
     queries: list[str] = []
     held_back: list[str] = []
@@ -234,7 +282,9 @@ def clean_queries(
         cleaned = " ".join(words)
         if not cleaned or cleaned.lower() in {q.lower() for q in queries + held_back}:
             continue
-        if any(shared_run(cleaned, b) > settings["max_shared_words"] for b in bullets):
+        copies = any(shared_run(cleaned, b) > settings["max_shared_words"] for b in bullets)
+        internal = any(term.lower() in cleaned.lower() for term in settings["never_send"])
+        if copies or internal:
             held_back.append(cleaned)
         else:
             queries.append(cleaned)
@@ -348,7 +398,7 @@ def rerank(
         lambda: client.score(
             model,
             Item(id="claim", text=claim),
-            [Item(id=n, text=f"{p.title}: {p.heading}\n{p.text}") for n, p in ids.items()],
+            [Item(id=n, text=f"{p.source.title}: {p.heading}\n{p.text}") for n, p in ids.items()],
             instruction=rules["retrieval"]["rerank_instruction"],
             provision_timeout_s=WAIT_S,
         ),
@@ -376,12 +426,19 @@ def queries_prompt(outline: Outline, section: Section, rules: dict[str, Any]) ->
     settings = rules["search"]
     bullets = "\n".join(f"- {escape(b)}" for b in section.bullets)
     return (
-        f"Note: {escape(outline.title)}\nSection: {escape(section.heading)}\n"
+        f"Report: {escape(outline.title)}\nSection: {escape(section.heading)}\n"
         f"<outline>\n{bullets}\n</outline>\n\n"
-        f"Write {settings['queries_per_section']} short encyclopedia search queries, each at most "
-        f"{settings['max_query_words']} words, that would find articles to back up these points. "
-        "Use the general topic, not the analyst's wording or views."
+        f"Write {settings['queries_per_section']} short PubMed search queries, each at most "
+        f"{settings['max_query_words']} words, that would find published papers on the public "
+        "science behind these points. Use general scientific terms. Never include internal code "
+        "names, compound names, report ids or results: these queries leave the company."
     )
+
+
+def label(source: Source) -> str:
+    if source.kind == "internal":
+        return f"internal report {source.ident}, {source.title}"
+    return f"PubMed {source.ident}, {source.title}"
 
 
 def draft_prompt(
@@ -389,13 +446,15 @@ def draft_prompt(
 ) -> str:
     bullets = "\n".join(f"{n}. {escape(b)}" for n, b in enumerate(section.bullets, start=1))
     passages = "\n".join(
-        f'<passage id="{pid}" source="{html.escape(p.title)}">\n{escape(p.text)}\n</passage>'
+        f'<passage id="{pid}" source="{html.escape(label(p.source))}">\n'
+        f"{escape(p.text)}\n</passage>"
         for pid, p in shown.items()
     )
     return (
-        f"Note: {escape(outline.title)}\nSection: {escape(section.heading)}\n\n"
-        f"The analyst's bullets, numbered:\n<outline>\n{bullets}\n</outline>\n\n"
-        f"Passages from Wikipedia:\n{passages or '(none found)'}\n\n"
+        f"Report: {escape(outline.title)}\nSection: {escape(section.heading)}\n\n"
+        f"The scientist's bullets, numbered:\n<outline>\n{bullets}\n</outline>\n\n"
+        f"Passages from our internal reports and from PubMed abstracts:\n"
+        f"{passages or '(none found)'}\n\n"
         "Write this section as one to three paragraphs. For every sentence give its text, the "
         "number of the bullet it comes from (0 if it only links two points), and its citations: "
         "each the id of a passage that supports it and the supporting words copied exactly from "
@@ -405,21 +464,6 @@ def draft_prompt(
 
 
 # --- Checks in Python --------------------------------------------------------------------------
-
-_MARKS: dict[int, str] = {
-    0x2018: "'",
-    0x2019: "'",
-    0x201C: "'",
-    0x201D: "'",
-    0x22: "'",
-    0x2013: "-",
-}
-
-
-def normalise(text: str) -> str:
-    """Lower case, one kind of quote mark, single spaces: how a model's copy can differ
-    harmlessly."""
-    return " ".join(text.translate(_MARKS).lower().split())
 
 
 @dataclass
@@ -447,6 +491,7 @@ class SectionDraft:
     bullets: list[str]
     queries: list[str] = field(default_factory=list)
     held_back: list[str] = field(default_factory=list)
+    pmids: list[str] = field(default_factory=list)
     shown: dict[str, Passage] = field(default_factory=dict)
     supported: dict[int, list[tuple[str, float]]] = field(default_factory=dict)
     paragraphs: list[list[Sentence]] = field(default_factory=list)
@@ -504,26 +549,46 @@ def check_draft(
     return paragraphs
 
 
+ELLIPSIS = re.compile(r"\.\.\.|\u2026|\[\.\.\.\]")
+
+
 def check_citation(
     raw: dict[str, Any], shown: dict[str, Passage], rules: dict[str, Any]
 ) -> Citation:
+    """A citation holds if it names a passage the model was given and its words are in that
+    passage, in the same order. Punctuation, case and spacing don't count, so "(PCSK9) binds"
+    matches "PCSK9 binds". A quote may skip words with "...": each piece must then be in the
+    passage, in order."""
     passage, quote = str(raw.get("passage", "")).strip(), str(raw.get("quote", "")).strip()
     if passage not in shown:
         return Citation(passage, quote, False, "names a passage the model wasn't given")
     # The model saw the passage escaped (&amp; for &), so it may copy it that way.
-    wanted = normalise(html.unescape(quote)).strip(" .,;:\"'")
+    pieces = [words_of(piece) for piece in ELLIPSIS.split(html.unescape(quote))]
+    pieces = [piece for piece in pieces if piece]
     settings = rules["write"]
-    if len(wanted.split()) < settings["min_quote_words"]:
+    count = sum(len(piece) for piece in pieces)
+    if count < settings["min_quote_words"] or any(len(p) < 2 for p in pieces[1:]):
         return Citation(passage, quote, False, "quotes too few words to check")
-    if len(wanted.split()) > settings["max_quote_words"]:
+    if count > settings["max_quote_words"]:
         return Citation(passage, quote, False, "quotes more words than allowed")
-    pattern = r"(?<!\w)" + re.escape(wanted) + r"(?!\w)"
-    if not re.search(pattern, normalise(shown[passage].text)):
-        return Citation(passage, quote, False, "the quote isn't in the passage")
+    text, start = words_of(html.unescape(shown[passage].text)), 0
+    for piece in pieces:
+        found = find_run(text, piece, start)
+        if found < 0:
+            return Citation(passage, quote, False, "the quote isn't in the passage")
+        start = found + len(piece)
     return Citation(passage, quote, True)
 
 
-# --- One section, then the note -----------------------------------------------------------
+def find_run(words: list[str], run: list[str], start: int) -> int:
+    """Where `run` starts in `words`, at or after `start`, or -1."""
+    for i in range(start, len(words) - len(run) + 1):
+        if words[i : i + len(run)] == run:
+            return i
+    return -1
+
+
+# --- One section, then the report -----------------------------------------------------------
 
 
 def draft_section(
@@ -531,8 +596,8 @@ def draft_section(
     section: Section,
     calls: Calls,
     client: SIEClient,
-    wiki: Wikipedia,
-    articles: dict[str, Article | None],
+    pubmed: PubMed,
+    library: Library,
     rules: dict[str, Any],
 ) -> SectionDraft:
     out = SectionDraft(section.heading, section.bullets)
@@ -543,29 +608,32 @@ def draft_section(
         )
         out.queries, out.held_back = clean_queries(reply, section.bullets, rules)
         if not out.queries:
-            out.add_problem("the model wrote no search query that could be sent")
-        passages: list[Passage] = []
-        seen: set[tuple[str, int, str]] = set()
+            out.add_problem("the model wrote no PubMed query that could be sent")
+        public: list[Passage] = []
         for query in out.queries:
             try:
-                titles = wiki.search(query, search["results_per_query"])
+                pmids = pubmed.search(query, search["results_per_query"])
+                new = [pmid for pmid in pmids if pmid not in library.papers]
+                for paper in pubmed.papers(new):
+                    library.papers[paper.pmid] = paper
             except SearchFailed as error:
                 out.add_problem(str(error))
                 continue
-            for title in titles:
-                if title not in articles:
-                    try:
-                        articles[title] = wiki.article(title)
-                    except SearchFailed as error:  # not remembered, so a later query can retry
-                        out.add_problem(str(error))
-                        continue
-                article = articles[title]
-                for passage in split_article(article, rules) if article else []:
-                    if passage.key not in seen:
-                        seen.add(passage.key)
-                        passages.append(passage)
+            out.pmids += [pmid for pmid in pmids if pmid not in out.pmids]
+            for pmid in pmids:
+                found = library.papers.get(pmid)
+                public += paper_passages(found, rules) if found else []
+        public = list({p.key: p for p in public}.values())
+        passages = library.internal + public
         if passages:
-            vectors = embed(calls, client, rules, [p.text for p in passages], False)
+            vectors = library.internal_vectors
+            if public:
+                public_vectors = embed(calls, client, rules, [p.text for p in public], False)
+                vectors = (
+                    np.vstack([vectors, public_vectors])
+                    if len(library.internal)
+                    else public_vectors
+                )
             claims = embed(calls, client, rules, section.bullets, True)
             kept: list[list[tuple[Passage, float]]] = []
             for bullet, claim in zip(section.bullets, claims, strict=True):
@@ -579,7 +647,7 @@ def draft_section(
                 for passage, score in good:
                     if passage.key in shown_keys:
                         out.supported.setdefault(number, []).append(
-                            (passage.title, round(score, 3))
+                            (label(passage.source), round(score, 3))
                         )
         reply = chat_json(
             calls,
@@ -597,10 +665,19 @@ def draft_section(
     return out
 
 
+@dataclass
+class Library:
+    """The internal reports' passages and vectors, embedded once, and every abstract read."""
+
+    internal: list[Passage]
+    internal_vectors: Any
+    papers: dict[str, Paper] = field(default_factory=dict)
+
+
 def pick_passages(kept: list[list[tuple[Passage, float]]], limit: int) -> dict[str, Passage]:
     """At most `limit` passages, taking each bullet's best first, then each one's second, so
     one bullet's sources can't crowd out another's."""
-    chosen: dict[tuple[str, int, str], Passage] = {}
+    chosen: dict[tuple[str, str, str], Passage] = {}
     for rank in range(max((len(good) for good in kept), default=0)):
         for good in kept:
             if rank < len(good) and len(chosen) < limit:
@@ -608,18 +685,23 @@ def pick_passages(kept: list[list[tuple[Passage, float]]], limit: int) -> dict[s
     return {f"P{n}": passage for n, passage in enumerate(chosen.values(), 1)}
 
 
-def references(drafts: list[SectionDraft]) -> dict[tuple[str, int], int]:
-    """A number for each article revision the draft cites, in order of first citation."""
-    numbers: dict[tuple[str, int], int] = {}
+def references(drafts: list[SectionDraft]) -> dict[Source, int]:
+    """A number for each source the draft cites, in order of first citation."""
+    numbers: dict[Source, int] = {}
     for draft in drafts:
         for sentence in draft.sentences():
             for citation in sentence.cited:
-                passage = draft.shown[citation.passage]
-                numbers.setdefault((passage.title, passage.revision), len(numbers) + 1)
+                numbers.setdefault(draft.shown[citation.passage].source, len(numbers) + 1)
     return numbers
 
 
-def note_markdown(outline: Outline, drafts: list[SectionDraft], fetched: str) -> str:
+def reference_line(source: Source) -> str:
+    if source.kind == "internal":
+        return f'Internal report {source.ident}, "{source.title}", {source.detail}.'
+    return f'"{source.title}" {source.detail}. PMID {source.ident}. {source.url}'
+
+
+def report_markdown(outline: Outline, drafts: list[SectionDraft]) -> str:
     numbers = references(drafts)
     lines = [f"# {outline.title}", ""]
     for draft in drafts:
@@ -630,26 +712,13 @@ def note_markdown(outline: Outline, drafts: list[SectionDraft], fetched: str) ->
         for paragraph in draft.paragraphs:
             parts = []
             for sentence in paragraph:
-                marks = sorted(
-                    {
-                        numbers[(draft.shown[c.passage].title, draft.shown[c.passage].revision)]
-                        for c in sentence.cited
-                    }
-                )
+                marks = sorted({numbers[draft.shown[c.passage].source] for c in sentence.cited})
                 parts.append(inert(sentence.text) + "".join(f" [{n}]" for n in marks))
             lines += [" ".join(parts), ""]
     if numbers:
         lines += ["## References", ""]
-        for (title, revision), number in numbers.items():
-            url = f"https://en.wikipedia.org/w/index.php?oldid={revision}"
-            lines.append(
-                f'{number}. Wikipedia, "{title}", revision {revision}, read {fetched}. {url}'
-            )
-        lines += [
-            "",
-            "Wikipedia text is under CC BY-SA 4.0. Quoting it needs attribution, as above.",
-            "",
-        ]
+        lines += [f"{number}. {reference_line(source)}" for source, number in numbers.items()]
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -661,7 +730,7 @@ def review_markdown(drafts: list[SectionDraft]) -> str:
         "## Where every sentence came from",
         "",
         "The model drafted every sentence below. Edit what you want; keep this record of what a "
-        "model wrote, for disclosure and for knowing what you train on later.",
+        "model wrote, for disclosure and for knowing what you fine-tune on later.",
         "",
     ]
     for draft in drafts:
@@ -669,7 +738,7 @@ def review_markdown(drafts: list[SectionDraft]) -> str:
         lines.append("| --- | --- | --- |")
         for sentence in draft.sentences():
             sources = "; ".join(
-                f'{draft.shown[c.passage].title}: "{c.quote}"' for c in sentence.cited
+                f'{label(draft.shown[c.passage].source)}: "{c.quote}"' for c in sentence.cited
             )
             bullet = str(sentence.bullet) if sentence.bullet else "none"
             lines.append(f"| {cell(sentence.text)} | {bullet} | {cell(sources) or 'none'} |")
@@ -678,7 +747,7 @@ def review_markdown(drafts: list[SectionDraft]) -> str:
 
 
 def section_flags(draft: SectionDraft) -> list[str]:
-    """One line per thing the analyst should look at in this section."""
+    """One line per thing the scientist should look at in this section."""
     at = f"- **{draft.heading}**"
     flags = [
         f'{at}, bullet {n}: left out of the draft: "{draft.bullets[n - 1]}"'
@@ -725,19 +794,23 @@ def cell(text: str) -> str:
     return inert(text).replace("|", "\\|")
 
 
-def queries_markdown(drafts: list[SectionDraft], articles: dict[str, Article | None]) -> str:
-    lines = ["# What this run sent to Wikipedia", "", "## Search queries", ""]
+def queries_markdown(drafts: list[SectionDraft], library: Library) -> str:
+    lines = ["# What this run sent to PubMed", "", "## Search queries", ""]
     for draft in drafts:
         for query in draft.queries:
             lines.append(f'- {draft.heading}: "{query}"')
     held = [(d.heading, q) for d in drafts for q in d.held_back]
     if held:
-        lines += ["", "## Held back, not sent: they copied the outline's words", ""]
+        lines += [
+            "",
+            "## Held back, not sent: they copied the outline or named something internal",
+            "",
+        ]
         lines += [f'- {heading}: "{query}"' for heading, query in held]
-    lines += ["", "## Articles read", ""]
-    for title, article in articles.items():
-        found = f", revision {article.revision}" if article else ", no such article"
-        lines.append(f"- {title}{found}")
+    lines += ["", "## Abstracts read", ""]
+    for pmid in dict.fromkeys(pmid for d in drafts for pmid in d.pmids):
+        paper = library.papers.get(pmid)
+        lines.append(f"- PMID {pmid}" + (f": {paper.title}" if paper else ", no abstract"))
     return "\n".join(lines) + "\n"
 
 
@@ -746,22 +819,24 @@ def run(args: argparse.Namespace) -> None:
     outline = parse_outline(args.outline.read_text(encoding="utf-8"))
     client, calls = make_client(), Calls()
     search = rules["search"]
-    wiki = Wikipedia(search["api"], search["user_agent"], search["timeout_s"])
-    articles: dict[str, Article | None] = {}
+    pubmed = PubMed(search["api"], search["user_agent"], search["timeout_s"])
     started = time.monotonic()
-    fetched = datetime.now(UTC).strftime("%Y-%m-%d")
+    internal = internal_passages(args.papers, rules)
+    vectors = embed(calls, client, rules, [p.text for p in internal], False) if internal else None
+    library = Library(internal, vectors)
+    print(f"Read {len(internal)} passages from {args.papers.name}/", flush=True)
     drafts = []
     for section in outline.sections:
         print(f"Drafting: {section.heading}", flush=True)
-        drafts.append(draft_section(outline, section, calls, client, wiki, articles, rules))
+        drafts.append(draft_section(outline, section, calls, client, pubmed, library, rules))
     seconds = time.monotonic() - started
 
     out_dir = RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "note.md").write_text(note_markdown(outline, drafts, fetched), encoding="utf-8")
+    (out_dir / "report.md").write_text(report_markdown(outline, drafts), encoding="utf-8")
     (out_dir / "review.md").write_text(review_markdown(drafts), encoding="utf-8")
-    (out_dir / "queries.md").write_text(queries_markdown(drafts, articles), encoding="utf-8")
-    summary = run_summary(drafts, calls, wiki, seconds)
+    (out_dir / "queries.md").write_text(queries_markdown(drafts, library), encoding="utf-8")
+    summary = run_summary(drafts, calls, pubmed, seconds)
     record = {"summary": summary, "sections": [asdict(d) for d in drafts]}
     (out_dir / "run.json").write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
     print("\n".join(f"{key}: {value}" for key, value in summary.items()))
@@ -769,7 +844,7 @@ def run(args: argparse.Namespace) -> None:
 
 
 def run_summary(
-    drafts: list[SectionDraft], calls: Calls, wiki: Wikipedia, seconds: float
+    drafts: list[SectionDraft], calls: Calls, pubmed: PubMed, seconds: float
 ) -> dict[str, Any]:
     sentences = [s for d in drafts for s in d.sentences()]
     bullets = sum(len(d.bullets) for d in drafts)
@@ -781,11 +856,19 @@ def run_summary(
         "Bullets left out": sum(len(d.missing_bullets()) for d in drafts),
         "Sentences": len(sentences),
         "Citations kept": sum(len(s.cited) for s in sentences),
+        "Citations to internal reports": sum(
+            1
+            for d in drafts
+            for s in d.sentences()
+            for c in s.cited
+            if d.shown[c.passage].source.kind == "internal"
+        ),
         "Citations dropped": sum(len(s.citations) - len(s.cited) for s in sentences),
         "Sentences from no bullet and no source": sum(
             1 for s in sentences if s.bullet == 0 and not s.cited
         ),
-        "Wikipedia requests": wiki.requests,
+        "PubMed queries held back": sum(len(d.held_back) for d in drafts),
+        "PubMed requests": pubmed.requests,
         "SIE calls": f"{calls.total}, of which {len(calls.failures)} failed",
         "SIE credits charged": round(sum(calls.credits.values()), 2),
         "Time": f"{seconds:.0f} s",
@@ -794,7 +877,8 @@ def run_summary(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--outline", type=Path, default=OUTLINE_PATH, help="the note's outline")
+    parser.add_argument("--outline", type=Path, default=OUTLINE_PATH, help="the report's outline")
+    parser.add_argument("--papers", type=Path, default=PAPERS_DIR, help="the internal reports")
     parser.add_argument("--rules", type=Path, default=RULES_PATH, help="another rules.yaml to try")
     args = parser.parse_args()
     try:

@@ -28,7 +28,7 @@ class SIEStopped(Exception):
 
 class CallFailed(Exception):
     """One SIE call failed or replied without what was expected. That section gets no draft: the
-    note shows its bullets instead, and the review says why."""
+    report shows its bullets instead, and the review says why."""
 
 
 def jsonable(value: Any) -> Any:

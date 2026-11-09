@@ -1,7 +1,7 @@
 [project]
-name = "sie-draft-research-note-from-outline"
+name = "sie-draft-research-report-from-outline"
 version = "0.1.0"
-description = "Draft a research note from an analyst's outline with open models on SIE, with citations checked against Wikipedia."
+description = "Draft an internal research report from a scientist's outline with open models on SIE, citing internal reports and PubMed."
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2",
