@@ -42,6 +42,8 @@ All the data in these recipes is synthetic or comes from public datasets named i
   recipe's `rules.yaml`, so trying one that answers in the same format is a one-line change.
 - **[SELF_HOSTING.md](SELF_HOSTING.md)** runs the recipes using SIE Cluster or SIE Local, with `pip install`, a
   `docker run` command or a Helm cluster. Set `SIE_BASE_URL` in `.env`; nothing else changes.
+- **[CHOOSING_WHERE_MODELS_RUN.md](CHOOSING_WHERE_MODELS_RUN.md)** helps you pick between SIE Serverless,
+  SIE Cluster and SIE Local, and says what you agree to when several models share one GPU.
 
 ## Recipes
 
