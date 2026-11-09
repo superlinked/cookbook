@@ -1,0 +1,14 @@
+[project]
+name = "sie-draft-book-chapter-from-outline"
+version = "0.1.0"
+description = "Draft a book chapter from your own outline with open models on SIE, with citations checked against Wikipedia."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.10.1",
+]
+
+[tool.uv]
+package = false
