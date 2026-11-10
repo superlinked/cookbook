@@ -45,6 +45,24 @@ All the data in these recipes is synthetic or comes from public datasets named i
 - **[CHOOSING_WHERE_MODELS_RUN.md](CHOOSING_WHERE_MODELS_RUN.md)** helps you pick between SIE Serverless,
   SIE Cluster and SIE Local, and says what you agree to when several models share one GPU.
 
+## Workflow or agent?
+
+Most recipes here are workflows: Python picks every step and calls a small model where a step needs
+one, so the same input takes the same steps, the cost per item is known up front, and a batch of
+thousands runs overnight with nobody watching. An agent is different: a large model picks its next step
+in a loop, calling tools as it goes. We use one only where a workflow can't do the job:
+
+- **Someone is at the screen, asking and replying.** Each question depends on the last answer, and
+  the person checks every answer before anything is sent.
+- **Nobody can write the steps down, but code can check the result.** The agent works out the steps;
+  a verifier it can't argue with, often the workflow itself, checks what it found.
+- **The workflow gets an input it wasn't built for.** It hands that case to an agent overnight,
+  code checks the agent's work, and the result goes to a person's queue in the morning.
+
+If you can write the steps down and the job repeats, build a workflow. If you can do neither, a
+person keeps the job. [When to use a workflow, and when an agent](https://superlinked.com/blog/agentic-vs-workflows-small-models?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) goes through the test on
+one bank's KYC work.
+
 ## Recipes
 
 Run time is a warm live run using SIE Serverless, on the date in each recipe's README (2 to 4 Nov 2026
@@ -139,14 +157,16 @@ recipe's SIE requests (one request can carry many items).
 ### Agentic
 
 These recipes also need an `ANTHROPIC_API_KEY`. Claude runs the agent loop, and its tools call models on SIE.
+The Shape column says which case from [Workflow or agent?](#workflow-or-agent) each one shows, and what
+checks the agent.
 
-| Recipe | Models | SIE calls | Run time |
-| --- | --- | --- | --- |
-| [Work out why a customer's bill jumped and draft the reply, with a source for every line](agentic/diagnose_high_bill_complaints) | Claude Opus 5.5 (Anthropic API), Qwen3-Embedding-4B, Qwen3-Reranker-4B, LightOnOCR-3-4B, pii-redact | 58 | 850 s |
-| [Group every log line in Python, embed only what's new, and hand the odd cases to an agent](agentic/flag_unusual_logs_and_investigate) | Claude Opus 5.5 (Anthropic API), Qwen3-Embedding-4B, Qwen3-Reranker-4B, pii-redact | 29 | 47 s |
-| [Fix a laptop that fails its security checks, with small models checking each step](agentic/fix_laptop_compliance_with_guarded_agent) | Claude Opus 5.5 (Anthropic API), Qwen3-Reranker-4B, LightOnOCR-3-4B, pii-redact, GLiNER2.5-Decide | 48 | 160 s |
-| [Send each coding task to the cheapest model that passes its tests](agentic/route_coding_tasks_to_open_models_first) | Claude Opus 5.5 (Anthropic API), GLiNER2.5-Decide, Qwen3.8-27B-FP8 | 78 | 398 s |
-| [Screen job applicants blind, with an MCP server that masks who they are](agentic/screen_applicants_through_mcp_server) | Claude Opus 5.5 (Anthropic API), LightOnOCR-3-4B, pii-redact, Qwen3-Reranker-4B | 30 | 117 s |
+| Recipe | Shape | Models | SIE calls | Run time |
+| --- | --- | --- | --- | --- |
+| [Work out why a customer's bill jumped and draft the reply, with a source for every line](agentic/diagnose_high_bill_complaints) | Steps unknown, result checked: Python traces every figure and quote in the draft and works out the credit; the rep reads it before it's sent | Claude Opus 5.5 (Anthropic API), Qwen3-Embedding-4B, Qwen3-Reranker-4B, LightOnOCR-3-4B, pii-redact | 58 | 850 s |
+| [Group every log line in Python, embed only what's new, and hand the odd cases to an agent](agentic/flag_unusual_logs_and_investigate) | A workflow hands off what it wasn't built for: Python checks every quote and figure in the agent's note; the on-call engineer decides | Claude Opus 5.5 (Anthropic API), Qwen3-Embedding-4B, Qwen3-Reranker-4B, pii-redact | 29 | 47 s |
+| [Fix a laptop that fails its security checks, with small models checking each step](agentic/fix_laptop_compliance_with_guarded_agent) | Steps unknown, result checked: small models check each step, Python checks the report | Claude Opus 5.5 (Anthropic API), Qwen3-Reranker-4B, LightOnOCR-3-4B, pii-redact, GLiNER2.5-Decide | 48 | 160 s |
+| [Send each coding task to the cheapest model that passes its tests](agentic/route_coding_tasks_to_open_models_first) | Steps unknown, result checked: the tests | Claude Opus 5.5 (Anthropic API), GLiNER2.5-Decide, Qwen3.8-27B-FP8 | 78 | 398 s |
+| [Screen job applicants blind, with an MCP server that masks who they are](agentic/screen_applicants_through_mcp_server) | Really a workflow (the first pass is the same every time) with Claude deciding; it's here to show masking enforced in an MCP server | Claude Opus 5.5 (Anthropic API), LightOnOCR-3-4B, pii-redact, Qwen3-Reranker-4B | 30 | 117 s |
 
 ### Personal agents
 

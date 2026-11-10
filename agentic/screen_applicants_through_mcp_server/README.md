@@ -9,6 +9,11 @@ behind every verdict. Python checks the quotes and the decision, and checks that
 The server is a plain MCP server over streamable HTTP. `recipe.py` drives it with the Claude Agent SDK, and a
 recruiter can connect the same server to their own Claude Code with two commands.
 
+By the cookbook's own test ([Workflow or agent?](../../README.md#workflow-or-agent)), this job is really a workflow: the
+first pass is the same three checks every time, so Python could run them in order and call a model only to read the
+lines. It's an agent here because what it shows is the MCP server, where the masking lives in code the agent can't go
+around. The same server would sit just as well behind a workflow.
+
 ## Background
 
 Fernhill Facility Services (made up) keeps HVAC, boilers and building systems running for office towers, schools and
