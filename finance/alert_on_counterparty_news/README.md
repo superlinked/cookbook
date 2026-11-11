@@ -8,6 +8,9 @@
 >
 > **Use the same pattern for:** news on the bank's critical suppliers, adverse media on corporate
 > clients, bond issuers in a portfolio.
+>
+> **And an agent for the odd jobs:** `agent.py` gives the stories the workflow puts in review to
+> Claude overnight, and a judge in code checks its findings before the credit analyst reads them.
 
 ## Background
 
@@ -368,6 +371,280 @@ for the next annual review, and nobody is pinged about them. The credit analyst 
 whole queue now reads only `review.csv` (here three rows) and settles which borrower, if any, each
 unclear name means.
 
+## When the workflow isn't enough: an agent
+
+The workflow above is right to hand some stories to a person. Its rules say don't guess for a name
+two borrowers share, never settle a name whose ticker belongs to someone else, and send an event
+score that lands between the alert and filed lines to review. In the
+[workflow-vs-agent post](https://superlinked.com/blog/agentic-vs-workflows-small-models?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-alert-on-counterparty-news),
+that's the branch called "When the Workflow Gets Something It Wasn't Built For": hand the
+unsure inputs to an agent overnight, put a judge after it, and send everything to the analyst's
+queue. It fits here because the next step on each review row depends on what you find (whose
+file mentions a parcel carrier? is that ticker a misprint?), so the steps can't be written down
+in advance, but part of the result can still be checked in code.
+
+`agent.py` sits next to `recipe.py`, runs the workflow unchanged, and gives Claude one job per
+article the workflow put in review.
+
+### The odd job
+
+Before the workflow, a credit analyst read the whole news queue every morning. Now they read
+only `review.csv`: on a real queue, a few rows a day out of hundreds of stories. Each row is a
+small investigation. For "Northwind loses its largest customer", the analyst opens both
+Northwind credit files, sees which one has a parcel carrier as its biggest customer, and
+forwards the story to that borrower's credit officer. For "Tolland Packaging (NYSE: NWEG)",
+they check whose ticker that is, decide the newsletter made a mistake, and file it. For a story
+where the event model was unsure, they read it, look at what the bank lends against, and decide
+whether the credit officer needs to see it today.
+
+About ten minutes a row, first thing, while the credit officers wait. The checks repeat, but
+the path through them depends on what the first file says. That reading is the part an agent
+can do overnight, so the analyst starts the morning confirming a finding instead of starting
+from the article. It shouldn't make the decision, though: a wrong link sends a missed-payment
+story to the wrong credit officer, and the workflow refused to guess for exactly that reason. The
+agent suggests, a judge in code checks what code can check, and the analyst decides.
+
+### Agent examples
+
+Two inputs come from `data/news.jsonl` and are the workflow's review rows above; the third is
+from a new file, `data/agent/news.jsonl`, run through the same workflow. All synthetic, written
+for this recipe, like the credit files the agent reads in `data/agent/`.
+
+**1. A name two borrowers share (N-04).**
+
+- **Input:** N-04: "Northwind has lost its largest customer, a national parcel carrier that
+  accounted for about a third of its revenue... Northwind declined to comment." Review reason:
+  "'Northwind' could be CP-1004 (Northwind Logistics Ltd) and CP-1005 (Northwind Energy Supply
+  Ltd)".
+- **What should happen:** the agent reads both credit files. CP-1004 lists "national parcel
+  carrier (about a third of revenue)" as its largest customer; CP-1005 is gas storage and
+  supplies regional utilities. It suggests CP-1004, then runs the workflow's event check with
+  the link fixed to CP-1004 and reports what comes back.
+- **Expected outcome:** `finding_checked`: suggest CP-1004, customer loss, with the score from the
+  workflow's own check and quotes from the article and CP-1004's file. The analyst confirms and
+  it goes to Kwame Adjei.
+
+**2. A ticker that belongs to someone else (N-07).**
+
+- **Input:** N-07: "Tolland Packaging (NYSE: NWEG) won a three-year contract to supply recycled
+  food trays..." Two review rows: NWEG is the parent ticker of CP-1005, and the headline's
+  mention is pulled into review with it.
+- **What should happen:** the agent looks up NWEG, reads Tolland's file (packaging, food trays,
+  parent listed as `LSE:TLPK`) and writes a note: the name and the business fit Tolland, the
+  ticker is probably a misprint, and it's good news either way. But the workflow's rule is that a
+  name with a ticker that disagrees is never settled automatically, and `rules.yaml` gives this
+  reason one allowed outcome.
+- **Expected outcome:** `left_for_person` on both rows, with the note. A suggested link here fails
+  the judge.
+
+**3. A warning the event model wasn't sure about (A-01).**
+
+- **Input:** A-01: "Ostley Marine Services is reviewing the future of its Brackwater repair yard
+  after a fall in orders, the company told staff on Monday. No decision has been made, and the
+  yard will keep working through the winter." Written so its score lands between the alert and
+  filed lines: a possible closure that hasn't happened.
+- **What should happen:** if the workflow puts it in review as an unclear event, the agent reads
+  Ostley's file: the Brackwater yard is "about 60% of revenue" and the term loan is "secured on
+  the Brackwater yard". It suggests an alert for plant closure, quoting both.
+- **Expected outcome:** `call_not_checked`: the judge confirms the quotes and that the event is on
+  the list, but rerunning the workflow's check gives the same unsure score, so code can't
+  confirm the alert is right. The analyst decides whether Teodor Brask sees it today.
+
+### How the agent works
+
+`agent.py` calls `recipe.run` over `data/news.jsonl` and `data/agent/news.jsonl`, takes every
+article with a row in the workflow's review queue (`recipe.review_rows`), and gives Claude
+(`claude-opus-5-5`) one job per article. Rows whose reason is a failed SIE call skip the agent:
+that's a retry, so `agent.py` reruns `recipe.run` on those articles once, and if a call fails
+again the job goes to the analyst as `sie_failed`.
+
+| Tool | What it runs | Returns |
+| --- | --- | --- |
+| `get_review_item` | a lookup in the workflow's own `Result` and `review_rows` | the article, the names it found, the sentences its event check read, each review row with its reason, candidates and allowed outcomes |
+| `lookup_counterparty` | `CounterpartyList.get`, `find_by_legal_name`, `find_by_alias`, `find_by_parent_ticker` | legal name, aliases, registration number, parent ticker, credit officer |
+| `read_credit_file` | `CreditFiles.read` over `data/agent/credit_files.csv` and `credit_notes.csv` | sector, business, sites, largest customers, facilities, security, dated notes |
+| `check_event_for` | the workflow's `sentences`, `context`, `ask_event` (GLiNER2.5-Decide on SIE) and `judge_event`, with the link fixed to one candidate | the eight probabilities and `alert`, `filed` or `review`, as the workflow would decide it |
+| `submit_finding` | ends the job | one item per review row (outcome, borrower, event and score, quotes with their source) and a note to the analyst |
+
+No new model: NuNER Zero runs inside the workflow, and GLiNER2.5-Decide runs in the workflow and
+in `check_event_for`. The credit file is a few fields per borrower, so a lookup finds it by ID; a
+search model would add a model to find what an ID already finds. Claude gets up to 8 tool calls
+per article, then `submit_finding`, and one revision if the judge finds a problem.
+
+Each review reason allows a fixed set of outcomes, in `rules.yaml` under `agent.review_reasons`:
+
+| Workflow's review reason | Agent may submit |
+| --- | --- |
+| shared alias ("could be CP-... and CP-...") | `suggest_link` (one of the listed candidates), `left_for_person` |
+| name and ticker disagree, or pulled in by one that does | `left_for_person` only |
+| longer company name ("Northwind Energy Services") | `suggest_not_a_borrower`, `left_for_person` |
+| event unclear | `suggest_alert` (an event from the list), `suggest_filed`, `left_for_person` |
+| a failed SIE call | not sent to the agent; the workflow retries |
+| anything else | `left_for_person` only |
+
+The judge is `check_finding`, plain Python after the loop:
+
+- The finding has exactly one item per review row. The row count comes from `review_rows`,
+  which the agent didn't write; N-07 has two.
+- The outcome is allowed for that row's reason, and the event, if any, is a key in `events`.
+- A suggested borrower is one of the candidates the workflow listed for that row.
+- The tool log shows `read_credit_file` for every candidate, not just the one picked: for N-04,
+  both Northwinds.
+- Every quote is word for word in its source: the article, or the credit file and notes of the
+  borrower it names. A suggestion needs one quote from the article and one from the suggested
+  borrower's file, so a quote from CP-1005's file can't back CP-1004.
+- For `suggest_link`, the judge runs the event check again itself with the link fixed, and the
+  agent's event and score must match it (within 0.02). The agent can't report an alert the
+  workflow wouldn't give.
+- Every figure in the note (60%, 4.0m, 0.88) appears in the article, a file, a tool result or the
+  judge's own check, and the note names the borrower it suggests.
+
+What the judge can't check, so the analyst still reads it: whether two true quotes describe the
+same company (N-04: the article never says "Logistics"); whether an in-between score should be
+an alert; whether the article itself is true; and whether the agent left out a fact from the
+file that points the other way. It can see that the agent read the file. It can't see whether
+the agent weighed all of it.
+
+That leaves the judge doing two different jobs. On a suggested link it checks the evidence and, through the event
+check with the link fixed, the call too: that's `finding_checked`. On an unclear event,
+rerunning the workflow's check returns the same unsure score, so it can check every quote and
+never the conclusion: that's `call_not_checked`. A job ends as one of `finding_checked`,
+`call_not_checked`, `left_for_person`, `check_failed`, `out_of_steps`, `no_finding` (Claude
+declined or never submitted) or `sie_failed`. A job only gets a status when the check behind
+that status passed, so a finding the judge never confirmed can't come out `finding_checked`. Every job goes to
+`runs/<timestamp>/agent/review_notes.md` and to a copy of `review.csv` with the agent's status,
+outcome and note added. The agent never writes to `alerts/` and never changes a loan file.
+
+```mermaid
+flowchart TD
+    Q["news queue<br/>data/news.jsonl +<br/>data/agent/news.jsonl"] --> W["recipe.run, unchanged<br/>NuNER Zero + GLiNER2.5-Decide on SIE"]
+    W -- "alert" --> AL["credit officer's alert file"]
+    W -- "filed" --> FI["credit file"]
+    W -- "review: SIE call failed" --> RT["recipe.run again<br/>on those articles, once"]
+    RT -- "still failing" --> R
+    W -- "review: shared name, ticker,<br/>longer name, event unclear" --> A["Claude, one job<br/>per article"]
+    A --> T1["get_review_item"]
+    A --> T2["lookup_counterparty<br/>read_credit_file"]
+    A --> T3["check_event_for<br/>GLiNER2.5-Decide on SIE"]
+    A --> S["submit_finding"]
+    S --> J{"check_finding in Python:<br/>allowed outcome? listed candidate?<br/>every file read? quotes word for word?<br/>event check agrees?"}
+    J -- "problems, once" --> A
+    J --> R["review_notes.md + review.csv<br/>the analyst's morning queue"]
+    R --> P["analyst confirms and forwards<br/>to the credit officer by hand"]
+```
+
+### Run the agent
+
+The agent needs an `ANTHROPIC_API_KEY` in `.env` as well as the SIE key, and the `agent`
+dependency group:
+
+```bash
+uv run --group agent agent.py               # every article in review
+uv run --group agent agent.py --article N-04
+uv run make_agent_data.py                   # rebuilds data/agent/ byte for byte
+```
+
+Each run writes `runs/<timestamp>/agent/`: `review_notes.md` and `review.csv` for the analyst,
+`jobs/<article>.json` with each job's rows, finding, judge checks and status,
+`transcripts/<article>.json`, and `cost.json` with Claude tokens and dollars and SIE calls per job.
+`selfcheck.py` covers the agent too, offline, with hand-written findings and Claude turns.
+
+### What the agent did
+
+We ran the agent 5 times on 10 Nov 2026 (UTC), using SIE Serverless for the models and
+`claude-opus-5-5` for the loop. The workflow's results were the same on every run, and the same
+as the live run above.
+
+### The agent examples
+
+**1. A name two borrowers share (N-04).**
+
+- **Expected outcome:** `finding_checked`: suggest CP-1004, customer loss, with the score from the
+  workflow's own check and quotes from the article and CP-1004's file.
+- **What came back:** `finding_checked` on 5 of 5 runs. Every run read both Northwind files,
+  suggested CP-1004, and reported customer loss 0.88; the judge's own check with the link fixed
+  said customer loss 0.88, an alert. The note from the first run, as the analyst reads it:
+
+  ```text
+  Suggest linking 'Northwind' to CP-1004 Northwind Logistics Ltd. The article says Northwind lost
+  a national parcel carrier worth about a third of revenue. CP-1004's file lists exactly that
+  customer at about a third of revenue, and the annual review notes the contract is up for
+  renewal in December 2026. CP-1005 Northwind Energy Supply sells gas to three regional
+  utilities, so it doesn't fit. Event check for CP-1004: customer_loss 0.88, status alert. The
+  story relies on unnamed sources, and Northwind declined to comment. The 2026-09-30 RM call said
+  talks were going well.
+  ```
+
+- **Verdict:** Pass. The last line is the relationship manager's note from September, which
+  points the other way. Nobody asked for it; it's the kind of thing the analyst wants first.
+
+**2. A ticker that belongs to someone else (N-07).**
+
+- **Expected outcome:** `left_for_person` on both rows, with the note.
+- **What came back:** `left_for_person` on both rows on 5 of 5 runs, with no revision. Every run
+  read Tolland's file and Northwind Energy Supply's, looked up NWEG, and said the ticker looks
+  like a misprint but that it's the analyst's call.
+- **Verdict:** Pass. It saves the analyst one ticker lookup, and doesn't take the decision.
+
+**3. A warning the event model wasn't sure about (A-01).**
+
+- **Expected outcome:** `call_not_checked`, with quotes from the article and Ostley's file.
+- **What came back:** it never reached the agent. On all 5 runs the workflow filed A-01 with
+  `none` at 0.91 and plant closure at 0.03, a confident "no warning", so there was no review row
+  to hand over.
+- **Verdict:** Miss. The article was written to land between the lines, and the event model was
+  quite sure it didn't. We didn't rewrite it or move a threshold to make it land there.
+
+10 of 15 jobs came out as expected over 5 runs each: N-04 and N-07 every time, A-01 never,
+because the workflow never sent it.
+
+**Where it works:** the name cases, which are the only review rows the committed data produces.
+On N-04 the agent did what the analyst would: read both files, picked the one with the parcel
+carrier, checked the event with the link fixed, and quoted the file. On N-07 it did the reading
+and stopped where the workflow's rule says to stop. Both jobs used 5 tool calls on every run
+(N-04: the item, both files, the event check, the finding; N-07: the item, two files, a ticker
+lookup, the finding), and neither needed a revision.
+
+**Where it fails:** A-01 shows a limit of the fallback itself. A story about a borrower
+"reviewing the future" of the yard its loan is secured on came out filed at `none` 0.91, so the
+agent never saw it and the analyst won't either. The branch that hands unsure scores to the
+agent didn't fire on the committed data or on the new article. The denial in `data/agent/`
+(A-02, "Pellridge says October supplier invoices were paid on time") was filed too, at `none`
+0.81. That's a fair reading of a denial, but it means the agent never saw it either, and
+whether a denial deserves a look stays with the event model. And the `call_not_checked` half
+of the judge has only been exercised by `selfcheck.py`, never by a live run.
+
+**Cost:** the workflow made 10 SIE calls for the 12 articles in both files, 52 SIE credits, about
+$0.0005 in all, or about $0.00004 an article, in about 2.4 seconds warm. An N-04 job cost about
+$0.016 in Claude tokens (11,342 input tokens, nearly all read from the prompt cache, and 676 to
+697 output), plus 2 GLiNER2.5-Decide calls (10 credits, the agent's event check and the judge's).
+An N-07 job cost $0.018 to $0.025 (about 8,600 input and 820 to 923 output tokens) and no SIE
+call. Each took 8 to 11 seconds. That's around 400 times the workflow's cost per article, and the
+first job of a cold run pays for writing the cache: $0.033 for N-04. It's fine here only
+because the review queue is a few rows a day.
+
+### What this adds to the workflow-vs-agent question
+
+- **The post's in-between example didn't fire.** The post describes the fallback with the event
+  score band, but every live review row here was a name case: "which Northwind?", not "is this a
+  warning?". The one article written for the band came out filed at `none` 0.91.
+- **The judge splits in two: evidence and the call.** For a suggested link, code checks the
+  quotes, the candidates, that every file was read, and the call itself, because the event check
+  with the link fixed has to agree. For an unclear score, rerunning the check returns the same
+  unsure score, so code can confirm every quote and never the conclusion. "A judge checks
+  whether the work holds up" means the sources hold up; the analyst still owns the call.
+- **Some workflow rules bind the agent too.** "A name with a ticker that disagrees is never
+  settled this way" is deliberate, so the judge allows only `left_for_person` there, and the agent
+  kept to it on 5 of 5 runs. The agent doesn't get a free hand with everything the workflow
+  couldn't settle:
+  each review reason has its own list of what it may do, and a failed SIE call goes back to the
+  workflow for a retry instead of to Claude.
+- **Code can check that the agent looked everywhere it should.** The finding has to cover every review row
+  (counted by the workflow) and the tool log has to show every candidate's file read. That says
+  nothing about a borrower the counterparty list doesn't have.
+- **The cost is lopsided, and the queue size is what makes it fine.** About $0.016 to $0.025 a job
+  against $0.00004 an article for the workflow.
+
 ## Potential improvements
 
 - **Your own counterparty list.** Replace the body of `CounterpartyList` with a query to your loan
@@ -388,7 +665,8 @@ unclear name means.
   `min_none_score` and `max_warning_when_filed` are starting points.
 - **Negation.** "Pellridge denies it missed a payment" is left to the event model to read; nothing
   in Python checks for it. A denial you add to your own data is worth a look before you trust
-  `filed` on it.
+  `filed` on it. A-02 in `data/agent/` ("Pellridge says October supplier invoices were
+  paid on time") came out filed at `none` 0.81 on the agent's runs.
 - **Registration numbers in the text.** Insolvency notices often print the company number. The
   list already has it; matching it in the text would give a link as firm as a ticker.
 
@@ -425,18 +703,25 @@ with one worker pool per image routes each model to its pool. See
 ## Data and licenses
 
 Everything in `data/` is synthetic, written for this recipe: the ten articles, the nine
-counterparties, every person and company name, the registration numbers and the tickers. The
+counterparties, every person and company name, the registration numbers and the tickers, and in
+`data/agent/` the two extra articles, the credit files and the notes. The
 URLs use `.example` domains, which never resolve.
 
 ## Files
 
 - `recipe.py`: the pipeline
 - `counterparties.py`: lookups in the counterparty list, over `data/counterparties.csv`
-- `selfcheck.py`: plain asserts on the lookups, the linking rules, the event limits and the SIE
-  failure rule, no SIE call (`uv run selfcheck.py`)
-- `rules.yaml`: model IDs, labels, exchanges, legal suffixes, the question and events, thresholds
+- `agent.py`: the overnight agent for the review queue, and its judge (`check_finding`)
+- `make_agent_data.py`: rebuilds `data/agent/`
+- `selfcheck.py`: plain asserts on the lookups, the linking rules, the event limits, the SIE
+  failure rule, and the agent's tools, judge and statuses, no SIE or Claude call
+  (`uv run selfcheck.py`)
+- `rules.yaml`: model IDs, labels, exchanges, legal suffixes, the question and events, thresholds, and the agent's model, limits, outcomes per review reason and prompt
 - `data/news.jsonl`: the ten sample articles
 - `data/counterparties.csv`: the nine borrowers
+- `data/agent/news.jsonl`: two more articles for the agent's runs (A-01, A-02)
+- `data/agent/credit_files.csv`, `data/agent/credit_notes.csv`: the credit file and dated notes
+  per borrower, read only by the agent
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
 See the SIE [information extraction](https://superlinked.com/information-extraction?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-alert-on-counterparty-news) task page.

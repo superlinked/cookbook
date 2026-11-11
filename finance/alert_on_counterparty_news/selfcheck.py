@@ -1,7 +1,9 @@
-"""Check the recipe's lookups, linking rules, event limits and SIE error rule offline.
+"""Check the recipe's lookups, linking rules, event limits and SIE error rule offline, and the
+agent's tools, judge and statuses.
 
-The checks use the committed data/, hand-written articles and hand-written stand-in replies
-from both models. Nothing here calls SIE or replays a recorded response.
+The checks use the committed data/, hand-written articles, hand-written stand-in replies from
+both models and hand-written stand-in agent findings and Claude turns. Nothing here calls SIE or
+Claude, or replays a recorded response.
 Run it with `uv run --frozen python selfcheck.py`; it exits non-zero if a check fails.
 """
 
@@ -17,6 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+import agent
 from counterparties import CounterpartyList
 from sie_sdk import SIEClient
 from sie_sdk.client.errors import (
@@ -613,6 +616,483 @@ def check_outputs() -> None:
     print("outputs: four finding statuses, one message per officer, review rows, CSV safe ok")
 
 
+# --- The agent: tools, judge and statuses ------------------------------------------------------
+
+FILES = agent.CreditFiles()
+LOSS = event(customer_loss=0.88, none=0.04)  # what the event check says for N-04 fixed to CP-1004
+
+
+def committed(article_id: str) -> recipe.Result:
+    """One committed article through the workflow, with stand-in tags like the live run's."""
+    articles = [json.loads(line) for line in recipe.NEWS_PATH.read_text().splitlines()]
+    picked = [a for a in articles if a["id"] == article_id]
+    replies = {"N-01": (ALERTING,), "N-09": (QUIET,)}.get(article_id, ())
+    results, _, _ = run(picked, StandIn(tags={"Tolland Packaging": "company"}, events=replies))
+    return results[article_id]
+
+
+def job(result: recipe.Result, *replies: Any, read: tuple[str, ...] = ()) -> agent.Job:
+    """A job on one workflow result; `replies` are the event checks' stand-in replies."""
+    rows = agent.review_items(result, CPS, RULES)
+    box = agent.Job(result, rows, CPS, FILES, RULES, StandIn(events=replies), recipe.CallLog())
+    for cp_id in read:
+        box.run("read_credit_file", {"counterparty_id": cp_id})
+    return box
+
+
+def fresh_for(box: agent.Job) -> Callable[[str], dict[str, Any] | None]:
+    """The judge's own event check, as answer() runs it."""
+
+    def fresh(cp_id: str) -> dict[str, Any] | None:
+        try:
+            return agent.event_check(box.client, box.calls, box.result, cp_id, CPS, RULES)
+        except agent.ToolError as error:
+            box.sie_failures.append(str(error))
+            return None
+
+    return fresh
+
+
+def judged(box: agent.Job, finding: dict[str, Any]) -> tuple[list[str], str]:
+    """The judge's problems and the job's status for one finding."""
+    problems, checks = agent.check_finding(finding, box, fresh_for(box))
+    return problems, agent.status_of(finding, problems, checks, box, "", False)
+
+
+def item(row: int = 1, outcome: str = "suggest_link", cp: str = "CP-1004", **kw: Any) -> Any:
+    found: dict[str, Any] = {
+        "row": row,
+        "outcome": outcome,
+        "counterparty_id": cp,
+        "event": "customer_loss",
+        "score": 0.88,
+        "statements": [
+            {"source": "article", "quote": "a national parcel carrier that accounted for about"},
+            {"source": "CP-1004", "quote": "national parcel carrier (about a third of revenue)"},
+        ],
+    }
+    found.update(kw)
+    return found
+
+
+GOOD_NOTE = (
+    "Suggest CP-1004 Northwind Logistics Ltd: its largest customer is a national parcel "
+    "carrier, about a third of revenue. CP-1005 supplies regional utilities. With the link "
+    "fixed the event check says customer_loss 0.88."
+)
+
+
+def has(problems: list[str], words: str) -> bool:
+    return any(words in problem for problem in problems)
+
+
+def check_agent_reasons() -> None:
+    n04, n07 = committed("N-04"), committed("N-07")
+    rows = agent.review_items(n04, CPS, RULES)
+    assert [(r.kind, r.candidates) for r in rows] == [("shared_alias", ["CP-1004", "CP-1005"])]
+    assert rows[0].allowed == ["suggest_link", "left_for_person"]
+    # N-07 has two rows, both counted from the workflow's review rows, both ticker conflicts:
+    # the agent may only leave them to the analyst.
+    rows = agent.review_items(n07, CPS, RULES)
+    assert [(r.kind, r.allowed) for r in rows] == [("ticker_conflict", ["left_for_person"])] * 2
+    for reason, kind in (
+        (
+            "event unclear: top warning plant_closure 0.31, none 0.40 (alert needs 0.50)",
+            "event_unclear",
+        ),
+        (
+            "'Northwind Energy Services' is a different name that contains the borrower name",
+            "longer_name",
+        ),
+        (
+            "window 1 was not read by the entity model: the SIE call failed: ServerError",
+            "sie_failed",
+        ),
+        ("event model: the SIE call failed: RateLimitError", "sie_failed"),
+        ("ticker written as LSE: NWEG, but the list has NYSE:NWEG for CP-1005", "ticker_conflict"),
+    ):
+        assert agent.reason_kind(reason, RULES)[0] == kind, (reason, kind)
+    # A reason the rules don't know allows only the person; a failed call goes to no agent.
+    assert agent.reason_kind("something new", RULES) == ("other", ["left_for_person"])
+    assert agent.reason_kind("the SIE call failed: x", RULES)[1] == []
+    # Every allowed outcome is one submit_finding accepts, and the status list is rules.yaml's.
+    allowed = {o for spec in RULES["agent"]["review_reasons"].values() for o in spec["allowed"]}
+    assert allowed <= set(agent.OUTCOMES), allowed
+    assert set(RULES["agent"]["statuses"]) == {
+        "finding_checked",
+        "call_not_checked",
+        "left_for_person",
+        "check_failed",
+        "out_of_steps",
+        "no_finding",
+        "sie_failed",
+    }
+    print("agent reasons: shared alias, ticker conflicts, unknown reasons and failed calls ok")
+
+
+def check_agent_event_check() -> None:
+    # A borrower the workflow linked: the agent's event check reads exactly what it read.
+    for article_id in ("N-01", "N-09"):
+        result = committed(article_id)
+        for e in result.events:
+            assert agent.event_text(result, e.counterparty_id, RULES)[0] == e.model_read
+    # N-04 with the link fixed to CP-1004 reads the sentences naming Northwind.
+    n04 = committed("N-04")
+    text, name = agent.event_text(n04, "CP-1004", RULES)
+    assert name == "Northwind", text
+    assert "Northwind has lost its largest customer" in text, text
+    box = job(n04, LOSS)
+    got = json.loads(box.run("check_event_for", {"counterparty_id": "CP-1004"}))
+    assert (got["status"], got["event"], got["score"]) == ("alert", "customer_loss", 0.88), got
+    # A borrower no mention lists is refused, not checked on some other text.
+    caught = raised(lambda: box.run("check_event_for", {"counterparty_id": "CP-1009"}))
+    assert isinstance(caught, agent.ToolError), caught
+    # A transient SIE failure is a tool error and marks the job for a person.
+    box = job(n04, ServerError("busy", status_code=503))
+    caught = raised(lambda: box.run("check_event_for", {"counterparty_id": "CP-1004"}))
+    assert isinstance(caught, agent.ToolError), caught
+    assert box.sie_failures, caught
+    # A refusal stops the whole run, as in the workflow.
+    box = job(n04, InsufficientCreditsError("no credits"))
+    caught = raised(lambda: box.run("check_event_for", {"counterparty_id": "CP-1004"}))
+    assert isinstance(caught, recipe.SIEStopped), caught
+    # The lookups.
+    looked = json.loads(
+        box.run("lookup_counterparty", {"counterparty_id": "", "name": "", "ticker": "NYSE:NWEG"})
+    )
+    assert [m["id"] for m in looked["matches"]] == ["CP-1005"], looked
+    caught = raised(
+        lambda: box.run(
+            "lookup_counterparty", {"counterparty_id": "CP-1", "name": "x", "ticker": ""}
+        )
+    )
+    assert isinstance(caught, agent.ToolError), caught
+    assert isinstance(raised(lambda: FILES.read("CP-9999")), agent.ToolError)
+    assert "Brackwater repair yard (about 60% of revenue)" in FILES.text("CP-1009")
+    print("agent event check: same text as the workflow, link fixed, SIE errors, lookups ok")
+
+
+def check_agent_judge() -> None:
+    n04 = committed("N-04")
+    both = ("CP-1004", "CP-1005")
+    # The finding the spec expects passes, and the judge's own event check confirms it.
+    problems, status = judged(job(n04, LOSS, read=both), {"items": [item()], "note": GOOD_NOTE})
+    assert problems == [], problems
+    assert status == "finding_checked", problems
+    # Adversarial findings: each must fail, so none can come out finding_checked.
+    cases: list[tuple[str, dict[str, Any], tuple[str, ...], str]] = [
+        (
+            "an invented quote",
+            item(
+                statements=[
+                    {"source": "article", "quote": "Northwind has lost its largest customer"},
+                    {
+                        "source": "CP-1004",
+                        "quote": "national parcel carrier (about half of revenue)",
+                    },
+                ]
+            ),
+            both,
+            "isn't word for word in CP-1004",
+        ),
+        (
+            "CP-1005's file quoted as CP-1004's",
+            item(
+                statements=[
+                    {"source": "article", "quote": "Northwind has lost its largest customer"},
+                    {"source": "CP-1004", "quote": "three regional utilities"},
+                ]
+            ),
+            both,
+            "isn't word for word in CP-1004",
+        ),
+        (
+            "only the other borrower's file backs the link",
+            item(
+                statements=[
+                    {"source": "article", "quote": "Northwind has lost its largest customer"},
+                    {"source": "CP-1005", "quote": "three regional utilities"},
+                ]
+            ),
+            both,
+            "needs a quote from CP-1004's credit file",
+        ),
+        (
+            "a quote stitched from two fields",
+            item(
+                statements=[
+                    {"source": "article", "quote": "Northwind has lost its largest customer"},
+                    {
+                        "source": "CP-1004",
+                        "quote": "national parcel carrier ... charge over the vehicle fleet",
+                    },
+                ]
+            ),
+            both,
+            "isn't word for word",
+        ),
+        ("a borrower the workflow didn't list", item(cp="CP-1009"), both, "not a candidate"),
+        ("only the favoured file read", item(), ("CP-1004",), "CP-1005 was never read"),
+        ("a stronger score than the check", item(score=0.95), both, "the event check says 0.88"),
+        ("a different event", item(event="plant_closure"), both, "says customer_loss 0.88"),
+        ("an alert on a name case", item(outcome="suggest_alert"), both, "not allowed"),
+        (
+            "a source that doesn't exist",
+            item(
+                statements=[
+                    {"source": "article", "quote": "Northwind has lost its largest customer"},
+                    {"source": "loan file", "quote": "national parcel carrier"},
+                ]
+            ),
+            both,
+            "doesn't exist",
+        ),
+    ]
+    for name, found, read, words in cases:
+        box = job(n04, LOSS, read=read)
+        problems, status = judged(box, {"items": [found], "note": GOOD_NOTE})
+        assert has(problems, words), (name, problems)
+        assert status == "check_failed", (name, problems)
+    # The note: a figure from nowhere, a note naming the other borrower, an empty note.
+    for note, words in (
+        (GOOD_NOTE + " It was 45% of revenue.", "45 in the note"),
+        (GOOD_NOTE + " See also CP-2001.", "2001 in the note"),
+        ("Suggest CP-1005 Northwind Energy Supply.", "doesn't name the suggested borrower CP-1004"),
+        ("  ", "note to the analyst is empty"),
+    ):
+        problems, _ = judged(job(n04, LOSS, read=both), {"items": [item()], "note": note})
+        assert has(problems, words), (note, problems)
+    # Rows: a missing one, an extra one, one twice.
+    for items, words in (
+        ([], "row 1 ("),
+        ([item(), item(row=2)], "row 2 isn't one"),
+        ([item(), item()], "more than one item"),
+    ):
+        problems, status = judged(
+            job(n04, LOSS, LOSS, read=both), {"items": items, "note": GOOD_NOTE}
+        )
+        assert has(problems, words), (words, problems)
+        assert status == "check_failed", (words, problems)
+    # A link whose event is still unclear with the link fixed: the evidence held, the call didn't.
+    unsure = event(customer_loss=0.40, none=0.35)
+    box = job(n04, unsure, read=both)
+    found = item(score=0.40)
+    problems, status = judged(box, {"items": [found], "note": GOOD_NOTE.replace("0.88", "0.40")})
+    assert problems == [], (problems, status)
+    assert status == "call_not_checked", (problems, status)
+    # The judge's own event check failed: a person reads it, never finding_checked.
+    box = job(n04, ServerError("busy", status_code=503), read=both)
+    problems, status = judged(box, {"items": [item()], "note": GOOD_NOTE})
+    assert status == "sie_failed", (problems, status)
+    print(f"agent judge: the expected N-04 finding passes; {len(cases) + 6} broken ones fail ok")
+
+
+def check_agent_ticker_rule() -> None:
+    n07 = committed("N-07")
+    note = "The ticker NWEG is CP-1005's parent; the business fits Tolland. Leave it to you."
+    left = {
+        "row": 1,
+        "outcome": "left_for_person",
+        "counterparty_id": "",
+        "event": "",
+        "score": None,
+        "statements": [{"source": "CP-1007", "quote": "recycled food trays and cartons"}],
+    }
+    both_rows = [left, {**left, "row": 2}]
+    problems, status = judged(job(n07, read=("CP-1007",)), {"items": both_rows, "note": note})
+    assert problems == [], problems
+    assert status == "left_for_person", problems
+    # Covering one row of two is caught: the row count comes from the workflow, not the agent.
+    problems, status = judged(job(n07, read=("CP-1007",)), {"items": [left], "note": note})
+    assert has(problems, "row 2 ("), problems
+    assert status == "check_failed", problems
+    # Settling the ticker conflict anyway fails, whichever borrower it picks.
+    link = item(
+        outcome="suggest_link",
+        cp="CP-1007",
+        event="none",
+        score=0.9,
+        statements=[
+            {"source": "article", "quote": "Tolland Packaging (NYSE: NWEG) won"},
+            {"source": "CP-1007", "quote": "recycled food trays and cartons"},
+        ],
+    )
+    for found, words in (
+        (link, "not allowed"),
+        ({**link, "counterparty_id": "CP-1005"}, "not a candidate"),
+    ):
+        box = job(n07, QUIET, QUIET, read=("CP-1007",))
+        finding = {"items": [found, {**found, "row": 2}], "note": note + " CP-1007 CP-1005"}
+        problems, status = judged(box, finding)
+        assert has(problems, words), (words, problems)
+        assert status == "check_failed", (words, problems)
+    print("agent ticker rule: only left_for_person, on both N-07 rows ok")
+
+
+def check_agent_unclear_event() -> None:
+    unsure = event(plant_closure=0.38, none=0.42)
+    result = one(
+        "Ostley Marine reviews yard",
+        "Ostley Marine Services is reviewing the future of its Brackwater repair yard.",
+        events=(unsure,),
+    )
+    assert result.status == "review", result.events
+    rows = agent.review_items(result, CPS, RULES)
+    assert [r.kind for r in rows] == ["event_unclear"], rows
+    alert = item(
+        outcome="suggest_alert",
+        cp="CP-1009",
+        event="plant_closure",
+        score=0.38,
+        statements=[
+            {"source": "article", "quote": "reviewing the future of its Brackwater repair yard"},
+            {"source": "CP-1009", "quote": "secured on the Brackwater yard"},
+        ],
+    )
+    note = "Suggest an alert for CP-1009: the Brackwater yard is about 60% of revenue."
+    # Every quote holds, so the evidence passes, but code can't confirm the call.
+    problems, status = judged(job(result, read=("CP-1009",)), {"items": [alert], "note": note})
+    assert problems == [], (problems, status)
+    assert status == "call_not_checked", (problems, status)
+    for found, words in (
+        ({**alert, "event": "none"}, "needs a warning event"),
+        ({**alert, "outcome": "suggest_filed"}, "needs the event 'none'"),
+    ):
+        problems, status = judged(job(result, read=("CP-1009",)), {"items": [found], "note": note})
+        assert has(problems, words), problems
+        assert status == "check_failed", problems
+    print("agent unclear event: evidence checked, the call left to the analyst ok")
+
+
+class Block:
+    """A stand-in content block from Claude: text or a tool call."""
+
+    def __init__(self, kind: str, **fields: Any) -> None:
+        self.type = kind
+        for key, value in fields.items():
+            setattr(self, key, value)
+
+
+class Usage:
+    input_tokens, output_tokens = 1000, 100
+    cache_read_input_tokens, cache_creation_input_tokens = 0, 0
+
+
+class Reply:
+    def __init__(self, stop: str, *content: Block) -> None:
+        self.stop_reason, self.content, self.usage = stop, list(content), Usage()
+
+
+class Claude:
+    """Stands in for the Anthropic client: returns the planned replies in order."""
+
+    def __init__(self, *replies: Reply) -> None:
+        self.replies = list(replies)
+        self.beta = self
+        self.messages = self
+
+    def create(self, **_: Any) -> Reply:
+        assert self.replies, "Claude was asked again and no reply was planned"
+        return self.replies.pop(0)
+
+
+def use(name: str, number: int, **inputs: Any) -> Block:
+    return Block("tool_use", name=name, id=f"t{number}", input=inputs)
+
+
+def check_agent_loop() -> None:
+    n04 = committed("N-04")
+    reads = [
+        use("read_credit_file", n, counterparty_id=c) for n, c in ((1, "CP-1004"), (2, "CP-1005"))
+    ]
+    wrong = {"items": [item(score=0.95)], "note": GOOD_NOTE}
+    right = {"items": [item()], "note": GOOD_NOTE}
+    # A finding the check sends back once, then a fixed one: accepted after one revision.
+    claude = Claude(
+        Reply("tool_use", *reads),
+        Reply("tool_use", use("submit_finding", 3, **wrong)),
+        Reply("tool_use", use("submit_finding", 4, **right)),
+    )
+    box = job(n04, LOSS, LOSS)
+    result = agent.run_agent(claude, box, fresh_for(box))
+    assert result.revisions == 1, result.first_review
+    assert has(result.first_review, "0.88"), result.first_review
+    status = agent.status_of(result.finding, result.problems, result.checks, box, "", False)
+    assert status == "finding_checked", (status, result)
+    assert result.tool_calls == 4, (status, result)
+    # A refusal is no finding, never read as the agent's work failing the check.
+    box = job(n04)
+    result = agent.run_agent(Claude(Reply("refusal")), box, fresh_for(box))
+    status = agent.status_of(
+        result.finding, result.problems, result.checks, box, result.stopped, result.ran_out
+    )
+    assert status == "no_finding", (status, result.stopped)
+    assert "declined" in result.stopped, (status, result.stopped)
+    # Past the tool-call limit: out of steps, even if a finding follows.
+    many = [use("get_review_item", n) for n in range(RULES["agent"]["max_lookups"] + 1)]
+    box = job(n04, LOSS, read=("CP-1004", "CP-1005"))
+    result = agent.run_agent(
+        Claude(Reply("tool_use", *many), Reply("tool_use", use("submit_finding", 99, **right))),
+        box,
+        fresh_for(box),
+    )
+    status = agent.status_of(
+        result.finding, result.problems, result.checks, box, result.stopped, result.ran_out
+    )
+    assert status == "out_of_steps", status
+    # Claude stops talking without a finding: asked once, then no_finding.
+    box = job(n04)
+    result = agent.run_agent(
+        Claude(Reply("end_turn", Block("text", text="done")), Reply("end_turn")),
+        box,
+        fresh_for(box),
+    )
+    assert result.finding is None
+    assert "without calling submit_finding" in result.stopped
+    print("agent loop: one revision, refusal, tool limit, no finding ok")
+
+
+def check_agent_outputs() -> None:
+    n04 = committed("N-04")
+    risky = {"items": [item()], "note": "=HYPERLINK(1) " + GOOD_NOTE}
+    record = {
+        "article_id": "N-04",
+        "headline": n04.article.headline,
+        "status": "finding_checked",
+        "rows": [],
+        "finding": risky,
+        "problems": [],
+        "first_review": [],
+        "judge_event_checks": {},
+        "sie_failures": [],
+        "stopped": "",
+        "cost": {"claude_usd": 0.0},
+        "transcript": [],
+    }
+    folder = Path(tempfile.mkdtemp())
+    agent.write_outputs(folder, [n04], [record], {"articles": 1})
+    written = sorted(p.name for p in folder.iterdir())
+    assert written == ["agent"], written  # nothing next to it: no alerts/ for a credit officer
+    rows = list(csv.DictReader((folder / "agent" / "review.csv").open(encoding="utf-8")))
+    assert [(r["agent_status"], r["agent_outcome"]) for r in rows] == [
+        ("finding_checked", "suggest_link CP-1004")
+    ], rows
+    assert rows[0]["agent_note"].startswith("'="), rows[0]["agent_note"]
+    assert (
+        agent.claude_usd(
+            agent.AgentResult(
+                input_tokens=1, cache_write_tokens=2, cache_read_tokens=3, output_tokens=4
+            ),
+            {"input": 1e6, "cache_write": 1e7, "cache_read": 1e8, "output": 1e9},
+        )
+        == 1 + 20 + 300 + 4000
+    )
+    counting = agent.CountingClient(StandIn(events=(dict(LOSS, request={"credits_debited": 4}),)))
+    counting.extract(DECIDE, {"id": "x", "text": "t"}, output_schema={"event": {"type": "choice"}})
+    assert (counting.calls, counting.credits) == (1, 4.0)
+    print("agent outputs: the analyst's queue only, CSV safe, cost counted ok")
+
+
 if __name__ == "__main__":
     check_data()
     check_examples()
@@ -624,3 +1104,10 @@ if __name__ == "__main__":
     check_replies()
     check_sie_failure()
     check_outputs()
+    check_agent_reasons()
+    check_agent_event_check()
+    check_agent_judge()
+    check_agent_ticker_rule()
+    check_agent_unclear_event()
+    check_agent_loop()
+    check_agent_outputs()
