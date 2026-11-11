@@ -8,9 +8,11 @@ response. Run it with `uv run --frozen python selfcheck.py`; it exits non-zero i
 from __future__ import annotations
 
 import contextlib
+import copy
 import csv
 import dataclasses
 import io
+import json
 import re
 import tempfile
 from collections.abc import Callable
@@ -759,6 +761,414 @@ def check_outputs() -> None:
     print("outputs: formula-looking cells are quoted ok")
 
 
+# --- The agent (agent.py): every check in code, with hand-written stand-in agent output ----------
+# agent.py imports anthropic only inside the functions that call Claude, so these run without the
+# agent dependency group and never call Claude or SIE.
+
+LOWFIELD, CORRIN, ORLAITH = "NDA-2026-0447", "NDA-2026-0471", "NDA-2026-0468"
+TAIL = (
+    "The Recipient's obligations under this Agreement shall remain in effect for four (4) years "
+    "from the date of this Agreement, and, for any trade secret, for so long as it remains a "
+    "trade secret."
+)
+FLAT_FOUR = (
+    "The Recipient's obligations under this Agreement shall remain in effect for four (4) years "
+    "from the date of this Agreement."
+)
+ONE_YEAR = (
+    "The obligations of confidentiality in this Agreement survive for one (1) year after this "
+    "Agreement expires or is terminated."
+)
+SINGAPORE = (
+    "This undertaking shall be governed by and construed in accordance with the laws of the "
+    "Republic of Singapore."
+)
+
+
+def box(request: str, **options: Any) -> Any:
+    import agent
+
+    record = CLM.get_request(request)
+    assert record is not None
+    client = StandIn(**options)
+    return agent.Box(cast(SIEClient, client), recipe.Calls(), RULES, CLM, record)
+
+
+def reviewed(request: str, *lawyer: str) -> Any:
+    """A conversation's tools after review_nda, as Claude would have called them."""
+    b = box(request)
+    b.lawyer.extend(lawyer)
+    b.run("review_nda", {"request": request})
+    return b
+
+
+def check_agent_leaves_workflow_alone() -> None:
+    """The fallback and the agent: block are read only by agent.py: the workflow's results on the
+    committed data are the same with and without them."""
+    bare = copy.deepcopy(RULES)
+    bare.pop("agent")
+    for spec in bare["positions"].values():
+        spec.pop("fallback", None)
+    results = []
+    for rules in (RULES, bare):
+        with contextlib.redirect_stdout(io.StringIO()):
+            reviews, _ = recipe.run(cast(SIEClient, StandIn()), rules, CLM)
+        results.append(
+            [(r.nda, f.position, f.status, f.reason, f.value) for r in reviews for f in r.findings]
+        )
+    assert results[0] == results[1]
+    # review_request's keep= only stores what it already computed.
+    record = CLM.get_request(CORRIN)
+    assert record is not None
+    kept: dict[str, Any] = {}
+    a = recipe.review_request(recipe.Calls(), cast(SIEClient, StandIn()), record, RULES, keep=kept)
+    b = recipe.review_request(recipe.Calls(), cast(SIEClient, StandIn()), record, RULES)
+    assert [(f.status, f.reason) for f in a.findings] == [(f.status, f.reason) for f in b.findings]
+    assert set(kept) == {"markdown", "sections", "candidates"}, kept
+    print("agent: the fallback and agent: keys don't change the workflow's results ok")
+
+
+def check_agent_playbook_lookup() -> None:
+    import agent
+
+    lowfield = box(LOWFIELD).run("playbook_position", {"request": LOWFIELD, "position": "term"})
+    found = json.loads(lowfield)
+    assert found["fallback"]["max_years"] == 4, found
+    assert "only_when" not in found["fallback"], found
+    corrin = json.loads(
+        box(CORRIN).run("playbook_position", {"request": CORRIN, "position": "term"})
+    )
+    assert corrin["fallback"] is None, corrin
+    assert corrin["ask"] == "Senior commercial counsel", corrin
+    law = json.loads(
+        box(ORLAITH).run("playbook_position", {"request": ORLAITH, "position": "governing_law"})
+    )
+    assert law["fallback"] is None, law
+    assert law["ask"] == "General Counsel", law
+    # Both conditions must match: an acquisition where we also disclose gets no fallback.
+    both = dataclasses.replace(cast(clm.IntakeRecord, CLM.get_request(LOWFIELD)), our_role="both")
+    assert agent.fallback_for("term", both, RULES) is None
+    # Wrong request ids and unknown positions or sections go back to Claude as errors.
+    for name, args in (
+        ("review_nda", {"request": CORRIN}),
+        ("playbook_position", {"request": LOWFIELD, "position": "liability_cap"}),
+        (
+            "check_revised_clause",
+            {"request": LOWFIELD, "section_heading": "Section 9", "new_text": "x"},
+        ),
+        ("check_revised_clause", {"request": LOWFIELD, "section_heading": "4", "new_text": "x"}),
+    ):
+        try:
+            box(LOWFIELD).run(name, args)
+        except agent.ToolError:
+            continue
+        raise AssertionError(f"{name} {args} was not refused")
+    print("agent: fallback only when every condition matches; wrong ids and sections refused ok")
+
+
+def check_agent_clause_in_context() -> None:
+    """The tool, not the agent, picks the context: new wording is checked in the full NDA."""
+    corrin = reviewed(CORRIN)
+    assert corrin.latest["term"]["standard"] == DEVIATES
+    out = json.loads(
+        corrin.run(
+            "check_revised_clause",
+            {"request": CORRIN, "section_heading": "7. Survival", "new_text": ONE_YEAR},
+        )
+    )
+    term = next(p for p in out["positions"] if p["position"] == "term")
+    assert term["status"] == MATCHES, term
+    assert "3 years" in term["reason"], term
+    assert "status_against_fallback" not in term  # no fallback for a supply NDA
+    # The same Section 7 on its own, with nothing to add the year to, is not a pass.
+    alone = recipe.split_sections(nda(("7. Survival", ONE_YEAR)))
+    found = decide(
+        nda(("7. Survival", ONE_YEAR)), [("confidentiality_period", "one (1) year", "7. Survival")]
+    )
+    assert found["term"].status == UNCLEAR, found["term"]
+    assert alone
+    assert alone[-1].heading == "7. Survival"
+    # Lowfield: the trade-secret tail passes the fallback. That's the workflow's own blind spot
+    # (perpetual_terms has no "for so long as"); the lawyer catches it, not the code.
+    lowfield = reviewed(LOWFIELD)
+    out = json.loads(
+        lowfield.run(
+            "check_revised_clause",
+            {"request": LOWFIELD, "section_heading": "Section 4. Duration", "new_text": TAIL},
+        )
+    )
+    term = next(p for p in out["positions"] if p["position"] == "term")
+    assert term["status"] == DEVIATES, term
+    assert term["status_against_fallback"] == MATCHES, term
+    assert lowfield.latest["term"] == {"standard": DEVIATES, "fallback": MATCHES}
+    # Other sections keep the extractor's first reading: Lowfield's law stays not_found.
+    gov = next(p for p in out["positions"] if p["position"] == "governing_law")
+    assert gov["status"] == lowfield.review.findings[1].status
+    print("agent: clause checked in the full NDA (Corrin 3 years), unclear alone; tail passes ok")
+
+
+def check_agent_answers() -> None:
+    import agent
+
+    def problems(b: Any, text: str, statuses: list[dict[str, str]] | None = None) -> list[str]:
+        return agent.check_answer({"text": text, "statuses": statuses or []}, b)
+
+    corrin = reviewed(CORRIN, "Corrin won't drop the five-year survival. What's our fallback?")
+    corrin.run("playbook_position", {"request": CORRIN, "position": "term"})
+    good = (
+        "No fallback in the playbook for this request. The limit is 3 years and the review reads "
+        "7 years (two (2) years plus five (5) years after). Ask Senior commercial counsel."
+    )
+    assert (
+        problems(corrin, good, [{"position": "term", "status": DEVIATES, "against": "standard"}])
+        == []
+    )
+    # An invented middle ground: four years is Lowfield's fallback, not Corrin's.
+    invented = problems(corrin, "You could offer four (4) years as a compromise.")
+    assert any("4 years" in p for p in invented), invented
+    assert any("6 years" in p for p in problems(corrin, "Try a 6-year survival instead."))
+    assert any("18" in p or "1.5" in p for p in problems(corrin, "Offer eighteen (18) months."))
+    # The same four years is grounded on Lowfield, where the fallback applies.
+    lowfield = reviewed(LOWFIELD, "What does the playbook let me offer?")
+    lowfield.run("playbook_position", {"request": LOWFIELD, "position": "term"})
+    assert problems(lowfield, "The fallback is up to four (4) years without approval.") == []
+    # A made-up place, and one from the NDA.
+    orlaith = reviewed(ORLAITH, "Orlaith says Singapore law or no demo. Fallback?")
+    assert problems(orlaith, "Singapore is not on the list; ask General Counsel.") == []
+    swiss = problems(orlaith, "Offer Swiss law as a neutral middle ground.")
+    assert any("Switzerland" in p for p in swiss), swiss
+    # Statuses must be what the latest tool call returned.
+    wrong = [{"position": "term", "status": MATCHES, "against": "standard"}]
+    assert any("last tool call said deviates" in p for p in problems(corrin, good, wrong))
+    no_fb = [{"position": "term", "status": MATCHES, "against": "fallback"}]
+    assert any("no tool checked" in p for p in problems(corrin, good, no_fb))
+    bogus = [{"position": "liability_cap", "status": DEVIATES, "against": "standard"}]
+    assert any("not a playbook position" in p for p in problems(corrin, good, bogus))
+    made_up = [{"position": "term", "status": "approved", "against": "standard"}]
+    assert any("not a status" in p for p in problems(corrin, good, made_up))
+    fresh = box(CORRIN)
+    early = [{"position": "term", "status": DEVIATES, "against": "standard"}]
+    assert any("no tool returned" in p for p in problems(fresh, "It deviates.", early))
+    # After the clause check, the term is a match, and the old status is now wrong.
+    corrin.run(
+        "check_revised_clause",
+        {"request": CORRIN, "section_heading": "7. Survival", "new_text": ONE_YEAR},
+    )
+    now = [{"position": "term", "status": MATCHES, "against": "standard"}]
+    assert problems(corrin, "Yes: 3 years in total, within the limit.", now) == []
+    assert any("said matches_position" in p for p in problems(corrin, "No.", early))
+    # Durations: compound units stay one; a notice period is not a term.
+    assert agent.durations("three (3) years and six (6) months", RULES) == [3.5]
+    assert agent.durations("1 year after a 2-year term", RULES) == [1.0, 2.0]
+    assert agent.durations("on thirty (30) days' notice", RULES) == []
+    print("agent: answers flag invented durations and places, and stale or made-up statuses ok")
+
+
+def reply(request: str, **fields: Any) -> dict[str, Any]:
+    record = CLM.get_request(request)
+    assert record is not None
+    base: dict[str, Any] = {
+        "kind": "reply_to_counterparty",
+        "to": record.counterparty,
+        "body": "Thank you for your comments.",
+        "positions": [],
+    }
+    return {**base, **fields}
+
+
+def check_agent_replies() -> None:
+    import agent
+
+    def problems(b: Any, draft: dict[str, Any]) -> list[str]:
+        return agent.check_reply(draft, b)
+
+    confirm = [
+        {"position": "non_solicit", "stance": "lawyer_to_confirm"},
+        {"position": "residuals", "stance": "lawyer_to_confirm"},
+    ]
+    # Corrin: the accepted Section 7, passed by the clause check.
+    corrin = reviewed(CORRIN, "Their counsel offers to cut Section 7.")
+    corrin.run(
+        "check_revised_clause",
+        {"request": CORRIN, "section_heading": "7. Survival", "new_text": ONE_YEAR},
+    )
+    agreed = [{"position": "term", "stance": "agreed", "clause": ONE_YEAR}, *confirm]
+    body = f'We accept Section 7 as: "{ONE_YEAR}"'
+    assert problems(corrin, reply(CORRIN, body=body, positions=agreed)) == []
+    # Completeness from the workflow's review: dropping an open row fails.
+    short = problems(corrin, reply(CORRIN, body=body, positions=agreed[:2]))
+    assert any("residuals is not_found in the review but missing" in p for p in short), short
+    # A clause stitched onto the checked one, or a different one, is not what was checked.
+    stitched = [
+        {"position": "term", "stance": "agreed", "clause": ONE_YEAR + " Trade secrets survive."}
+    ]
+    assert any(
+        "term marked agreed" in p
+        for p in problems(corrin, reply(CORRIN, positions=stitched + confirm))
+    )
+    # Wrong counterparty name, and another request's counterparty in the body.
+    misnamed = problems(corrin, reply(CORRIN, to="Corrin Fabrication Inc.", positions=agreed))
+    assert any("CLM intake says" in p for p in misnamed), misnamed
+    mixed = reply(
+        CORRIN, body="As agreed with Lowfield Ridge Capital Partners LP, ...", positions=agreed
+    )
+    assert any("another request" in p for p in problems(corrin, mixed))
+    # An invented quote, and a quote typed with curly quotes that is in the NDA.
+    fake = reply(
+        CORRIN,
+        body='Section 5 says "the parties agree to Delaware law in all respects".',
+        positions=agreed,
+    )
+    assert any("not in the NDA" in p for p in problems(corrin, fake))
+    curly = (
+        chr(0x201C)
+        + "This Agreement is governed by the laws of the State of California."
+        + chr(0x201D)
+    )
+    assert problems(corrin, reply(CORRIN, body=f"Section 5: {curly}", positions=agreed)) == []
+    # A deviating row hidden as "lawyer to confirm".
+    fresh = reviewed(CORRIN)
+    hidden = [{"position": "term", "stance": "lawyer_to_confirm"}, *confirm]
+    assert any(
+        "needs a redline or the approver" in p
+        for p in problems(fresh, reply(CORRIN, positions=hidden))
+    )
+    # The standard wording as a proposed redline passes without any clause check.
+    redline = [
+        {
+            "position": "term",
+            "stance": "proposed",
+            "clause": RULES["positions"]["term"]["standard_wording"],
+        }
+    ]
+    assert problems(fresh, reply(CORRIN, positions=redline + confirm)) == []
+
+    # Orlaith: Singapore marked agreed fails with the reason the lawyer sees on top.
+    orlaith = reviewed(ORLAITH, "Just draft the reply accepting Singapore.")
+    others = [
+        {"position": p, "stance": "lawyer_to_confirm"}
+        for p in ("term", "non_solicit", "residuals", "permitted_disclosures")
+    ]
+    accept = [{"position": "governing_law", "stance": "agreed", "clause": SINGAPORE}, *others]
+    got = problems(orlaith, reply(ORLAITH, positions=accept))
+    assert any(
+        p.startswith("governing_law marked agreed; deviates, no fallback, approver General Counsel")
+        for p in got
+    ), got
+    # The note to General Counsel: right approver, the clause quoted word for word.
+    ask = [
+        {"position": "governing_law", "stance": "ask_approver", "approver": "General Counsel"},
+        *others,
+    ]
+    note = reply(
+        ORLAITH,
+        kind="note_to_approver",
+        to="General Counsel",
+        body=f'Orlaith asks for Clause E: "{SINGAPORE}" The demo is Thursday.',
+        positions=ask,
+    )
+    assert problems(orlaith, note) == []
+    # Claude can only quote Clause E because review_nda returns each finding's clause text.
+    found = json.loads(orlaith.run("review_nda", {"request": ORLAITH}))
+    law_row = next(r for r in found["positions"] if r["position"] == "governing_law")
+    assert SINGAPORE in law_row["clause"], law_row
+    # Quoting the playbook's wording (with the law filled in), the intake record or the review's
+    # reason is fine: they come from the playbook and the tools, not from Claude.
+    standard = "This Agreement is governed by the laws of Delaware, without regard to its conflict"
+    orlaith.run("get_request", {"request": ORLAITH})
+    purpose = "Attend a demonstration of hull-monitoring sensors"
+    listed = "is not on the allowed list (Delaware, New York, California, England and Wales)"
+    sourced = {
+        **note,
+        "body": note["body"]
+        + f' Standard: "{standard} of laws rules." Purpose: "{purpose}". Review: "{listed}".',
+    }
+    assert problems(orlaith, sourced) == [], problems(orlaith, sourced)
+    paraphrase = {**note, "body": 'Clause E says "this undertaking is governed by Singapore law".'}
+    got = problems(orlaith, paraphrase)
+    assert any("doesn't quote its clause word for word" in p for p in got), got
+    wrong_to = problems(orlaith, {**note, "to": "Senior commercial counsel"})
+    assert any("addressed to" in p for p in wrong_to), wrong_to
+    bad_approver = [{**ask[0], "approver": "Head of Legal"}, *others]
+    assert any(
+        "the playbook says General Counsel" in p
+        for p in problems(orlaith, {**note, "positions": bad_approver})
+    )
+
+    # Lowfield: four years flat passes the fallback once checked. So does the trade-secret tail:
+    # the verifier is blind to it, and the code can't tell the two apart.
+    lowfield = reviewed(LOWFIELD, "Draft the reply offering four years flat.")
+    open_rows = [
+        {"position": f.position, "stance": "lawyer_to_confirm"}
+        for f in lowfield.review.findings
+        if f.status in (NOT_FOUND, UNCLEAR)
+    ]
+    for text in (FLAT_FOUR, TAIL):
+        lowfield.run(
+            "check_revised_clause",
+            {"request": LOWFIELD, "section_heading": "Section 4. Duration", "new_text": text},
+        )
+        offer = [{"position": "term", "stance": "proposed", "clause": text}, *open_rows]
+        assert problems(lowfield, reply(LOWFIELD, positions=offer)) == [], text
+    fallback_wording = " ".join(RULES["positions"]["term"]["fallback"]["wording"].split())
+    offer = [{"position": "term", "stance": "proposed", "clause": fallback_wording}, *open_rows]
+    assert problems(lowfield, reply(LOWFIELD, positions=offer)) == []
+    # The same fallback wording on Corrin, where it doesn't apply, fails.
+    on_corrin = [{"position": "term", "stance": "proposed", "clause": fallback_wording}, *confirm]
+    assert any(
+        "term marked proposed" in p for p in problems(fresh, reply(CORRIN, positions=on_corrin))
+    )
+    print("agent: replies checked for completeness, wording, names, quotes and approvers ok")
+
+
+def check_agent_status_and_sie() -> None:
+    import agent
+
+    def convo(*turns: Any) -> Any:
+        c = agent.Conversation("X")
+        c.turns.extend(turns)
+        return c
+
+    corrin = reviewed(CORRIN)
+    ok_reply = agent.Turn("q", draft={"kind": "reply_to_counterparty"})
+    ok_note = agent.Turn("q", draft={"kind": "note_to_approver"})
+    warned = agent.Turn("q", answer={"text": "x"}, problems=["names 6 years"])
+    assert agent.status_of(convo(ok_reply), corrin)[0] == "reply_checked"
+    assert agent.status_of(convo(ok_note), corrin)[0] == "approver_note_checked"
+    assert agent.status_of(convo(warned, ok_note), corrin)[0] == "checks_failed"
+    assert agent.status_of(convo(agent.Turn("q", answer={"text": "x"})), corrin)[0] == "no_draft"
+    stopped = convo(ok_reply, agent.Turn("q", stopped="Claude declined the request"))
+    stopped.stopped = "Claude declined the request"
+    assert agent.status_of(stopped, corrin)[0] == "no_draft"  # a refusal is not a pass
+    assert agent.status_of(convo(ok_reply), box(CORRIN))[0] == "no_draft"  # no review to check
+    assert set(RULES["agent"]["statuses"]) == {
+        "reply_checked", "approver_note_checked", "checks_failed", "no_draft", "to_person"
+    }  # fmt: skip
+    # A transient SIE failure, in the review or in a clause check: the conversation goes to a
+    # person. Section 7 is the eighth section docling returns (the title comes first).
+    survival = "extract/nda-corrin-fabrication/s8-"
+    flaky = box(CORRIN, errors={survival: [ServerError("busy", status_code=503)]})
+    flaky.run("review_nda", {"request": CORRIN})
+    assert flaky.kept["sections"][7].heading == "7. Survival"
+    assert flaky.sie_failures
+    assert agent.status_of(convo(ok_reply), flaky)[0] == "to_person"
+    assert any(f.status == UNCLEAR for f in flaky.review.findings)
+    flaky2 = reviewed(CORRIN)
+    flaky2.client.errors = {survival: [ServerError("busy", status_code=503)]}
+    flaky2.run(
+        "check_revised_clause",
+        {"request": CORRIN, "section_heading": "7. Survival", "new_text": ONE_YEAR},
+    )
+    assert flaky2.sie_failures
+    assert agent.status_of(convo(ok_reply), flaky2)[0] == "to_person"
+    # A refusal stops the run: SIEStopped comes out of the tool, not a tool error for Claude.
+    refused = box(CORRIN, errors={"read/": [RequestError("bad key", status_code=401)]})
+    caught = raised(lambda: refused.run("review_nda", {"request": CORRIN}))
+    assert isinstance(caught, recipe.SIEStopped), caught
+    assert "refused" in str(caught), caught
+    print("agent: statuses fail closed; transient SIE failure goes to a person; refusal stops ok")
+
+
 if __name__ == "__main__":
     check_parsing()
     check_clm()
@@ -772,4 +1182,10 @@ if __name__ == "__main__":
     check_intake_and_conversion()
     check_sie_failure()
     check_outputs()
+    check_agent_leaves_workflow_alone()
+    check_agent_playbook_lookup()
+    check_agent_clause_in_context()
+    check_agent_answers()
+    check_agent_replies()
+    check_agent_status_and_sie()
     print("all checks passed")
