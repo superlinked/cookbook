@@ -399,9 +399,7 @@ ask the shop for a corrected invoice or take a closer look at the vendor or the 
 
 Everything above is a workflow, and it should be: the checks come from the claims team's rules,
 they're the same for every invoice, and the nightly run gets through the queue with nobody watching.
-The [workflow-vs-agent
-post](https://superlinked.com/blog/agentic-vs-workflows-small-models?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim)
-has a test for when that stops being true: can you write the steps down, and if not, can you at
+[Workflow or agent?](../../README.md#workflow-or-agent) has a test for when that stops being true: can you write the steps down, and if not, can you at
 least write down how to check the result? The job below is the middle case: nobody can write down
 its steps, but code can check what comes back, and the workflow above is most of that check.
 
@@ -645,8 +643,8 @@ on another vendor's claim) some other way.
 
 ### What this adds to the workflow-vs-agent question
 
-- **Code can check completeness, up to a point.** The post says no code checks whether the agent
-  found every account. Here code does, against claim and document records the agent didn't write,
+- **Code can check completeness, up to a point.** It's easy to assume no code can check whether the
+  agent found every claim. Here code does, against claim and document records the agent didn't write,
   and it never had to send a report back for a missing claim. The limit is that it finds claims
   through the vendor listed on them: `siu-09` was missing from all five reports, and only the
   code's line says why.
