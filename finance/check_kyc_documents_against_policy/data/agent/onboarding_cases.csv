@@ -1,0 +1,18 @@
+case,received,surname,given_names,date_of_birth,flat,house_number,street,town,postcode,nationality,occupation,tax_residency
+kyc-13,2026-11-09,Okonkwo-Reyes,Nadia,1993-07-08,4,22,Mallard Wharf,Port Ellery,UT 40390,Utopian,Physiotherapist,tbc
+k25-001,2025-01-08,Ashworth,Helen,1984-02-09,,14,Fennel Lane,Eastbrook,UT 40213,Utopian,Librarian,Utopia
+k25-002,2025-01-21,Mbeki,Joseph,1979-06-22,,3,Tanner Row,Westmarch,UT 40560,Utopian,Plumber,Utopia
+k25-003,2025-02-11,Castellanos,Lucia,2005-09-14,,2,Collegiate Court,Eastbrook,UT 40220,Utopian,Student,
+k25-004,2025-02-19,Brennan,Patrick,1968-11-30,,88,Kiln Street,Port Ellery,UT 40384,Utopian,Bus driver,Utopia
+k25-005,2025-03-04,Sorensen,Maja,1990-04-03,1,40,Gull Terrace,Port Ellery,UT 40386,Utopian,Pharmacist,Utopia
+k25-006,2025-03-12,Iyer,Arjun,1987-08-17,,19,Rowan Drive,Westmarch,UT 40562,Utopian,Civil engineer,Utopia
+k25-007,2025-02-26,Delacroix,Simone,1996-01-25,,61,Wren Close,Eastbrook,UT 40216,Utopian,Barista,Utopia
+k25-008,2025-04-15,Okoro,Daniel,1982-12-01,,7,Saddler Way,Westmarch,UT 40559,Utopian,Accountant,Utopia
+k25-009,2025-05-06,Varga,Tamas,1975-05-11,3,12,Ferry Road,Port Ellery,UT 40382,Utopian,Chef,Utopia
+k25-010,2025-06-03,Whitlock,Grace,1999-10-19,,25,Linnet Avenue,Eastbrook,UT 40218,Utopian,Nurse,Utopia
+k25-011,2025-07-09,Haddad,Omar,1991-03-28,,50,Cooper Street,Westmarch,UT 40565,Utopian,Electrician,Utopia
+k25-012,2025-08-20,Lindgren,Elsa,1986-07-04,,9,Marten Lane,Eastbrook,UT 40212,Utopian,Teacher,Utopia
+k25-013,2025-09-16,Achterberg,Willem,1972-09-09,2,31,Quay Street,Port Ellery,UT 40383,Utopian,Ship's officer,Utopia
+k25-014,2025-10-07,Mwangi,Ruth,1980-01-15,,4,Orchard Row,Eastbrook,UT 40219,Utopian,Company director,Utopia
+k25-015,2025-11-12,Novak,Petra,1994-05-27,,77,Heron Close,Westmarch,UT 40564,Utopian,Graphic designer,Utopia
+k25-016,2025-12-18,Fairbairn,Callum,1988-02-02,,16,Pelican Crescent,Port Ellery,UT 40385,Utopian,Software developer,Utopia

@@ -1,0 +1,7 @@
+# The KYC analyst's turns in the conversation about kyc-13, in order. agent.py plays them one at a
+# time; `agent.py --chat` lets you type your own instead.
+case: kyc-13
+turns:
+  - kyc-13 moved here three weeks ago and has no bill at the new address yet. What does our policy accept instead?
+  - She's uploaded a tenancy agreement. Does it count?
+  - OK, I'll sign off the tenancy agreement. Draft the email listing what's still missing.

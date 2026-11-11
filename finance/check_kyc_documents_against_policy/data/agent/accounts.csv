@@ -1,0 +1,17 @@
+account,case,product,opened,status,status_date
+AC-25001,k25-001,personal,2025-01-13,active,
+AC-25002,k25-002,personal,2025-01-24,active,
+AC-25003,k25-003,personal,2025-02-14,active,
+AC-25004,k25-004,personal,2025-02-21,active,
+AC-25005,k25-005,personal,2025-03-07,active,
+AC-25006,k25-006,personal,2025-03-14,active,
+AC-25007,k25-007,personal,2025-02-28,active,
+AC-25008,k25-008,personal,2025-04-17,active,
+AC-25009,k25-009,personal,2025-05-09,closed,2025-08-14
+AC-25010,k25-010,personal,2025-06-05,active,
+AC-25011,k25-011,personal,2025-07-11,active,
+AC-25012,k25-012,personal,2025-08-22,restricted,2025-10-02
+AC-25013,k25-013,personal,2025-09-18,active,
+AC-25014,k25-014,business,2025-10-10,active,
+AC-25015,k25-015,personal,2025-11-14,active,
+AC-25016,k25-016,personal,2026-01-06,active,

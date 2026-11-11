@@ -218,6 +218,7 @@ class DocumentRead:
     issuer_problem: str = ""  # why the issuer gives no type
     problem: str = ""  # why it couldn't be read; "" when it was
     notes: list[str] = field(default_factory=list)
+    text: str = ""  # the OCR Markdown, kept for agent.py; not written to any output
 
     def as_json(self) -> dict[str, Any]:
         mrz = None if self.mrz is None else {**vars(self.mrz), "valid": self.mrz.valid}
@@ -1102,6 +1103,7 @@ def read_document(
     if text is None:
         read.problem = f"{where}: the OCR reply had no markdown text"
         return read
+    read.text = text
     if len(text.strip()) < rules["thresholds"]["min_page_chars"]:
         read.problem = f"{where} could not be read (too little text)"
         return read
