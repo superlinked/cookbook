@@ -136,6 +136,25 @@ class ClaimsSystem:
             )
         ]
 
+    def claims_for_vendor(self, vendor: str, year: int) -> list[tuple[ClaimRecord, ClaimDocument]]:
+        """Every repair invoice received in `year` on a claim that lists `vendor` (exact name,
+        without case or surrounding spaces), with its claim, in the seed's order.
+
+        This stands in for a claims system report such as "claims by vendor". It finds a claim
+        only through the vendor listed on it: an invoice from a shop that isn't listed on the
+        claim is not returned. Read only; agent.py uses it, recipe.py doesn't.
+        """
+        found: list[tuple[ClaimRecord, ClaimDocument]] = []
+        for document in self.waiting_invoices():
+            if document.received.year != year:
+                continue
+            claim = self.get_claim(document.claim_number)
+            if claim is None:
+                continue
+            if vendor.strip().casefold() in (v.strip().casefold() for v in claim.vendors):
+                found.append((claim, document))
+        return found
+
     def get_claim(self, claim_number: str) -> ClaimRecord | None:
         """The claim with exactly this number, or None if the system holds no such claim."""
         key = claim_key(claim_number)

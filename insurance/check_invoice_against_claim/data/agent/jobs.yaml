@@ -1,0 +1,10 @@
+# The SIU request the agent works on. agent.py reads the vendor and year from here for its
+# completeness check, never from the agent.
+vendor: Brightwater Roofing & Gutters Ltd
+year: 2026
+asked_by: SIU analyst
+text: >-
+  A desk adjuster thinks they saw the same Brightwater invoice twice last week. Pull every claim
+  Brightwater Roofing & Gutters Ltd invoiced us in 2026, check each invoice against its claim,
+  and tell me what looks like a pattern across them. Keep what a failed check backs up apart
+  from what is only a question for the adjuster.
