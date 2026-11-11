@@ -109,12 +109,10 @@ agent:
 
   # US dollars per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing
   # on 7 Nov 2026 (5-minute cache writes). Check them before relying on the comparison. Each
-  # response is priced on the model that answered it: the fallback models cost more than Opus
-  # 5.5. A model missing here is listed in cost.json as unpriced.
+  # response is priced on the model that answered it. A model missing here, such as a server-side
+  # fallback, is listed in cost.json as unpriced; add its prices from the pricing page to count it.
   prices:
     claude-opus-5-5: {input: 4.00, cache_write: 5.00, cache_read: 0.20, output: 20.00}
-    claude-opus-5: {input: 5.00, cache_write: 6.25, cache_read: 0.50, output: 25.00}
-    claude-opus-4-8: {input: 5.00, cache_write: 6.25, cache_read: 0.50, output: 25.00}
   # US dollars per SIE credit: the SIE console sold 5,000,000 credits for $50 on 8 Nov 2026.
   sie_credit_usd: 0.00001
 
