@@ -15,6 +15,7 @@ import io
 import json
 import re
 import tempfile
+import types
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -1169,6 +1170,286 @@ def check_agent_status_and_sie() -> None:
     print("agent: statuses fail closed; transient SIE failure goes to a person; refusal stops ok")
 
 
+TEXAS = ONE_YEAR + " This Agreement is governed by the laws of the State of Texas."
+CORRIN_CONFIRM = [
+    {"position": "non_solicit", "stance": "lawyer_to_confirm"},
+    {"position": "residuals", "stance": "lawyer_to_confirm"},
+]
+ORLAITH_ASK = [
+    {"position": "governing_law", "stance": "ask_approver", "approver": "General Counsel"},
+    *(
+        {"position": p, "stance": "lawyer_to_confirm"}
+        for p in ("term", "non_solicit", "residuals", "permitted_disclosures")
+    ),
+]
+
+
+def check_agent_wording_and_completeness() -> None:
+    """Checked wording counts only for the position it fixed, and only when it broke nothing."""
+    import agent
+
+    survival = {"request": CORRIN, "section_heading": "7. Survival"}
+    # Corrin: one-year survival plus Texas law. The term matches, governing law gets worse, so
+    # the wording counts for nothing, and governing law (open in the check) must be in the draft.
+    texas = reviewed(CORRIN)
+    texas.run("check_revised_clause", {**survival, "new_text": TEXAS})
+    agreed = [{"position": "term", "stance": "agreed", "clause": TEXAS}, *CORRIN_CONFIRM]
+    got = agent.check_reply(reply(CORRIN, positions=agreed), texas)
+    assert any(p.startswith("term marked agreed") for p in got), got
+    assert any("governing_law is deviates in the latest clause check" in p for p in got), got
+    # Orlaith: the Singapore sentence leaves permitted disclosures a match, but it didn't replace
+    # the clause permitted disclosures cites, nor change its status, so it isn't its wording.
+    orlaith = reviewed(ORLAITH)
+    orlaith.run(
+        "check_revised_clause",
+        {"request": ORLAITH, "section_heading": "E. Governing Law", "new_text": SINGAPORE},
+    )
+    smuggled = [
+        *ORLAITH_ASK[:4],
+        {"position": "permitted_disclosures", "stance": "agreed", "clause": SINGAPORE},
+    ]
+    got = agent.check_reply(reply(ORLAITH, positions=smuggled), orlaith)
+    assert any(p.startswith("permitted_disclosures marked agreed") for p in got), got
+    # Corrin: a lawyer_to_confirm term is refused after a hypothetical check passed it, since the
+    # review has it deviating.
+    hidden = reviewed(CORRIN)
+    hidden.run("check_revised_clause", {**survival, "new_text": ONE_YEAR})
+    rows = [{"position": "term", "stance": "lawyer_to_confirm"}, *CORRIN_CONFIRM]
+    got = agent.check_reply(reply(CORRIN, positions=rows), hidden)
+    assert any("term deviates; it needs a redline" in p for p in got), got
+    print("agent: checked wording only for the position it fixed; no hiding a deviation ok")
+
+
+def check_agent_body_and_grounding() -> None:
+    import agent
+
+    # The body can't accept what the table sends to the approver.
+    orlaith = reviewed(ORLAITH, "Just draft the reply accepting Singapore.")
+
+    def body_problems(body: str) -> list[str]:
+        got = agent.check_reply(reply(ORLAITH, body=body, positions=ORLAITH_ASK), orlaith)
+        return [p for p in got if "the body accepts" in p]
+
+    assert body_problems("We accept Singapore law for this NDA and will sign today.")
+    assert body_problems("We are happy to go with Singapore law.")
+    # A negation elsewhere in the sentence doesn't excuse it; one on the word itself does.
+    assert body_problems("We accept Singapore law, not the law of Delaware.")
+    assert body_problems("No problem, we accept Singapore law.")
+    assert body_problems("We can't sign today but we accept Singapore law.")
+    assert body_problems("We cannot accept Singapore law; it's with our General Counsel.") == []
+    assert body_problems("We are not able to accept Singapore law yet.") == []
+    assert body_problems("Would you accept the law of Delaware instead?") == []
+    # A note to the approver may say what the counterparty wants us to accept.
+    note = reply(
+        ORLAITH,
+        kind="note_to_approver",
+        to="General Counsel",
+        body=f'Orlaith asks us to accept Clause E: "{SINGAPORE}"',
+        positions=ORLAITH_ASK,
+    )
+    assert agent.check_reply(note, orlaith) == []
+    # A value grounds only from a check that passed it: four years and Swiss law stay invented
+    # on Corrin after a clause check rejected them.
+    corrin = reviewed(CORRIN, "Corrin won't drop the five-year survival. What's our fallback?")
+    two_after = ONE_YEAR.replace("one (1) year", "two (2) years")
+    out = json.loads(
+        corrin.run(
+            "check_revised_clause",
+            {"request": CORRIN, "section_heading": "7. Survival", "new_text": two_after},
+        )
+    )
+    term = next(r for r in out["positions"] if r["position"] == "term")
+    assert term["status"] == DEVIATES, term
+    assert "4 years" in term["reason"], term
+    got = agent.check_answer({"text": "Offer four (4) years.", "statuses": []}, corrin)
+    assert any("4 years" in p for p in got), got
+    corrin.run(
+        "check_revised_clause",
+        {
+            "request": CORRIN,
+            "section_heading": "5. Governing Law",
+            "new_text": "This Agreement is governed by the laws of Switzerland.",
+        },
+    )
+    got = agent.check_answer({"text": "Offer Swiss law.", "statuses": []}, corrin)
+    assert any("Switzerland" in p for p in got), got
+    # Single-quoted quotes are checked too; an apostrophe isn't a quote.
+    agreed = [{"position": "term", "stance": "agreed", "clause": ONE_YEAR}, *CORRIN_CONFIRM]
+    passed = reviewed(CORRIN)
+    passed.run(
+        "check_revised_clause",
+        {"request": CORRIN, "section_heading": "7. Survival", "new_text": ONE_YEAR},
+    )
+    fake = "Section 5 says 'the parties agree to Delaware law in all respects'."
+    got = agent.check_reply(reply(CORRIN, body=fake, positions=agreed), passed)
+    assert any("not in the NDA" in p for p in got), got
+    real = f"Corrin's counsel's text: '{ONE_YEAR}' We'll sign it."
+    assert agent.check_reply(reply(CORRIN, body=real, positions=agreed), passed) == []
+    assert agent.quotes("Corrin's counsel won't sign") == []
+    print("agent: the body can't accept an open row; rejected values and single quotes ok")
+
+
+class FakeClaude:
+    """Stands in for anthropic.Anthropic: each create() returns the next canned response."""
+
+    def __init__(self, *responses: Any) -> None:
+        self.responses = list(responses)
+        self.beta = self
+        self.messages = self
+
+    def create(self, **_: Any) -> Any:
+        return self.responses.pop(0)
+
+
+def response(*blocks: dict[str, Any], model: str = "claude-opus-5-5") -> Any:
+    usage = dict(
+        input_tokens=1_000_000,
+        output_tokens=0,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    content = [dataclasses.make_dataclass("Block", list(b))(**b) for b in blocks]
+    return dataclasses.make_dataclass("Response", ["content", "usage", "model", "stop_reason"])(
+        content, dataclasses.make_dataclass("Usage", list(usage))(**usage), model, "tool_use"
+    )
+
+
+def check_agent_loop_and_outputs() -> None:
+    import agent
+    import anthropic
+
+    # Arguments: an unknown or non-text one is Claude's mistake; an error inside a tool raises.
+    for args in ({"position": "term", "extra": "x"}, {"position": ["term"]}, {}):
+        try:
+            box(CORRIN).run("playbook_position", {"request": CORRIN, **args})
+        except agent.ToolError:
+            continue
+        raise AssertionError(f"{args} was not refused")
+    broken = box(CORRIN)
+
+    def bug() -> dict[str, Any]:
+        raise TypeError("a bug in the tool")
+
+    broken.get_request = bug
+    caught = raised(lambda: broken.run("get_request", {"request": CORRIN}))
+    assert type(caught) is TypeError, caught  # not a ToolError Claude would be told about
+    # An answer bundled with lookups is sent back unshown; the next one is checked.
+    b = box(CORRIN)
+    lookup = {"type": "tool_use", "id": "1", "name": "review_nda", "input": {"request": CORRIN}}
+    answer = {
+        "type": "tool_use",
+        "id": "2",
+        "name": "answer_lawyer",
+        "input": {"text": "It deviates.", "statuses": []},
+    }
+    claude = FakeClaude(response(lookup, answer), response({**answer, "id": "3"}))
+    convo, turn = agent.Conversation(CORRIN), agent.Turn("q")
+    with contextlib.redirect_stdout(io.StringIO()):
+        ended = agent.run_turn(claude, b, [], convo, turn)
+    assert turn.dropped, turn
+    assert turn.dropped[0]["why"] == agent.BUNDLED, turn.dropped
+    assert isinstance(ended, list), ended
+    assert ended[-1]["tool_use_id"] == "3", ended
+    assert convo.claude_requests == 2
+    # Cost is priced on the model that answered; a model with no price is unpriced, not guessed.
+    prices = RULES["agent"]["prices"]
+    assert agent.claude_usd(convo, prices) == 8.0, convo.by_model
+    other = agent.Conversation(CORRIN)
+    other.add_usage("claude-opus-5-5-20261001", response().usage)
+    assert agent.claude_usd(other, prices) == 4.0
+    other.add_usage("claude-sonnet-5", response().usage)
+    assert agent.claude_usd(other, prices) is None
+    # Transient Claude errors stop the turn; anything else stops the run.
+    # Stand-ins for the HTTP request and response, with only what the error classes read.
+    req: Any = types.SimpleNamespace(method="POST", url="https://api.example/v1/messages")
+
+    def status(code: int) -> Exception:
+        got: Any = types.SimpleNamespace(status_code=code, request=req, headers={})
+        return anthropic.APIStatusError("x", response=got, body=None)
+
+    assert agent.transient(anthropic.APITimeoutError(req))
+    assert agent.transient(anthropic.APIConnectionError(request=req))
+    assert agent.transient(status(408))
+    assert agent.transient(status(409))
+    assert not agent.transient(status(400))
+    assert not agent.transient(status(401))
+
+    class Raising(FakeClaude):
+        def __init__(self, error: Exception) -> None:
+            super().__init__()
+            self.error = error
+
+        def create(self, **_: Any) -> Any:
+            raise self.error
+
+    turn = agent.Turn("q")
+    assert (
+        agent.run_turn(Raising(status(409)), box(CORRIN), [], agent.Conversation("X"), turn) is None
+    )
+    assert "Claude API failed" in turn.stopped, turn.stopped
+    bad = status(400)
+    assert raised(lambda: agent.run_turn(Raising(bad), box(CORRIN), [], convo, turn)) is bad
+    # The status comes from a draft for the latest draft request, not an earlier one.
+    corrin = reviewed(CORRIN)
+    first = agent.Turn(
+        "Draft the reply accepting Singapore.", draft={"kind": "reply_to_counterparty"}
+    )
+    then = agent.Turn("Fine, draft the note to General Counsel instead.", answer={"text": "No."})
+    stale = agent.Conversation(CORRIN)
+    stale.turns.extend([first, then])
+    got = agent.status_of(stale, corrin)
+    assert got[0] == "no_draft", got
+    assert "turn 2" in got[1], got
+    stale.turns.append(agent.Turn("ok", draft={"kind": "note_to_approver"}))
+    assert agent.status_of(stale, corrin)[0] == "approver_note_checked"
+    # A note about a position that isn't checked for our role, and a quote shorter than
+    # agent.quote_min_words: check problems, not a crash.
+    record = dataclasses.replace(
+        cast(clm.IntakeRecord, CLM.get_request(CORRIN)), our_role="disclose"
+    )
+    disclose = agent.Box(cast(SIEClient, StandIn()), recipe.Calls(), RULES, CLM, record)
+    findings = disclose.ensure_review().findings
+    assert "term" not in {f.position for f in findings}
+    ask = [{"position": "term", "stance": "ask_approver", "approver": "Senior commercial counsel"}]
+    open_rows = [
+        {"position": f.position, "stance": "lawyer_to_confirm"}
+        for f in findings
+        if f.status in (NOT_FOUND, UNCLEAR)
+    ]
+    note = reply(
+        CORRIN, kind="note_to_approver", to="Senior commercial counsel", positions=ask + open_rows
+    )
+    warned = agent.check_reply(note, disclose)
+    assert any("doesn't check for our role" in p for p in warned), warned
+    strict = reviewed(ORLAITH)
+    strict.rules = {**RULES, "agent": {**RULES["agent"], "quote_min_words": 20}}
+    short_note = reply(
+        ORLAITH,
+        kind="note_to_approver",
+        to="General Counsel",
+        body='Clause E: "the laws of the Republic of Singapore"',
+        positions=ORLAITH_ASK,
+    )
+    warned = agent.check_reply(short_note, strict)
+    assert any("doesn't quote its clause" in p for p in warned), warned
+    # Markdown: the body is fenced past its longest backtick run; cells are escaped.
+    evil = "![x](https://evil.example/p.png) <img src=x> a | b"
+    draft = reply(
+        CORRIN,
+        body="Hi ```` there\n" + evil,
+        positions=[{"position": "term", "stance": "agreed", "clause": evil}],
+    )
+    md = agent.draft_markdown(agent.Turn("q", problems=[evil]), draft)
+    assert "`````text\nHi ```` there\n" + evil + "\n`````" in md, md
+    table_row = next(line for line in md.splitlines() if line.startswith("| term"))
+    assert "\\!\\[x\\]\\(" in table_row, table_row
+    assert "\\<img" in table_row, table_row
+    assert table_row.count(" | ") == 3, table_row
+    assert "a \\| b" in table_row, table_row
+    assert "- \\!\\[x\\]" in md, md
+    print("agent: tool arguments, bundled answers, Claude errors, prices and Markdown ok")
+
+
 if __name__ == "__main__":
     check_parsing()
     check_clm()
@@ -1188,4 +1469,7 @@ if __name__ == "__main__":
     check_agent_answers()
     check_agent_replies()
     check_agent_status_and_sie()
+    check_agent_wording_and_completeness()
+    check_agent_body_and_grounding()
+    check_agent_loop_and_outputs()
     print("all checks passed")

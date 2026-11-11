@@ -14,7 +14,7 @@ Agent:     Claude (agent.model in rules.yaml) runs the loop and picks the next t
            playbook_position     a lookup over rules.yaml; code applies the fallback's conditions
            check_revised_clause  new wording put into its section of the full NDA, GLiNER2 on
                                  SIE for that section, then recipe.decide against the standard
-                                 position and against the fallback
+                                 position, and again against the fallback where one applies
            answer_lawyer         ends a turn with an answer
            submit_draft          ends a turn with a reply to the counterparty or a note to an
                                  approver
@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import inspect
 import json
 import os
 import re
@@ -231,6 +232,9 @@ class Box:
     # every clause check: section, new_text, and per position its standard and fallback status
     checked: list[dict[str, Any]] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)  # every tool result, as Claude read it
+    # what grounds a figure or a place: every tool result, but of a clause check only the rows
+    # whose status was a match (a value the check rejected grounds nothing)
+    grounds: list[str] = field(default_factory=list)
     lawyer: list[str] = field(default_factory=list)  # the lawyer's messages so far
     sie_failures: list[str] = field(default_factory=list)
 
@@ -254,11 +258,24 @@ class Box:
             raise ToolError(f"Unknown tool {name}")
         kwargs = {k: v for k, v in args.items() if k != "request"}
         try:
-            result = tools[name](**kwargs)
+            inspect.signature(tools[name]).bind(**kwargs)
         except TypeError as error:
             raise ToolError(f"Bad arguments for {name}: {error}") from None
+        bad = [k for k, v in kwargs.items() if not isinstance(v, str)]
+        if bad:
+            raise ToolError(f"Bad arguments for {name}: {', '.join(bad)} must be text")
+        result = tools[name](**kwargs)  # an error inside the tool is a bug, so it raises
         output = json.dumps(result, ensure_ascii=False, indent=1)
         self.outputs.append(output)
+        if name == "check_revised_clause":
+            passed = [
+                row
+                for row in result["positions"]
+                if recipe.MATCHES in (row.get("status"), row.get("status_against_fallback"))
+            ]
+            self.grounds.append(json.dumps(passed, ensure_ascii=False))
+        else:
+            self.grounds.append(output)
         return output
 
     def get_request(self) -> dict[str, Any]:
@@ -452,9 +469,10 @@ def playbook_text(box: Box) -> str:
 
 def sources(box: Box) -> str:
     """Everything an answer may draw a figure or a place from: the playbook, the NDA, every tool
-    result and the lawyer's own messages."""
+    result (of a clause check, only the rows that came out a match) and the lawyer's own
+    messages."""
     nda = str(box.kept.get("markdown", ""))
-    return "\n".join([playbook_text(box), nda, *box.outputs, *box.lawyer])
+    return "\n".join([playbook_text(box), nda, *box.grounds, *box.lawyer])
 
 
 def ungrounded(text: str, box: Box) -> list[str]:
@@ -511,9 +529,17 @@ def check_answer(answer: dict[str, Any], box: Box) -> list[str]:
     return problems
 
 
+# A single-quoted span: an opening quote not inside a word, then text in which a quote may only
+# sit inside a word (an apostrophe, as in "Recipient's"), then a closing quote not inside a word.
+_SINGLE_QUOTED = re.compile(r"(?<!\w)'((?:[^']|(?<=\w)'(?=\w))+?)'(?!\w)")
+
+
 def quotes(body: str) -> list[str]:
-    """Text in double quotes (straight or curly) in a draft's body."""
-    return [q.strip() for q in re.findall(r'"([^"]+)"', str(body).translate(SAME_CHARACTER))]
+    """Text in double or single quotes (straight or curly) in a draft's body."""
+    text = str(body).translate(SAME_CHARACTER)
+    found = re.findall(r'"([^"]+)"', text)
+    found += _SINGLE_QUOTED.findall(re.sub(r'"[^"]*"', " ", text))
+    return [q.strip() for q in found]
 
 
 def in_text(quote: str, text: str) -> bool:
@@ -521,21 +547,80 @@ def in_text(quote: str, text: str) -> bool:
     return norm(quote).rstrip(".,;: ") in norm(text)
 
 
+# How far a status is from the playbook: a match, then nothing to judge, then a deviation.
+RANK = {recipe.MATCHES: 0, recipe.NOT_FOUND: 1, recipe.UNCLEAR: 1, recipe.DEVIATES: 2}
+
+
+def best_rank(result: dict[str, str | None]) -> int:
+    """A clause check's result for one position, against the standard or an applicable fallback,
+    whichever is better."""
+    return min(RANK[s] for s in (result.get("standard"), result.get("fallback")) if s)
+
+
+def made_worse(check: dict[str, Any], box: Box) -> list[str]:
+    """The positions a clause check left worse than the workflow's review had them."""
+    assert box.review is not None
+    return [
+        f.position
+        for f in box.review.findings
+        if f.position in check["positions"]
+        and best_rank(check["positions"][f.position]) > RANK[f.status]
+    ]
+
+
 def allowed_wordings(name: str, box: Box) -> list[str]:
     """Wording a draft may mark agreed or proposed for a position: the playbook's standard
-    wording, its fallback wording where the fallback applies, and every new_text a clause check
-    passed for it (against the standard, or against an applicable fallback)."""
+    wording, its fallback wording where the fallback applies, and a clause check's new_text when
+    the check passed the position (against the standard or an applicable fallback), it replaced
+    a section the review cites for the position or turned the position into a match, and it left
+    no position worse than the review had it."""
     spec = box.rules["positions"][name]
     law = box.intake.governing_law_preference or str(box.rules["default_governing_law"])
     out = [flat(spec["standard_wording"]).replace("{governing_law}", law)]
     fallback = fallback_for(name, box.intake, box.rules)
     if fallback and fallback.get("wording"):
         out.append(flat(fallback["wording"]))
+    if box.review is None:
+        return out
+    finding = next((f for f in box.review.findings if f.position == name), None)
+    if finding is None:
+        return out
     for check in box.checked:
-        result = check["positions"].get(name, {})
-        if recipe.MATCHES in (result.get("standard"), result.get("fallback")):
+        result = check["positions"].get(name)
+        if not result or best_rank(result) != 0 or made_worse(check, box):
+            continue
+        replaced = check["section"] in [s.heading for s in finding.sections]
+        if replaced or finding.status != recipe.MATCHES:
             out.append(check["new_text"])
     return out
+
+
+def accepts(sentence: str, rules: dict[str, Any]) -> bool:
+    """The sentence accepts something: an acceptance word that no negation just before it (in
+    the same clause) turns around. A question accepts nothing."""
+    spec = rules["agent"]["acceptance"]
+    text = norm(sentence)
+    if text.endswith("?"):
+        return False
+    for word in spec["words"]:
+        for match in re.finditer(r"\b" + re.escape(norm(word)) + r"\b", text):
+            clause = re.split(r"[,;:()]", text[: match.start()])[-1]
+            before = re.findall(r"[\w']+", clause)[-int(spec["negation_window"]) :]
+            if not any(w in spec["negations"] or w.endswith("n't") for w in before):
+                return True
+    return False
+
+
+def named_positions(sentence: str, rules: dict[str, Any]) -> set[str]:
+    """The positions a sentence talks about: by their words in agent.acceptance, the term by a
+    duration and governing law by a place."""
+    words: dict[str, list[str]] = rules["agent"]["acceptance"]["position_words"]
+    named = {name for name, terms in words.items() if recipe.says(sentence, terms)}
+    if durations(sentence, rules):
+        named.add("term")
+    if places(sentence, rules):
+        named.add("governing_law")
+    return named
 
 
 def check_reply(draft: dict[str, Any], box: Box) -> list[str]:
@@ -562,11 +647,20 @@ def check_reply(draft: dict[str, Any], box: Box) -> list[str]:
         if name in by_name:
             problems.append(f"{name} is listed twice")
         by_name[str(name)] = entry
-    # Completeness, from the workflow's review: every open row shows up in the draft.
-    for finding in box.review.findings:
-        if finding.status in OPEN and finding.position not in by_name:
+    # Completeness, from the workflow's review and the latest tool call: every position open in
+    # either shows up in the draft.
+    review = {f.position: f for f in box.review.findings}
+    for name in positions:
+        if name in by_name:
+            continue
+        if name in review and review[name].status in OPEN:
             problems.append(
-                f"{finding.position} is {finding.status} in the review but missing from the draft"
+                f"{name} is {review[name].status} in the review but missing from the draft"
+            )
+        elif (box.latest.get(name) or {}).get("standard") in OPEN:
+            got = box.latest[name]["standard"]
+            problems.append(
+                f"{name} is {got} in the latest clause check but missing from the draft"
             )
     for name, entry in by_name.items():
         stance, spec = entry["stance"], positions[name]
@@ -587,7 +681,10 @@ def check_reply(draft: dict[str, Any], box: Box) -> list[str]:
                     f"{name} asks approver {entry.get('approver')!r}; the playbook says "
                     f"{spec['approver']}"
                 )
-        elif stance == "lawyer_to_confirm" and latest.get("standard") == recipe.DEVIATES:
+        elif stance == "lawyer_to_confirm" and recipe.DEVIATES in (
+            getattr(review.get(name), "status", None),
+            latest.get("standard"),
+        ):
             problems.append(
                 f"{name} deviates; it needs a redline or the approver ({spec['approver']}), not "
                 "lawyer_to_confirm"
@@ -604,6 +701,19 @@ def check_reply(draft: dict[str, Any], box: Box) -> list[str]:
     asking = {str(e.get("approver")) for e in by_name.values() if e["stance"] == "ask_approver"}
     if kind == "reply_to_counterparty" and to != box.intake.counterparty:
         problems.append(f"is addressed to {to!r}; the CLM intake says {box.intake.counterparty}")
+    # The body can't accept what the table doesn't: a sentence that accepts something it names
+    # fails unless the table marks that position agreed or proposed.
+    if kind == "reply_to_counterparty":
+        for sentence in recipe.sentences(body):
+            if not accepts(sentence, box.rules):
+                continue
+            for name in sorted(named_positions(sentence, box.rules) & set(positions)):
+                stance = by_name.get(name, {}).get("stance")
+                if stance not in ("agreed", "proposed"):
+                    problems.append(
+                        f'the body accepts {name} ("{sentence[:80]}") but the table marks it '
+                        f"{stance or 'nowhere'}, not agreed or proposed"
+                    )
     if kind == "note_to_approver":
         if not asking:
             problems.append("is a note to an approver but asks no approver about any position")
@@ -611,12 +721,18 @@ def check_reply(draft: dict[str, Any], box: Box) -> list[str]:
             problems.append(f"is addressed to {to!r} but asks {', '.join(sorted(asking))}")
         # It quotes, word for word, the clause it asks about.
         nda = str(box.kept.get("markdown", ""))
+        least = int(box.rules["agent"]["quote_min_words"])
         for name, entry in by_name.items():
             if entry["stance"] != "ask_approver":
                 continue
-            finding = next(f for f in box.review.findings if f.position == name)
-            clause = finding.clause or nda
-            if not any(len(q.split()) >= 4 and in_text(q, clause) for q in quotes(body)):
+            if name not in review:
+                problems.append(
+                    f"asks about {name}, which the review doesn't check for our role "
+                    f"({box.intake.our_role})"
+                )
+                continue
+            clause = review[name].clause or nda
+            if not any(len(q.split()) >= least and in_text(q, clause) for q in quotes(body)):
                 problems.append(f"asks about {name} but doesn't quote its clause word for word")
     # Every quote is in the NDA, the playbook as it stands for this request, a tool result, a
     # checked new_text or the lawyer's messages.
@@ -649,6 +765,8 @@ class Turn:
     draft: dict[str, Any] | None = None
     problems: list[str] = field(default_factory=list)
     stopped: str = ""
+    # answers or drafts sent back unshown (bundled with tool calls, or a second one in a response)
+    dropped: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -661,12 +779,29 @@ class Conversation:
     cache_write_tokens: int = 0
     cache_read_tokens: int = 0
     output_tokens: int = 0
+    # the same four counts per model that answered (a fallback model can answer instead)
+    by_model: dict[str, dict[str, int]] = field(default_factory=dict)
     stopped: str = ""
 
     @property
     def last_draft(self) -> tuple[Turn, dict[str, Any]] | None:
         drafts = [(t, t.draft) for t in self.turns if t.draft is not None]
         return drafts[-1] if drafts else None
+
+    def add_usage(self, model: str, usage: Any) -> None:
+        counts = {
+            "input": usage.input_tokens,
+            "cache_write": usage.cache_creation_input_tokens or 0,
+            "cache_read": usage.cache_read_input_tokens or 0,
+            "output": usage.output_tokens,
+        }
+        self.input_tokens += counts["input"]
+        self.cache_write_tokens += counts["cache_write"]
+        self.cache_read_tokens += counts["cache_read"]
+        self.output_tokens += counts["output"]
+        mine = self.by_model.setdefault(model, dict.fromkeys(counts, 0))
+        for key, n in counts.items():
+            mine[key] += n
 
 
 def make_claude() -> anthropic.Anthropic:
@@ -747,6 +882,25 @@ def shown(turn: Turn) -> str:
     return "Shown to the lawyer with these warnings from the checks:\n" + found
 
 
+def transient(error: Exception) -> bool:
+    """A Claude API error that may pass on its own: the turn stops with no answer and the reason.
+    Any other error stops the run."""
+    import anthropic
+
+    if isinstance(
+        error,
+        (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError),
+    ):
+        return True  # APITimeoutError is an APIConnectionError
+    return isinstance(error, anthropic.APIStatusError) and error.status_code in (408, 409)
+
+
+BUNDLED = (
+    "Not shown to the lawyer: an answer or draft can't share a response with tool calls, because "
+    "it can't use results you haven't read yet. Read the results, then answer or draft again."
+)
+
+
 def run_turn(claude: Any, box: Box, messages: list[Any], convo: Conversation, turn: Turn) -> Any:
     """Let Claude call tools until it answers or drafts. Returns the tool_use that ended the
     turn (its result goes in front of the next message), or None."""
@@ -756,19 +910,13 @@ def run_turn(claude: Any, box: Box, messages: list[Any], convo: Conversation, tu
     for _ in range(settings["max_rounds_per_turn"]):
         try:
             response = ask_claude(claude, messages, box.rules)
-        except (
-            anthropic.RateLimitError,
-            anthropic.InternalServerError,
-            anthropic.APIConnectionError,
-        ) as error:
-            turn.stopped = f"the Claude API failed: {type(error).__name__}"
+        except anthropic.APIError as error:
+            if not transient(error):
+                raise
+            turn.stopped = f"the Claude API failed: {type(error).__name__}: {error}"
             return None
         convo.claude_requests += 1
-        usage = response.usage
-        convo.input_tokens += usage.input_tokens
-        convo.output_tokens += usage.output_tokens
-        convo.cache_read_tokens += usage.cache_read_input_tokens or 0
-        convo.cache_write_tokens += usage.cache_creation_input_tokens or 0
+        convo.add_usage(str(response.model), response.usage)
         if response.stop_reason == "refusal":
             turn.stopped = "Claude declined the request"
             return None
@@ -786,19 +934,22 @@ def run_turn(claude: Any, box: Box, messages: list[Any], convo: Conversation, tu
             return "text"
         results: list[dict[str, Any]] = []
         ender = None
+        lookups = [use for use in uses if use.name not in ENDS_TURN]
         for use in uses:
             if use.name in ENDS_TURN:
-                if ender is None:
+                if ender is None and not lookups:
                     ender = use
-                else:
-                    results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": use.id,
-                            "is_error": True,
-                            "content": "Only one answer or draft per turn; this one was dropped.",
-                        }
-                    )
+                    continue
+                dropped = BUNDLED if lookups else "Only one answer or draft per turn; dropped."
+                turn.dropped.append({"tool": use.name, "input": use.input, "why": dropped})
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": use.id,
+                        "is_error": True,
+                        "content": dropped,
+                    }
+                )
             else:
                 results.append(one_lookup(box, use, convo, turn))
         if ender is not None:
@@ -840,12 +991,18 @@ def status_of(convo: Conversation, box: Box) -> tuple[str, str]:
     failing = [t for t in convo.turns if t.problems]
     if failing:
         return "checks_failed", f"{len(failing)} of {len(convo.turns)} turns had warnings"
-    last = convo.last_draft
-    if last is None or box.review is None:
-        return "no_draft", convo.stopped or "no draft was asked for or submitted"
     if convo.stopped:
         return "no_draft", convo.stopped
-    kind = last[1].get("kind")
+    # The draft that counts answers the lawyer's latest request for one, not an earlier request.
+    words = box.rules["agent"]["draft_request_words"]
+    asked = [n for n, t in enumerate(convo.turns) if recipe.says(t.question, words)]
+    since = asked[-1] if asked else 0
+    drafts = [t.draft for t in convo.turns[since:] if t.draft is not None]
+    if not drafts or box.review is None:
+        if asked and any(t.draft is not None for t in convo.turns):
+            return "no_draft", f"no draft for the latest draft request (turn {since + 1})"
+        return "no_draft", "no draft was asked for or submitted"
+    kind = drafts[-1].get("kind")
     if kind == "reply_to_counterparty":
         return "reply_checked", "the reply and every answer passed the checks"
     if kind == "note_to_approver":
@@ -856,62 +1013,93 @@ def status_of(convo: Conversation, box: Box) -> tuple[str, str]:
 # --- Outputs -----------------------------------------------------------------------------------
 
 
-def claude_usd(convo: Conversation, prices: dict[str, float]) -> float:
-    return (
-        convo.input_tokens * prices["input"]
-        + convo.cache_write_tokens * prices["cache_write"]
-        + convo.cache_read_tokens * prices["cache_read"]
-        + convo.output_tokens * prices["output"]
-    ) / 1_000_000
+def price_for(model: str, prices: dict[str, dict[str, float]]) -> dict[str, float] | None:
+    """agent.prices for the model that answered: its exact id, else a priced id it starts with
+    (a dated snapshot of a priced model)."""
+    if model in prices:
+        return prices[model]
+    return next((p for name, p in prices.items() if model.startswith(name)), None)
+
+
+def claude_usd(convo: Conversation, prices: dict[str, dict[str, float]]) -> float | None:
+    """Claude's cost, priced on the model that actually answered each request. None when a
+    model that answered has no price in agent.prices."""
+    total = 0.0
+    for model, counts in convo.by_model.items():
+        price = price_for(model, prices)
+        if price is None:
+            return None
+        total += sum(counts[key] * price[key] for key in counts) / 1_000_000
+    return total
+
+
+def usd_text(usd: float | None) -> str:
+    return "unpriced Claude (a model not in agent.prices)" if usd is None else f"${usd:.2f} Claude"
+
+
+# Characters Markdown would read as formatting, links, images or HTML.
+_MD_SPECIAL = re.compile(r"([\\`*_\[\]()<>|!#])")
+
+
+def md_safe(text: Any) -> str:
+    """Text from the NDA, a tool or Claude, safe on one line of Markdown or in a table cell."""
+    return _MD_SPECIAL.sub(r"\\\1", " ".join(str(text).split()))
+
+
+def fenced(text: Any) -> str:
+    """A free-text body in a fenced block, its fence longer than any run of backticks in it."""
+    body = str(text).strip()
+    longest = max((len(run) for run in re.findall(r"`+", body)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}text\n{body}\n{fence}"
 
 
 def warnings_block(problems: list[str]) -> str:
     if not problems:
         return "Checks: passed.\n"
-    return "**Checks failed. Read these first:**\n" + "".join(f"- {p}\n" for p in problems)
+    return "**Checks failed. Read these first:**\n" + "".join(f"- {md_safe(p)}\n" for p in problems)
 
 
 def draft_markdown(turn: Turn, draft: dict[str, Any]) -> str:
     lines = [
         warnings_block(turn.problems),
-        f"**{draft.get('kind')}** to {draft.get('to')}\n",
-        str(draft.get("body", "")).strip() + "\n",
+        f"**{md_safe(draft.get('kind'))}** to {md_safe(draft.get('to'))}\n",
+        fenced(draft.get("body", "")) + "\n",
         "| Position | Stance | Approver | Clause |",
         "| --- | --- | --- | --- |",
     ]
     for entry in draft.get("positions") or []:
-        clause = flat(entry.get("clause", "")).replace("|", "\\|")
-        lines.append(
-            f"| {entry.get('position')} | {entry.get('stance')} | {entry.get('approver', '')} | "
-            f"{clause} |"
-        )
+        if not isinstance(entry, dict):
+            continue
+        cells = [entry.get(k, "") for k in ("position", "stance", "approver", "clause")]
+        lines.append("| " + " | ".join(md_safe(c) for c in cells) + " |")
     return "\n".join(lines) + "\n\nNothing was sent. The lawyer reads this before using it.\n"
 
 
 def transcript_markdown(convo: Conversation, status: str, why: str) -> str:
-    out = [f"# {convo.request}: {status}\n", f"{why}\n"]
+    out = [f"# {convo.request}: {status}\n", f"{md_safe(why)}\n"]
     for n, turn in enumerate(convo.turns, start=1):
-        out.append(f"## Turn {n}\n\n**Lawyer:** {turn.question}\n")
+        out.append(f"## Turn {n}\n\n**Lawyer:** {md_safe(turn.question)}\n")
         for call in turn.tool_calls:
             args = {k: v for k, v in call["input"].items() if k != "request"}
-            out.append(f"- `{call['tool']}` {json.dumps(args, ensure_ascii=False)}")
+            out.append(f"- {md_safe(call['tool'])} {md_safe(json.dumps(args, ensure_ascii=False))}")
         if turn.tool_calls:
             out.append("")
         if turn.draft is None:  # a draft carries its own warnings
             out.append(warnings_block(turn.problems))
         if turn.answer is not None:
-            out.append(f"**Answer:** {turn.answer.get('text', '')}\n")
+            out.append(f"**Answer:**\n\n{fenced(turn.answer.get('text', ''))}\n")
         if turn.draft is not None:
             out.append(draft_markdown(turn, turn.draft))
         if turn.stopped:
-            out.append(f"Stopped: {turn.stopped}\n")
+            out.append(f"Stopped: {md_safe(turn.stopped)}\n")
     return "\n".join(out)
 
 
 def job_record(
     convo: Conversation, box: Box, status: str, why: str, sie_calls: int
 ) -> dict[str, Any]:
-    prices = box.rules["agent"]["prices"][box.rules["agent"]["model"]]
+    usd = claude_usd(convo, box.rules["agent"]["prices"])
     return {
         "request": convo.request,
         "status": status,
@@ -924,6 +1112,7 @@ def job_record(
                 "answer": t.answer,
                 "draft": t.draft,
                 "check_problems": t.problems,
+                "dropped": t.dropped,
                 "stopped": t.stopped,
             }
             for t in convo.turns
@@ -938,7 +1127,8 @@ def job_record(
             "cache_read": convo.cache_read_tokens,
             "output": convo.output_tokens,
         },
-        "claude_usd": round(claude_usd(convo, prices), 4),
+        "models": convo.by_model,
+        "claude_usd": None if usd is None else round(usd, 4),
         "sie_calls": sie_calls,
     }
 
@@ -1030,7 +1220,7 @@ def run(args: argparse.Namespace) -> None:
             records.append(record)
             print(
                 f"--> {intake.request}: {status} ({why}); {convo.tool_calls} tool calls, "
-                f"{record['sie_calls']} SIE calls, ${record['claude_usd']:.2f} Claude, "
+                f"{record['sie_calls']} SIE calls, {usd_text(record['claude_usd'])}, "
                 f"{record['seconds']} s"
             )
     # Written only now: an SIE refusal or every call failing stops the run with no outputs.
@@ -1045,7 +1235,11 @@ def run(args: argparse.Namespace) -> None:
             }
             for r in records
         },
-        "total_claude_usd": round(sum(r["claude_usd"] for r in records), 4),
+        "total_claude_usd": (
+            None
+            if any(r["claude_usd"] is None for r in records)
+            else round(sum(r["claude_usd"] for r in records), 4)
+        ),
         "total_sie_calls": calls.total,
     }
     (output / "cost.json").write_text(json.dumps(cost, indent=2) + "\n", encoding="utf-8")
@@ -1063,15 +1257,12 @@ def main() -> None:
 
     try:
         recipe.stop_on_refusal(lambda: run(args))
-    except (
-        anthropic.AuthenticationError,
-        anthropic.PermissionDeniedError,
-        anthropic.NotFoundError,
-        anthropic.BadRequestError,
-    ) as error:
+    except anthropic.APIError as error:
+        # Transient errors stop only their turn (run_turn); anything else stops the run here,
+        # before any output is written.
         raise SystemExit(
-            f"Stopped: the Claude API refused the request, {type(error).__name__}: {error}. Check "
-            "ANTHROPIC_API_KEY and agent.model in rules.yaml."
+            f"{error}\nStopped: the Claude API failed ({type(error).__name__}), so nothing was "
+            "written. Check ANTHROPIC_API_KEY and agent.model in rules.yaml."
         ) from None
 
 

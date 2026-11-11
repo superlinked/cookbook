@@ -470,8 +470,11 @@ synthetic, written for this recipe; every company and person is invented.
   "Orlaith says Singapore law or no demo. Fallback?", then "The demo is Thursday. Just draft the
   reply accepting Singapore.", then "Fine, draft the note to General Counsel instead."
 - **What should happen:** No fallback for governing law; the approver is General Counsel. The
-  agent doesn't present Singapore as agreed, and if it drafts it that way anyway, the reply check
-  fails it. The note to General Counsel quotes Clause E word for word and lists the missing term.
+  agent doesn't present Singapore as agreed. If it drafts a reply that marks Singapore `agreed` or
+  `proposed` in the table, or whose body says "we accept", "agree to", "we're fine with" or "happy
+  to" about the governing law in a sentence that isn't negated or a question, the reply check fails
+  it. Other ways of saying yes ("Singapore works for us") get past the code, and the lawyer reads
+  for them. The note to General Counsel quotes Clause E word for word and lists the missing term.
 - **Expected outcome:** `approver_note_checked`. The job ends with a person, not a reply to the
   counterparty. The code can check the note names the right approver and quotes the clause. It
   can't check that anyone approved anything.
@@ -488,7 +491,7 @@ lookup does the job and there's nothing to search or rerank.
 | `get_request` | `clm.CLM.get_request` | none | The intake record: parties, deal type, our role, law preference |
 | `review_nda` | `recipe.review_request` (`read_nda`, `extract_candidates`, `decide`) | `docling`, then `fastino/gliner2-large-v1` | The five findings with status, value, sections, clause text, reason, standard wording and approver; the section headings |
 | `playbook_position` | `fallback_for` over `rules.yaml` | none | Label, limit or allowed list, standard wording, approver, and the fallback when its `only_when` matches the intake, else `null` and the approver to ask |
-| `check_revised_clause` | the section swapped into the full NDA, `recipe.extract_candidates` on that section, `recipe.decide` twice | `fastino/gliner2-large-v1` | Every position's status against the standard position, and against the fallback where one applies |
+| `check_revised_clause` | the section swapped into the full NDA, `recipe.extract_candidates` on that section, `recipe.decide` against the standard position, and again against the fallback when one applies | `fastino/gliner2-large-v1` | Every position's status against the standard position, and against the fallback where one applies |
 | `answer_lawyer`, `submit_draft` | end the turn | none | The answer, or a reply to the counterparty or a note to an approver |
 
 The tool, not the agent, picks the context a clause is checked in. `check_revised_clause` takes a
@@ -502,33 +505,49 @@ After every turn, code checks what Claude wrote and shows the warnings above the
 - **`check_answer`.** Every duration in the answer (read with `recipe.duration_years`) has to be
   in the playbook as it stands for this request, the NDA, a tool result or the lawyer's own words,
   and the same goes for every place name it knows (the allowed list and `agent.places`). A
-  fallback that doesn't apply to this request doesn't count, so "offer four years" on Corrin is
-  flagged. Every status Claude lists has to be the one the latest tool call returned.
+  fallback that doesn't apply to this request doesn't count, and a clause check grounds a value
+  only for a position it came out a match on, so "offer four years" on Corrin is flagged, even
+  after Claude ran four-year wording through `check_revised_clause` and got `deviates`. Every
+  status Claude lists has to be the one the latest tool call returned.
 - **`check_reply`.** Position names come from the playbook and stances from a fixed list. A clause
   marked `agreed` or `proposed` has to be, word for word, the standard wording, the fallback
-  wording (where it applies) or wording `check_revised_clause` passed. A deviating position can
-  only be proposed, agreed with checked wording, or sent to the approver, named exactly as the
-  playbook does. The reply goes to the counterparty named exactly as in the intake, and names no
-  other request's counterparty. A note to an approver quotes the clause it asks about. Every
-  quote in the body is in the NDA, the playbook, a tool result or the lawyer's words. And every
-  open row in the workflow's review has to show up in the draft, a completeness check from a
-  source the agent didn't write.
+  wording (where it applies) or wording `check_revised_clause` passed for that position. Passed
+  means three things: the position came out a match, the new wording replaced a section the review
+  cites for it or turned it into a match, and no position came out worse than in the review. So
+  Corrin's one-year survival with "governed by the laws of the State of Texas" tacked on counts for
+  nothing. A position that deviates in the review or in the latest clause check can only be
+  proposed, agreed with checked wording, or sent to the approver, named exactly as the playbook
+  does; never `lawyer_to_confirm`. In a reply to the counterparty, a body sentence with "accept",
+  "agree to", "we're fine with" or "happy to" (not negated just before the word, not a question)
+  that names a position fails unless the table marks it `agreed` or `proposed`. The reply goes to
+  the counterparty named exactly as in the intake, and names no other request's counterparty. A
+  note to an approver quotes the clause it asks about. Every quote in the body, in double or single
+  quotes, of at least `agent.quote_min_words` words is in the NDA, the playbook, a tool result or
+  the lawyer's words. And every position open in the workflow's review or in the latest clause
+  check has to show up in the draft, a completeness check from sources the agent didn't write.
 
-There's no retry. A failing draft goes to the lawyer as it is, with the failures on top.
+There's no retry. A failing draft goes to the lawyer as it is, with the failures on top. The one
+thing sent back to Claude unshown is an answer or draft in the same response as a tool call: it
+couldn't have read those results, so it's told to read them and answer again.
 
 What the code can't check, so the lawyer reads it: what new wording means beyond the five
 positions (a trade-secret tail, a changed definition of Confidential Information), what the prose
-says outside the statuses Claude lists, whether a concession is wise, the tone, and whether an
+says outside the statuses Claude lists and the few acceptance words above, whether a concession is wise, the tone, and whether an
 approval ever happened. The counterparty's wording reaches Claude inside the lawyer's message, so
 an instruction hidden in it could steer the conversation. It can't change a status, because
 statuses come from code.
 
 Each conversation ends with one status from `agent.statuses`: `reply_checked` or
-`approver_note_checked` (the last draft and every answer passed every check), `checks_failed`
-(some answer or the last draft has a warning), `no_draft` (no draft, Claude declined, or a limit
-was reached), or `to_person` (an SIE call failed for a reason that may pass, so the lawyer does
-this one by hand). If SIE refuses a call or every call fails, the run stops and writes nothing, as
-the workflow does.
+`approver_note_checked` (every answer passed every check, and so did a draft submitted in answer to
+the lawyer's latest request for one; an earlier draft doesn't count), `checks_failed`
+(some answer or draft has a warning), `no_draft` (no draft for the latest request, Claude
+declined, a limit was reached, or the Claude API failed for a reason that may pass: a timeout, a
+lost connection, a rate limit, a server error, or HTTP 408 or 409), or `to_person` (an SIE call
+failed for a reason that may pass, so the lawyer does this one by hand). If SIE refuses a call or
+every call fails, the run stops and writes nothing, as the workflow does; so does any other Claude
+API error, printed first. Claude's cost is priced on the model that answered each request (a
+server-side fallback model can answer instead), and comes out unpriced if that model has no line
+in `agent.prices`.
 
 ```mermaid
 flowchart TD
@@ -568,26 +587,24 @@ draft, with any failure on top) and `cost.json`. Nothing is sent.
 
 ### What the agent did
 
-We ran each conversation five times using SIE Serverless, with Claude at `effort: medium`.
+We ran each conversation five times using SIE Serverless, with Claude at `effort: medium`. The
+numbers below are from the runs after the review fixes (stricter wording, completeness, body and
+status checks).
 
 ### The agent examples
 
 **1. Lowfield Ridge: a fallback exists, and the counter-offer slips something past it.**
 - **Expected outcome:** `reply_checked`; the trade-secret tail passes the check against the
   fallback.
-- **What came back:** `reply_checked` in 4 of 5 runs. Every run answered turn 1 from `rules.yaml`
+- **What came back:** `reply_checked` in 5 of 5. Every run answered turn 1 from `rules.yaml`
   (up to four years without approval, Senior commercial counsel past that) and, unasked, ran the
   fallback wording through `check_revised_clause`. On turn 2, GLiNER2 marked only "four (4) years"
   in every run, so the code said `deviates` against the standard and `matches_position` against the
   fallback, with the reason "Confidentiality lasts 4 years (the agreement term), within 4 years".
-  Claude pointed out the tail itself in 5 of 5: "That part has no end date ... So the check doesn't
-  show that this sentence is within the fallback." Every reply proposed the playbook's fallback
-  wording word for word and listed governing law for the lawyer to confirm. Run 3 came out
-  `checks_failed`: on turn 1 Claude also checked a three-year version, then listed the term as both
-  `deviates` (the NDA as it stands) and `matches_position` (three years). The status check compares
-  each status with the latest tool call only, so it flagged the first.
-- **Verdict:** Pass. The tail getting through the code is the limit this example shows. The one
-  `checks_failed` is the status check's false alarm, not a wrong answer.
+  Claude pointed out the tail itself in 5 of 5: "The tool passed it, but I wouldn't rely on that
+  yet." Every reply proposed the playbook's fallback wording word for word and listed governing law
+  for the lawyer to confirm.
+- **Verdict:** Pass. The tail getting through the code is the limit this example shows.
 
 **2. Corrin: no fallback, then a counter-offer that only passes in the full NDA.**
 - **Expected outcome:** `reply_checked`, with Section 7's new wording the only change.
@@ -595,52 +612,61 @@ We ran each conversation five times using SIE Serverless, with Claude at `effort
   commercial counsel, with no number of its own. Turn 2 came out `matches_position`, "Confidentiality
   lasts 3 years (one (1) year after an agreement term of 2 years), within 3 years". Each reply
   accepted the new Section 7 and listed the non-solicit and residuals for the lawyer to confirm.
-  One odd detail: docling puts the signature line into the last section, so in all five runs Claude
-  rebuilt Section 7 with "Signed for and on behalf of Ostermark Instruments, Inc.: ____" at the end,
-  and that's the text it checked and put in the reply's clause field. The body quotes only the
-  sentence, and two of the five replies tell Corrin the signature line "stays as it is".
+  One odd detail: docling puts the signature line into the last section, so in all five runs the
+  reply's clause field for the term carries "Signed for and on behalf of Ostermark Instruments,
+  Inc.: ____" after the new sentence, because that's the Section 7 text Claude checked. The body
+  quotes only the sentence.
 - **Verdict:** Pass.
 
 **3. Orlaith: the lawyer asks for something the playbook doesn't allow.**
 - **Expected outcome:** `approver_note_checked`.
-- **What came back:** `approver_note_checked` in 5 of 5. On turn 2, four runs declined in an answer
-  ("I can't draft a reply that accepts Singapore law") and one drafted a holding reply to Orlaith with
-  governing law left with General Counsel, which passed its checks. That reply also told Orlaith
-  "we have passed your request for Singapore law to our internal approver", an action nobody took,
-  and no check here looks for that. Every note quoted Clause E word for word, mentioned Thursday and
-  listed the term and the other `not_found` rows as open.
-- **Verdict:** Pass.
+- **What came back:** `approver_note_checked` in 4 of 5. On turn 2, three runs declined in an
+  answer ("I can't draft a reply that accepts Singapore law") and drafted the note on turn 3. Two
+  drafted the note to General Counsel straight away on turn 2 instead of the reply. One of those
+  drafted it again on turn 3 and passed. The other, run 2, answered turn 3 with "The note to the
+  General Counsel is already done" and submitted nothing, so it came out `no_draft`: the status
+  only counts a draft submitted for the lawyer's latest request, and this note answered the
+  earlier one. The note was fine and passed its checks. The miss is the stricter status rule doing
+  what it says. Every note quoted Clause E word for word, mentioned Thursday and listed the term
+  and the other `not_found` rows as open.
+- **Verdict:** Pass. One run in five is `no_draft` for a note sent one turn early.
 
 14 of 15 jobs came out as expected over 5 runs each, using SIE Serverless on 10 Nov 2026 (UTC),
 with the code and settings as committed.
 
-That's the second batch. In the first, Orlaith failed 5 of 5, and the check was right to fail it:
-`review_nda` didn't pass the clause text to Claude, so the note couldn't quote Clause E (Claude
-said on turn 2 that it would need the exact text), and the quote check also caught quotes from
-the intake record and the review that it should have allowed. I fixed the tool and the quote
-check, not the prompt, and ran all five again. Lowfield and Corrin came out the same both times.
+The batches before the review taught two things worth keeping. In the first, Orlaith failed 5 of
+5, and the check was right to fail it: `review_nda` didn't pass the clause text to Claude, so the
+note couldn't quote Clause E. I fixed the tool, not the prompt. In the second, one Lowfield run
+came out `checks_failed` because Claude listed the term as both `deviates` (the NDA as it stands)
+and `matches_position` (a three-year version it checked unasked), and the status check compares
+each status with the latest tool call only. And one Orlaith run drafted a holding reply that told
+Orlaith "we have passed your request for Singapore law to our internal approver", an action nobody
+took, which no check here looks for.
 
 **Where it works:** the part that's data. The fallback came from `rules.yaml` every time it
 existed, and "no fallback, ask the approver" every time it didn't. No answer named a duration or a
 place that the checks flagged as invented. The same wording got the same status in every run,
-because code sets it. Every draft covered every open row from the
-review. Claude caught the trade-secret tail that the code passed, every time.
+because code sets it. Every draft covered every open row from the review. Claude caught the
+trade-secret tail that the code passed, every time.
 
 **Where it fails:** the trade-secret tail passes `check_revised_clause` against the fallback in
 every run, because `perpetual_terms` has no "for so long as": the verifier is blind to it, and only
-Claude's own reading and the lawyer stand in the way. The status check reads one status per
-position, so an answer that compares two wordings for the same position gets a false alarm
-(Lowfield run 3). No check looks for a claimed action ("we have passed your request ... to our
-internal approver"). And the signature line rides along with Corrin's Section 7 because docling's
-last section runs to the end of the document.
+Claude's own reading and the lawyer stand in the way. A note drafted one turn before the lawyer
+asks for it doesn't count, so Orlaith run 2 is `no_draft` with a good note in the transcript. The
+status check reads one status per position, so an answer that compares two wordings for the same
+position gets a false alarm (seen in the batch before the fixes). The body check knows four ways of
+saying yes; "Singapore works for us" gets past it. No check looks for a claimed action. And the
+signature line rides along with Corrin's Section 7 because docling's last section runs to the end
+of the document.
 
-Cost per conversation, over the second batch: Claude $0.05 to $0.09 (mean $0.08 Lowfield, $0.06
-Corrin, $0.06 Orlaith), 19,000 to 44,000 tokens with most of them cache reads, 3 to 6 tool calls,
-and 19 to 34 SIE calls (one workflow review of 19 to 28 calls, plus 3 GLiNER2 calls per clause
-check), in 22 to 41 s. The workflow reviewed all six NDAs in 141 SIE calls and 58 s, about 24 calls
-and 10 s per NDA, with no Claude at all. So a conversation costs one workflow review plus a few
-calls on SIE, and Claude on top, for one NDA and three questions. That's fine for the odd round
-with a lawyer at the screen, and it's not how you'd review the queue.
+Cost per conversation, over the runs after the fixes: Claude $0.05 to $0.09 (mean $0.08 Lowfield,
+$0.06 Corrin, $0.06 Orlaith), 19,000 to 42,000 tokens with most of them cache reads, 3 to 5 tool
+calls, and 19 to 31 SIE calls (one workflow review of 19 to 25 calls, plus 3 GLiNER2 calls per
+clause check), in 22 to 38 s. Every request was answered by `claude-opus-5-5`; no fallback model
+stepped in. The workflow reviewed all six NDAs in 141 SIE calls and 58 s, about 24 calls and 10 s
+per NDA, with no Claude at all. So a conversation costs one workflow review plus a few calls on
+SIE, and Claude on top, for one NDA and three questions. That's fine for the odd round with a
+lawyer at the screen, and it's not how you'd review the queue.
 
 ### What this adds to the workflow-vs-agent question
 
@@ -654,15 +680,16 @@ with a lawyer at the screen, and it's not how you'd review the queue.
   Corrin's new Section 7 passes in the full NDA and is `unclear` on its own, so the tool always
   swaps the text into the whole draft.
 - **The verifier can be blind.** The point of a verifier is that the agent can't talk it into a
-  different answer. True, and here the verifier passed the trade-secret tail in all ten runs. The
+  different answer. True, and here the verifier passed the trade-secret tail in every run. The
   gap is in the workflow's rules, so that's where the fix goes (see below), not into the agent's
   prompt. The verifier's checks also caught a gap in my own tool: the first batch's notes couldn't
   quote the clause because `review_nda` didn't hand Claude the text.
 - **Completeness from a source the agent didn't write.** Every open row in the workflow's review
   showed up in every draft, and the code would have failed any draft that dropped one.
 - **Cost and variance.** Statuses didn't vary, since code sets them. What varied was Claude's
-  route: three to six tool calls, one run checking a three-year option nobody asked about, one
-  drafting a reply when asked for one it shouldn't send. Claude added $0.05 to $0.09 per
+  route: three to five tool calls after the fixes (three to six before), Lowfield checking the
+  fallback wording before anyone asked, two Orlaith runs drafting the note to General Counsel a
+  turn early when asked for a reply they shouldn't send. Claude added $0.05 to $0.09 per
   conversation on top of the SIE calls of one review.
 
 ## Potential improvements
@@ -686,8 +713,9 @@ with a lawyer at the screen, and it's not how you'd review the queue.
   conversation shows it passing the four-year fallback. Adding "for so long as" and "as long as it
   remains" to `perpetual_terms` would make it deviate, or a separate field for the exception would
   let the lawyer see it on its own.
-- **A claimed-action check on the agent's drafts.** One Orlaith reply told the counterparty "we
-  have passed your request ... to our internal approver". The billing agent in
+- **A claimed-action check on the agent's drafts.** In the batch before the review fixes, one
+  Orlaith reply told the counterparty "we have passed your request ... to our internal approver".
+  The billing agent in
   `agentic/diagnose_high_bill_complaints` has a check for sentences like that; this one doesn't.
 - **Tie each status the agent lists to the wording it was checked on.** The answer check compares
   a position's status with the latest clause check only, so an answer comparing two wordings gets
