@@ -10,7 +10,9 @@ from __future__ import annotations
 import contextlib
 import csv
 import dataclasses
+import functools
 import io
+import json
 import re
 import shutil
 import tempfile
@@ -19,6 +21,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
+import agent
+import make_agent_data
 from claims_system import ClaimsSystem
 from sie_sdk import SIEClient
 from sie_sdk.client.errors import (
@@ -42,6 +46,8 @@ import recipe
 RULES = recipe.load_rules()
 DATA = recipe.DATA_DIR
 CLAIMS = {claim.document: claim for claim in make_data.CLAIMS}
+# The agent's seed in data/agent/: siu-01 to siu-09.
+AGENT_CLAIMS = {filed.claim.document: filed.claim for filed in make_agent_data.FILED}
 
 
 # --- Hand-written OCR pages, in LightOnOCR's shape --------------------------------------------
@@ -63,7 +69,7 @@ def page(document: str = "clm-01", **change: Any) -> str:
     """The invoice page for one claim as LightOnOCR writes it: the letterhead, the
     "Label: value" header lines, the line-item table and the totals table. `change` replaces
     a header value or a total (None leaves the line off), or `items` / `extra` (more lines)."""
-    claim = CLAIMS[document]
+    claim = CLAIMS.get(document) or AGENT_CLAIMS[document]
     invoice = claim.invoice
     values: dict[str, str | None] = {
         "vendor": invoice.vendor,
@@ -187,7 +193,7 @@ def run(
     of authorizations.csv."""
     with tempfile.TemporaryDirectory() as name:
         folder = Path(name)
-        for path in DATA.iterdir():
+        for path in filter(Path.is_file, DATA.iterdir()):
             shutil.copy(path, folder / path.name)
         documents = (DATA / "claim_documents.csv").read_text(encoding="utf-8").splitlines()
         kept = [documents[0]] + [row for row in documents[1:] if row.split(",")[0] in pages]
@@ -452,7 +458,7 @@ def check_conflicts() -> None:
     rules_small = {**RULES, "thresholds": {**RULES["thresholds"], "window_words": 70}}
     with tempfile.TemporaryDirectory() as name:
         folder = Path(name)
-        for path in DATA.iterdir():
+        for path in filter(Path.is_file, DATA.iterdir()):
             shutil.copy(path, folder / path.name)
         rows = (DATA / "claim_documents.csv").read_text(encoding="utf-8").splitlines()[:2]
         (folder / "claim_documents.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
@@ -673,7 +679,7 @@ def check_guards() -> None:
     # A document file in the seed must be a file name inside data/, not a path.
     with tempfile.TemporaryDirectory() as name:
         folder = Path(name)
-        for path in DATA.iterdir():
+        for path in filter(Path.is_file, DATA.iterdir()):
             shutil.copy(path, folder / path.name)
         seed = folder / "claim_documents.csv"
         original = seed.read_text(encoding="utf-8")
@@ -727,6 +733,535 @@ def check_committed_data() -> None:
     print("committed data: no PDF metadata, no real VINs, invoice amounts ok")
 
 
+# --- The agent (agent.py): data, tools, the per-claim table and the checks on its report --------
+
+AGENT_DATA = recipe.ROOT / "data" / "agent"
+JOB = agent.load_job(AGENT_DATA / "jobs.yaml")
+# The documents claims_for_shop returns for the job, and the claims behind them.
+ON_LIST = ["siu-01", "siu-02", "siu-03", "siu-04", "siu-05", "siu-06", "siu-07"]
+NUMBER = {doc: claim.claim_number for doc, claim in AGENT_CLAIMS.items()}
+
+
+def agent_box(
+    pages: dict[str, str] | None = None, **stand_in: Any
+) -> tuple[agent.Toolbox, StandIn]:
+    """A Toolbox over data/agent/ with stand-in OCR pages (faithful ones by default)."""
+    claims = ClaimsSystem(AGENT_DATA)
+    pages = pages or {doc: page(doc) for doc in AGENT_CLAIMS}
+    by_id = {
+        f"ocr/brightwater-invoices/p{d.page}": pages[d.document] for d in claims.waiting_invoices()
+    }
+    client = StandIn(by_id, **stand_in)
+    box = agent.Toolbox(cast(SIEClient, client), recipe.Calls(), claims, RULES, AGENT_DATA, JOB)
+    return box, client
+
+
+def checked_box(
+    pages: dict[str, str] | None = None,
+) -> tuple[agent.Toolbox, list[tuple[Any, Any]]]:
+    """A Toolbox that has listed the shop's claims and checked every one (faithful pages unless
+    `pages` gives others)."""
+    box, _ = agent_box(pages)
+    box.run("claims_for_shop", {"vendor": JOB.vendor, "year": JOB.year})
+    with contextlib.redirect_stdout(io.StringIO()):
+        for doc in ON_LIST:
+            box.run("check_invoice", {"document": doc})
+    return box, box.claims.claims_for_vendor(JOB.vendor, JOB.year)
+
+
+def check_agent_data() -> None:
+    claims = ClaimsSystem(AGENT_DATA)
+    # The job's list: seven claims. Last year's (siu-08) and the one where Brightwater isn't the
+    # listed vendor (siu-09) are not on it.
+    listed = claims.claims_for_vendor(JOB.vendor, JOB.year)
+    assert [d.document for _, d in listed] == ON_LIST, listed
+    assert [d.document for _, d in claims.claims_for_vendor(JOB.vendor, 2025)] == ["siu-08"]
+    assert claims.claims_for_vendor("Brightwater Roofing", JOB.year) == []  # exact name only
+    assert claims.claims_for_vendor(f"  {JOB.vendor.upper()} ", JOB.year) == listed
+    siu09 = claims.get_claim(NUMBER["siu-09"])
+    assert siu09 is not None
+    assert siu09.vendors == ("Ashby Vale Exteriors",)
+    assert AGENT_CLAIMS["siu-09"].invoice.vendor == JOB.vendor
+    closed = claims.get_claim(NUMBER["siu-06"])
+    assert closed is not None
+    assert closed.status == "closed"
+    # siu-01 and siu-02 are the very pages of clm-01 and clm-09.
+    import pypdfium2 as pdfium
+
+    def pixels(pdf: Path, index: int) -> bytes:
+        return bytes(pdfium.PdfDocument(pdf)[index].render(scale=1).to_pil().tobytes())
+
+    agent_pdf, data_pdf = AGENT_DATA / "brightwater-invoices.pdf", DATA / "repair-invoices.pdf"
+    assert pixels(agent_pdf, 0) == pixels(data_pdf, 0)
+    assert pixels(agent_pdf, 1) == pixels(data_pdf, 8)
+    raw = agent_pdf.read_bytes()
+    for marker in (b"/Info", b"/Title", b"/Author", b"/CreationDate", b"Exif", b"xmpmeta"):
+        assert marker not in raw, f"brightwater-invoices.pdf carries {marker!r}"
+    # The numbers the examples rest on.
+    invoices = {doc: claim.invoice for doc, claim in AGENT_CLAIMS.items()}
+    assert invoices["siu-02"].number == invoices["siu-03"].number == "BRG-10457"
+    assert invoices["siu-02"].total == invoices["siu-03"].total == Decimal("2033.08")
+    assert invoices["siu-04"].total == invoices["siu-05"].total == Decimal("1537.00")
+    siu07 = claims.get_claim(NUMBER["siu-07"])
+    assert siu07 is not None
+    assert invoices["siu-07"].total - siu07.authorized == Decimal("412.00")
+    print("agent data: the shop's list, the two repeated pages, no PDF metadata ok")
+
+
+def check_agent_tools() -> None:
+    box, client = agent_box()
+    # Every tool reaches only the job's own records: no other shop, year, claim or document,
+    # whatever an invoice's text asks for.
+    for tool, args in (
+        ("check_invoice", {"document": "siu-09"}),
+        ("check_invoice", {"document": "../data/x"}),
+        ("get_claim", {"claim_number": "CLM-26-999999"}),
+        ("get_claim", {"claim_number": NUMBER["siu-09"]}),  # in the system, not on the list
+        ("get_claim", {"claim_number": NUMBER["siu-08"]}),  # the shop's, but last year's
+        ("claims_for_shop", {"vendor": JOB.vendor, "year": "2026"}),
+        ("claims_for_shop", {"vendor": JOB.vendor, "year": 2025}),
+        ("claims_for_shop", {"vendor": "Ashby Vale Exteriors", "year": JOB.year}),
+        ("send_to_fraud_bureau", {}),
+    ):
+        error = raised(functools.partial(box.run, tool, args))
+        assert isinstance(error, agent.ToolError), (tool, args, error)
+    assert client.ids == []
+    assert box.seen == {}
+    rows = json.loads(
+        box.run("claims_for_shop", {"vendor": f" {JOB.vendor.upper()}", "year": 2026})
+    )
+    assert [row["document"] for row in rows] == ON_LIST
+    claim = json.loads(box.run("get_claim", {"claim_number": NUMBER["siu-01"]}))
+    assert [d["document"] for d in claim["documents"]] == ["siu-01"]
+    assert "siu-09" not in box.seen
+    assert "siu-08" not in box.seen
+    # The same document twice runs the workflow once and returns the same result.
+    with contextlib.redirect_stdout(io.StringIO()):
+        first = box.run("check_invoice", {"document": "siu-01"})
+        again = box.run("check_invoice", {"document": "siu-01"})
+    assert first == again
+    assert box.calls.total == 3, box.calls.count
+    # A refusal from SIE in a tool stops the run: it is not a tool error Claude gets to see.
+    box, _ = agent_box(errors={"ocr/": [FATAL[0]]})
+    box.run("claims_for_shop", {"vendor": JOB.vendor, "year": JOB.year})
+    error = raised(lambda: box.run("check_invoice", {"document": "siu-01"}))
+    assert isinstance(error, recipe.SIEStopped), error
+    # Every call failing stops the run too, with no outputs.
+    box, _ = agent_box(errors={"ocr/": [TRANSIENT[0]]})
+    box.run("claims_for_shop", {"vendor": JOB.vendor, "year": JOB.year})
+    box.run("check_invoice", {"document": "siu-01"})
+    assert isinstance(raised(box.calls.check_all_failed), recipe.SIEStopped)
+    print("agent tools: known ids only, one result per document, SIE refusal stops ok")
+
+
+def check_agent_table() -> None:
+    box, expected = checked_box()
+    rows = {row["document"]: row for row in agent.claim_rows(expected, box.results)}
+    outcomes = {doc: (row["outcome"], row["cites"]) for doc, row in rows.items()}
+    assert outcomes == {
+        "siu-01": ("clear", []),
+        "siu-02": ("finding", ["claim_match"]),
+        "siu-03": ("clear", []),
+        "siu-04": ("clear", []),
+        "siu-05": ("clear", []),
+        "siu-06": ("not_checked", []),
+        "siu-07": ("finding", ["authorized_amount"]),
+    }, outcomes
+    # The workflow's refusal on the closed claim is filed as a claim_match review...
+    assert box.results["siu-06"].status == "review"
+    assert [c.check for c in box.results["siu-06"].flagged] == ["claim_match"]
+    # ...but the table reads the claim's status, not the check's name.
+    assert "closed" in rows["siu-06"]["reason"], rows["siu-06"]
+    # A claim the agent never checked is not_checked with that reason, never clear.
+    partial = {doc: r for doc, r in box.results.items() if doc != "siu-04"}
+    row = next(r for r in agent.claim_rows(expected, partial) if r["document"] == "siu-04")
+    assert (row["outcome"], row["reason"]) == ("not_checked", agent.NOT_RUN), row
+    # A page that wasn't read (a transient SIE error) is not a finding against the shop.
+    failing, _ = agent_box(errors={"ocr/brightwater-invoices/p4": [TRANSIENT[0]]})
+    failing.run("claims_for_shop", {"vendor": JOB.vendor, "year": JOB.year})
+    with contextlib.redirect_stdout(io.StringIO()):
+        failing.run("check_invoice", {"document": "siu-04"})
+    row = agent.claim_rows(expected, failing.results)[3]
+    assert row["outcome"] == "not_checked", row
+    assert "SIE call failed" in row["reason"], row
+    # A field that wasn't read proves nothing against the shop: siu-04 with its tax cell blank
+    # goes to review on invoice_math "Not read", and the table makes it not_checked.
+    blank = {doc: page(doc) for doc in AGENT_CLAIMS}
+    blank["siu-04"] = page("siu-04", fields={"Sales tax (6%)": ""})
+    unread_box, _ = checked_box(blank)
+    assert agent.only_unread(unread_box.results["siu-04"].flagged[0])
+    row = agent.claim_rows(expected, unread_box.results)[3]
+    assert (row["outcome"], row["cites"]) == ("not_checked", []), row
+    assert row["reason"].startswith("a field wasn't read"), row
+    # A finding can't rest on it, and the job is incomplete, not report_ready.
+    on_unread = with_pattern(
+        claims=[NUMBER["siu-04"]], evidence=evidence(NUMBER["siu-04"], "total", "$1,537.00")
+    )
+    unread_rows = agent.claim_rows(expected, unread_box.results)
+    found = agent.check_report(on_unread, unread_rows, unread_box.results, RULES)
+    assert any("is a finding, but" in p for p in found), found
+    assert agent.job_status(good_report(), [], unread_rows) == "incomplete"
+    # The same for a claim number or bill-to that wasn't read, and a value read two ways.
+    for check, detail_text in (
+        ("claim_match", "no claim number read on the invoice. Other checks not run: x"),
+        (
+            "claim_match",
+            "no bill-to name read; no vehicle read; the claim's VIN is 1HGCM82633A004352",
+        ),
+        ("conflicting_values", "total read as '1' / '2'"),
+        ("invoice_math", "Not read: tax (a blank tax line is not zero)"),
+    ):
+        assert agent.only_unread(recipe.Check(check, "review", detail_text)), detail_text
+    # A mismatch on a value that was read is a failed check, even next to an unread one.
+    for check, detail_text in (
+        ("claim_match", "no claim number read on the invoice; billed to 'X', not the insured"),
+        ("claim_match", "invoice says claim CLM-1, which is not a claim in the claims system"),
+        ("authorized_amount", "Total 4512.00 is over 4100.00"),
+    ):
+        assert not agent.only_unread(recipe.Check(check, "review", detail_text)), detail_text
+    print("agent table: closed claim, unread page and unread field are not_checked ok")
+
+
+def good_report() -> dict[str, Any]:
+    n = NUMBER
+    return {
+        "summary": "One invoice on two claims; two equal flat-rate totals.",
+        "patterns": [
+            {
+                "kind": "finding",
+                "claims": [n["siu-02"], n["siu-03"]],
+                "evidence": [
+                    {"claim": n["siu-02"], "field_or_line": "invoice_number", "quote": "BRG-10457"},
+                    {"claim": n["siu-03"], "field_or_line": "invoice_number", "quote": "BRG-10457"},
+                    {"claim": n["siu-02"], "field_or_line": "bill_to", "quote": "Margit Allanby"},
+                    {"claim": n["siu-02"], "field_or_line": "claim.authorized", "quote": "2033.08"},
+                    {"claim": n["siu-02"], "field_or_line": "total", "quote": "$2,033.08"},
+                ],
+                "note": "claim_match failed on CLM-26-118206.",
+            },
+            {
+                "kind": "question",
+                "claims": [n["siu-04"], n["siu-05"]],
+                "evidence": [
+                    {"claim": n["siu-04"], "field_or_line": "total", "quote": "$1,537.00"},
+                    {
+                        "claim": n["siu-05"],
+                        "field_or_line": "line 1",
+                        "quote": "Seamless gutter replacement, 2-storey (flat rate)",
+                    },
+                ],
+                "note": "Same flat rate, same street, same storm.",
+            },
+        ],
+    }
+
+
+def with_pattern(**change: Any) -> dict[str, Any]:
+    """The good report with its first pattern changed."""
+    report = good_report()
+    report["patterns"][0].update(change)
+    return report
+
+
+def evidence(claim: str, where: str, quote: str) -> list[dict[str, str]]:
+    return [{"claim": claim, "field_or_line": where, "quote": quote}]
+
+
+def check_agent_report() -> None:
+    box, expected = checked_box()
+
+    def problems(report: dict[str, Any], results: Any = None) -> list[str]:
+        results = box.results if results is None else results
+        return agent.check_report(report, agent.claim_rows(expected, results), results, RULES)
+
+    assert problems(good_report()) == [], problems(good_report())
+    n = NUMBER
+    # Adversarial reports: each must come back with a problem.
+    bad: dict[str, dict[str, Any]] = {
+        # The refusal on the closed claim read as a failed check.
+        "refusal as a finding": with_pattern(
+            claims=[n["siu-06"]],
+            evidence=evidence(n["siu-06"], "claim.named_insured", "Desmond Achterberg"),
+        ),
+        # The same total on two clean claims labelled a finding.
+        "question as a finding": with_pattern(
+            claims=[n["siu-04"], n["siu-05"]], evidence=evidence(n["siu-04"], "total", "$1,537.00")
+        ),
+        "invented quote": with_pattern(
+            evidence=evidence(n["siu-02"], "invoice_number", "BRG-10475")
+        ),
+        "stitched quote": with_pattern(
+            evidence=evidence(n["siu-02"], "invoice_number", "BRG-10457 $2,033.08")
+        ),
+        "partial quote": with_pattern(evidence=evidence(n["siu-02"], "total", "2,033")),
+        # Right value, wrong field: Allanby is the bill-to, not the insured on Fenwick's claim.
+        "wrong field": with_pattern(
+            evidence=evidence(n["siu-02"], "claim.named_insured", "Margit Allanby")
+        ),
+        # Right value, wrong claim: Ruth Abernathy is siu-05's bill-to, quoted as siu-04's.
+        "quote from another claim": {
+            "summary": "",
+            "patterns": [
+                {
+                    "kind": "question",
+                    "claims": [n["siu-04"], n["siu-05"]],
+                    "evidence": evidence(n["siu-04"], "bill_to", "Ruth Abernathy"),
+                    "note": "",
+                }
+            ],
+        },
+        "evidence from an unnamed claim": with_pattern(
+            claims=[n["siu-02"]], evidence=evidence(n["siu-03"], "invoice_number", "BRG-10457")
+        ),
+        # The rest of each of these is the good pattern, so only the extra claim is wrong.
+        "claim off the list": with_pattern(claims=[n["siu-02"], n["siu-03"], n["siu-09"]]),
+        "last year's claim": with_pattern(claims=[n["siu-02"], n["siu-03"], n["siu-08"]]),
+        "document id for a claim": with_pattern(claims=[n["siu-02"], n["siu-03"], "siu-02"]),
+        "kind outside the list": with_pattern(kind="suspicious"),
+        "no evidence": with_pattern(evidence=[]),
+        "no claims": with_pattern(claims=[]),
+        "line that isn't there": with_pattern(evidence=evidence(n["siu-02"], "line 9", "x")),
+        "field that isn't there": with_pattern(evidence=evidence(n["siu-02"], "notes", "x")),
+        "patterns not a list": {"summary": "", "patterns": "BRG-10457 twice"},
+    }
+    for name, report in bad.items():
+        assert problems(report), name
+    # Every claim on the list must have been checked: a missing one is a problem by name.
+    missing = {doc: r for doc, r in box.results.items() if doc != "siu-05"}
+    found = problems(good_report(), missing)
+    assert any(n["siu-05"] in p and "didn't run check_invoice" in p for p in found), found
+    # The closed claim needs no check: leaving it out is not a problem.
+    unclosed = {doc: r for doc, r in box.results.items() if doc != "siu-06"}
+    assert problems(good_report(), unclosed) == []
+    # A quote of a value the OCR misread passes: the check proves what the workflow read, not
+    # what the page says. Here the reader turns siu-04's BRG-10448 into BRG-10449.
+    misread = {doc: page(doc) for doc in AGENT_CLAIMS}
+    misread["siu-04"] = misread["siu-04"].replace("BRG-10448", "BRG-10449")
+    other, _ = agent_box(misread)
+    other.run("claims_for_shop", {"vendor": JOB.vendor, "year": JOB.year})
+    with contextlib.redirect_stdout(io.StringIO()):
+        for doc in ON_LIST:
+            other.run("check_invoice", {"document": doc})
+    assert other.results["siu-04"].status == "checks_passed"
+    report = good_report()
+    report["patterns"][1]["evidence"] = evidence(n["siu-04"], "invoice_number", "BRG-10449")
+    assert problems(report, other.results) == []
+    # Two invoices on one claim: both rows count. siu-07's finding stays a finding, and a quote
+    # from either invoice is checked against its own result, when a clean invoice follows it.
+    clean = dataclasses.replace(box.results["siu-01"], document="siu-07b")
+    clean.claim_number = n["siu-07"]
+    twice = {**box.results, "siu-07b": clean}
+    two_rows = agent.claim_rows(expected, twice)
+    extra = dict(next(r for r in two_rows if r["document"] == "siu-01"))
+    extra.update(document="siu-07b", claim_number=n["siu-07"])
+    two_rows.append(extra)
+    report = with_pattern(
+        claims=[n["siu-07"]],
+        evidence=evidence(n["siu-07"], "total", box.results["siu-07"].fields["total"]),
+    )
+    assert agent.check_report(report, two_rows, twice, RULES) == []
+    report["patterns"][0]["evidence"] = evidence(n["siu-07"], "bill_to", "Dana Whitcombe")
+    assert agent.check_report(report, two_rows, twice, RULES) == []
+    print("agent report: quotes, ids, finding vs question, completeness ok")
+
+
+def check_agent_status() -> None:
+    box, expected = checked_box()
+    rows = agent.claim_rows(expected, box.results)
+    assert agent.job_status(None, [], rows) == "no_report"
+    assert agent.job_status(good_report(), ["x"], rows) == "check_failed"
+    assert agent.job_status(good_report(), [], rows) == "report_ready"
+    # An unread page leaves the job incomplete, even with nothing else wrong.
+    unread = [
+        dict(row, outcome="not_checked") if row["document"] == "siu-04" else row for row in rows
+    ]
+    assert agent.job_status(good_report(), [], unread) == "incomplete"
+    assert set(RULES["agent"]["statuses"]) == {
+        "report_ready",
+        "check_failed",
+        "incomplete",
+        "no_report",
+    }
+    result = agent.AgentResult(report=good_report(), problems=["pattern 1: x"])
+    markdown = agent.report_markdown(JOB, "check_failed", rows, result, "Claim list: x", RULES)
+    head = markdown.split("## Per-claim results")[0]
+    assert "pattern 1: x" in head, head
+    assert "Claim list: x" in head, head
+    # Text from invoices, tools and Claude can't render as a link, an image, HTML or a column.
+    hostile = "![x](https://evil.example/p.png) <img src=x> a|b"
+    assert agent.md_safe(hostile) == (
+        "\\!\\[x\\]\\(https://evil.example/p.png\\) \\<img src=x\\> a\\|b"
+    ), agent.md_safe(hostile)
+    assert agent.md_safe("a\nb") == "a b"
+    rows_hostile = [dict(rows[0], named_insured=hostile, reason="x\n| y |")]
+    report = good_report()
+    report["summary"] = "```\n" + hostile + "\n```"
+    report["patterns"][0]["note"] = hostile
+    report["patterns"][0]["evidence"][2]["quote"] = hostile
+    result = agent.AgentResult(report=report, problems=[f"pattern 1: {hostile}"])
+    markdown = agent.report_markdown(JOB, "check_failed", rows_hostile, result, "x", RULES)
+    fences: dict[str, bool] = {}
+    inside = ""
+    for line in markdown.splitlines():
+        if inside:
+            inside = "" if line == inside else inside
+            continue
+        if line.startswith("```"):
+            inside = line.removesuffix("text")
+            fences[inside] = True
+            continue
+        assert not re.search(r"(?<!\\)(!\[|<img)", line), line
+        if line.startswith("| "):
+            assert line.count(" | ") == 6, line  # seven columns, no stray break
+    assert "````" in fences, fences  # the summary's own ``` can't close its block
+    print("agent status: four statuses, each earned; failures at the top of the report ok")
+
+
+@dataclasses.dataclass
+class Said:
+    """A stand-in for one Claude response."""
+
+    content: list[Any]
+    stop_reason: str = "tool_use"
+    usage: Any = dataclasses.field(
+        default_factory=lambda: dataclasses.make_dataclass(
+            "Usage",
+            [
+                ("input_tokens", int, 10),
+                ("output_tokens", int, 5),
+                ("cache_creation_input_tokens", int, 0),
+                ("cache_read_input_tokens", int, 0),
+            ],
+        )()
+    )
+
+
+@dataclasses.dataclass
+class Use:
+    name: str
+    input: dict[str, Any]
+    id: str = "t"
+    type: str = "tool_use"
+
+
+class ScriptedClaude:
+    """Stands in for the Claude client: returns the scripted responses in order."""
+
+    def __init__(self, script: list[Said]) -> None:
+        self.script = script
+        self.beta = self
+        self.messages = self
+
+    def create(self, **request: Any) -> Said:
+        assert request["model"] == RULES["agent"]["model"]
+        return self.script.pop(0)
+
+
+def check_agent_loop() -> None:
+    box, expected = agent_box()[0], ClaimsSystem(AGENT_DATA).claims_for_vendor(JOB.vendor, JOB.year)
+    listing = Use("claims_for_shop", {"vendor": JOB.vendor, "year": JOB.year})
+    checks = [Use("check_invoice", {"document": doc}, id=doc) for doc in ON_LIST]
+    finding_on_clean = with_pattern(
+        claims=[NUMBER["siu-04"], NUMBER["siu-05"]],
+        evidence=evidence(NUMBER["siu-04"], "total", "$1,537.00"),
+    )
+    script = [
+        Said([listing]),
+        Said(checks),
+        Said([Use("submit_report", finding_on_clean)]),  # sent back once
+        Said([Use("submit_report", good_report())]),
+    ]
+    with contextlib.redirect_stdout(io.StringIO()):
+        result = agent.run_agent(ScriptedClaude(script), box, expected, "job", ())
+    assert result.report == good_report()
+    assert result.problems == [], result.problems
+    assert result.revisions == 1
+    assert result.first_review, result
+    assert result.tool_calls == 8, result.tool_calls
+    assert box.calls.total == 21, box.calls.count
+    # The same bad report twice: the second is kept, with its problem, as check_failed.
+    box = agent_box()[0]
+    script = [
+        Said([listing, *checks]),
+        Said([Use("submit_report", finding_on_clean)]),
+        Said([Use("submit_report", finding_on_clean)]),
+    ]
+    with contextlib.redirect_stdout(io.StringIO()):
+        result = agent.run_agent(ScriptedClaude(script), box, expected, "job", ())
+    rows = agent.claim_rows(expected, box.results)
+    assert result.problems
+    assert agent.job_status(result.report, result.problems, rows) == "check_failed"
+    # Past the tool-call cap, a lookup is refused and the job is marked as having run out.
+    box = agent_box()[0]
+    cap = RULES["agent"]["max_tool_calls"]
+    script = [Said([Use("get_claim", {"claim_number": NUMBER["siu-01"]})]) for _ in range(cap + 1)]
+    script += [Said([Use("submit_report", good_report())]) for _ in range(2)]
+    with contextlib.redirect_stdout(io.StringIO()):
+        result = agent.run_agent(ScriptedClaude(script), box, expected, "job", ())
+    assert result.tool_calls == cap, result.tool_calls
+    assert result.ran_out
+    refused = [e for e in result.transcript if "No tool calls left" in str(e.get("output"))]
+    assert len(refused) == 1, result.transcript
+    # A refusal from Claude ends the job without a report.
+    box = agent_box()[0]
+    script = [Said([], stop_reason="refusal")]
+    result = agent.run_agent(ScriptedClaude(script), box, expected, "job", ())
+    assert result.report is None
+    assert "declined" in result.stopped
+    # Claude API errors: 408, 409, 429, 5xx and errors without a status end the job with the
+    # reason; any other status (a bad request) stops the run.
+
+    class StatusError(Exception):
+        def __init__(self, status_code: int | None) -> None:
+            super().__init__(f"HTTP {status_code}")
+            if status_code is not None:
+                self.status_code = status_code
+
+    class Failing(ScriptedClaude):
+        def __init__(self, error: Exception) -> None:
+            super().__init__([])
+            self.error = error
+
+        def create(self, **request: Any) -> Said:
+            raise self.error
+
+    for status in (None, 408, 409, 429, 500, 529):
+        box = agent_box()[0]
+        result = agent.run_agent(Failing(StatusError(status)), box, expected, "job", (StatusError,))
+        assert result.report is None, (status, result)
+        assert "StatusError" in result.stopped, (status, result)
+    for status in (400, 401, 404, 422):
+        box = agent_box()[0]
+        error = raised(
+            functools.partial(
+                agent.run_agent, Failing(StatusError(status)), box, expected, "job", (StatusError,)
+            )
+        )
+        assert isinstance(error, StatusError), (status, error)
+    # A fallback answer is priced on the model that answered it.
+    fell_back = Said([Use("submit_report", good_report())])
+    fell_back.model = "claude-sonnet-5-5"  # type: ignore[attr-defined]
+    usage = agent.AgentResult()
+    usage.count(fell_back, RULES["agent"]["model"])
+    usage.count(Said([]), RULES["agent"]["model"])
+    prices = RULES["agent"]["prices"]
+    usd, unpriced = agent.claude_usd(usage, prices, RULES["agent"]["model"])
+    want = sum(
+        tokens * prices[model][kind]
+        for model, kind, tokens in (
+            ("claude-sonnet-5-5", "input", 10),
+            ("claude-sonnet-5-5", "output", 5),
+            (RULES["agent"]["model"], "input", 10),
+            (RULES["agent"]["model"], "output", 5),
+        )
+    )
+    assert abs(usd - want / 1_000_000) < 1e-12, (usd, want)
+    assert unpriced == [], unpriced
+    usage.by_model["claude-other"] = usage.by_model.pop("claude-sonnet-5-5")
+    assert agent.claude_usd(usage, prices, RULES["agent"]["model"])[1] == ["claude-other"]
+    print("agent loop: one revision, then kept with its problems; tool cap; refusals; errors ok")
+
+
 if __name__ == "__main__":
     check_parsing()
     check_claims_system()
@@ -741,4 +1276,10 @@ if __name__ == "__main__":
     check_sie_failure()
     check_guards()
     check_committed_data()
+    check_agent_data()
+    check_agent_tools()
+    check_agent_table()
+    check_agent_report()
+    check_agent_status()
+    check_agent_loop()
     print("all checks passed")

@@ -1,0 +1,10 @@
+claim_number,status,policy_number,line,named_insured,loss_date,loss_address,vehicle,vin
+CLM-26-104817,open,HO-2026-004817,Homeowners,Dana Whitcombe,2026-10-04,"41 Fernhollow Lane, Ashby Vale, CO 80911",,
+CLM-26-118206,open,HO-2026-018206,Homeowners,Tobias Fenwick,2026-10-01,"19 Copperbeech Way, Ashby Vale, CO 80911",,
+CLM-26-133540,open,HO-2026-033540,Homeowners,Margit Allanby,2026-09-30,"7 Thornfield Close, Ashby Vale, CO 80912",,
+CLM-26-140918,open,HO-2026-040918,Homeowners,Owen Calloway,2026-10-04,"12 Fernhollow Lane, Ashby Vale, CO 80911",,
+CLM-26-141205,open,HO-2026-041205,Homeowners,Ruth Abernathy,2026-10-04,"18 Fernhollow Lane, Ashby Vale, CO 80911",,
+CLM-26-152733,closed,HO-2026-052733,Homeowners,Desmond Achterberg,2026-06-11,"5 Kingfisher Row, Brookmere, CO 80421",,
+CLM-26-127764,open,HO-2026-027764,Homeowners,Wen Ostrowski,2026-09-12,"260 Saddleback Road, Brookmere, CO 80422",,
+CLM-25-398120,open,HO-2025-098120,Homeowners,Elspeth Varga,2025-11-20,"33 Larkfield Drive, Pell Harbor, CO 80633",,
+CLM-26-160044,open,HO-2026-060044,Homeowners,Corin Haldane,2026-10-04,"64 Fernhollow Lane, Ashby Vale, CO 80911",,

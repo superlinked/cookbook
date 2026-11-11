@@ -8,6 +8,10 @@
 >
 > **Use the same pattern for:** a rental car bill against approved days, a tow and storage bill, a
 > medical bill against authorized treatment.
+>
+> **Also in this folder:** an agent for a job with no fixed steps: an SIU analyst looking back over
+> one repair shop's year, with this workflow checking each invoice (see
+> [When the workflow isn't enough](#when-the-workflow-isnt-enough-an-agent)).
 
 ## Background
 
@@ -220,7 +224,8 @@ line-item columns, the vendor suffixes that are ignored, the address abbreviatio
 formats and every threshold. The claim data lives behind
 [`claims_system.py`](./claims_system.py), which loads `claims.csv`, `claim_vendors.csv`,
 `authorizations.csv` and `claim_documents.csv` into an in-memory SQLite database and answers
-`get_claim(number)` and `waiting_invoices()`. [`recipe.py`](./recipe.py) is about 990 lines and
+`get_claim(number)` and `waiting_invoices()` (plus `claims_for_vendor`, which only the agent
+below uses). [`recipe.py`](./recipe.py) is about 990 lines and
 reads top to bottom in the same order as the flow.
 
 | Step | Code | SIE call | What it does |
@@ -390,6 +395,289 @@ one against the invoice itself, because a row can pass with a misread value, as 
 invented tax did. `exceptions-queue.csv` has one row per failed check with the reason, and from there they
 ask the shop for a corrected invoice or take a closer look at the vendor or the amount.
 
+## When the workflow isn't enough: an agent
+
+Everything above is a workflow, and it should be: the checks come from the claims team's rules,
+they're the same for every invoice, and the nightly run gets through the queue with nobody watching.
+[Workflow or agent?](../../README.md#workflow-or-agent) has a test for when that stops being true: can you write the steps down, and if not, can you at
+least write down how to check the result? The job below is the middle case: nobody can write down
+its steps, but code can check what comes back, and the workflow above is most of that check.
+
+The job comes from the special investigations unit (SIU). A few times a month someone refers a
+repair shop to them: a desk adjuster who thinks they saw the same invoice last week, a claims
+manager whose loss costs at one shop look high, or a tip. The analyst pulls every claim the shop
+worked that year, opens each invoice next to its claim, and builds a spreadsheet by hand: claim,
+insured, total, what was authorized, anything off. Then they read across the rows for patterns. For
+a shop with forty claims that's two or three days, and most of it is retyping what the invoice check
+already read when each invoice arrived.
+
+It matters both ways. A shop that bills one job on two claims costs the insurer real money and has
+to be referred to the state fraud bureau. A shop wrongly named in an SIU file can lose its place on
+the insurer's repair network. So the analyst wants every claim on the list, and doesn't want "the
+same total twice" written up as fraud when the shop just charges a flat rate.
+
+Which patterns to look for depends on what turns up (an invoice number seen twice, a bill-to name
+that belongs to another claim, the same total on two jobs), and the next referral will ask something
+else. That's why it's an agent. What can be written down is how to check the answer, so this one job
+is split between a workflow and an agent: code builds the per-claim table from the workflow's
+results, and the agent only looks for patterns across the claims and sorts each one into a finding
+or a question. Then code checks what it wrote.
+
+The data in `data/` isn't enough for this: Brightwater Roofing & Gutters Ltd has two claims there,
+and two claims make a pair, not a pattern. So the agent gets its own claims-system seed in
+[`data/agent/`](./data/agent), nine Brightwater claims and their invoices. It's a separate seed so
+the workflow's data and results stay exactly as they are, and two of its pages (`siu-01` and
+`siu-02`) are the same pages as `clm-01` and `clm-09`.
+
+### Agent examples
+
+All synthetic, written for this recipe like the rest of its data. Each example is one part of the
+same job, the one in [`data/agent/jobs.yaml`](./data/agent/jobs.yaml): "Brightwater Roofing &
+Gutters Ltd, every claim it invoiced us in 2026."
+
+**1. The same invoice on two claims.** `siu-02` and `siu-03`.
+- **Input:** `siu-02` is the `clm-09` page: invoice BRG-10457, total 2,033.08, billed to Margit
+  Allanby at 7 Thornfield Close with no claim number, filed on Tobias Fenwick's claim
+  `CLM-26-118206`, whose estimate was approved at exactly 2,033.08. `siu-03` is the same invoice
+  number, lines, total and bill-to, with claim number `CLM-26-133540` printed, filed on Margit
+  Allanby's own claim.
+- **What should happen:** the agent runs the check on both. `siu-03` passes every check; `siu-02`
+  fails `claim_match`. It notices the invoice number and total repeat and reports a **finding**,
+  quoting the invoice number, bill-to and total from both results.
+- **Expected outcome:** one finding naming both claims, resting on `siu-02`'s failed `claim_match`;
+  the code accepts it.
+
+**2. Same total, two neighbours: a question, not a finding.** `siu-04` and `siu-05`.
+- **Input:** Owen Calloway (12 Fernhollow Lane) and Ruth Abernathy (18 Fernhollow Lane), both with a
+  loss on 2026-10-04, the same hailstorm as Dana Whitcombe's claim at 41 Fernhollow Lane (`siu-01`).
+  Invoices BRG-10448 and BRG-10451 each carry one line, "Seamless gutter replacement, 2-storey (flat
+  rate)", 1 x 1,450.00, plus 6% tax: 1,537.00 each. Both estimates are 1,537.00.
+- **What should happen:** both pass every check. The agent should notice the equal totals, say what
+  explains them (a flat-rate line, the same street, the same storm), and file it as a **question**
+  for the adjuster, not a finding.
+- **Expected outcome:** a question naming both claims. If the agent calls it a finding, the code
+  sends the report back once, because neither claim has a failed check.
+
+**3. A refusal isn't a verdict, and what the list can't see.** `siu-06`, `siu-08`, `siu-09`.
+- **Input:** `siu-06` is Desmond Achterberg's claim `CLM-26-152733`, closed in July. `siu-08` is a
+  2025 Brightwater invoice. `siu-09` is a Brightwater page on Corin Haldane's claim `CLM-26-160044`,
+  where the vendor on the claim is Ashby Vale Exteriors.
+- **What should happen:** the workflow declines to check a claim that isn't open, and files that as
+  a `claim_match` review, so it looks just like a failed check. The code reads the claim's status
+  instead of the check's name: `siu-06` is **not checked**, never a finding against the shop.
+  `siu-08` is left off (wrong year). `siu-09` isn't found at all: the shop isn't listed on that
+  claim, so no lookup by vendor returns it.
+- **Expected outcome:** seven claims on the list, `siu-06` as `not_checked`, and a line written by
+  code saying where the list came from and what it can't include.
+
+`siu-07` (Wen Ostrowski, 4,512.00 against 4,100.00 authorized) is a plain per-claim finding on
+`authorized_amount`, with no pattern attached.
+
+### How the agent works
+
+Claude (`claude-opus-5-5`, under `agent:` in `rules.yaml`) runs the loop with the `anthropic` SDK.
+The job file gives it the shop and the year. It decides which claims to open, in what order and
+which comparisons to make, with up to 12 tool calls before it reports.
+
+| Tool | What it runs | What it returns |
+| --- | --- | --- |
+| `claims_for_shop(vendor, year)` | `ClaimsSystem.claims_for_vendor` in `claims_system.py`, a read-only lookup; only the shop and year in `jobs.yaml` | Document id, claim number, insured, claim status, loss date and place, and when the invoice arrived, for every claim that lists this vendor with an invoice received that year |
+| `get_claim(claim_number)` | `ClaimsSystem.get_claim`, for a claim on that list only | The claim record (insured, loss, vendors, estimate and supplements) and the shop's documents filed on it |
+| `check_invoice(document)` | `recipe.process_invoice`: `LightOnOCR-3-4B` reads the page and `gliner2-large-v1` finds the fields (two calls) on SIE, and Python runs every check | The workflow's own `InvoiceResult.as_json()`: status, fields, line items, every check with its detail |
+| `submit_report(summary, patterns)` | Nothing; it ends the loop | Patterns, each with a `kind` (`finding` or `question`), the claims it names, evidence (`claim`, `field_or_line`, `quote`) and a plain note |
+
+There's no new model. The two SIE models are the workflow's own, called through the workflow's own
+function, so `check_invoice` gives the agent exactly the answer the nightly run would.
+Every tool reaches only this job's records. `claims_for_shop` refuses any shop or year but the ones
+in `jobs.yaml`, `get_claim` refuses a claim that isn't on that list, and `check_invoice` only takes a
+document id a lookup returned in this job, the same limit a real claims system's opaque ids would
+put on it. So the agent can't reach `siu-09` by construction, and text printed on an invoice can't
+steer a tool to another shop's claims. Checking the same document twice returns the first result.
+
+After the loop, code in [`agent.py`](./agent.py) does all of this, against what the tools returned
+and never against the agent's account of it:
+
+1. **Builds the per-claim table** (`claim_rows`) from the claims system and the workflow's results.
+   `clear` needs the status `checks_passed`. `finding` needs a check that failed on an open claim. A
+   closed claim, or a page that wasn't read, is `not_checked`, whatever check name the workflow
+   filed it under. So is an invoice whose only flagged checks say a field wasn't read ("Not read:
+   tax", "no claim number read", a value read two ways): an unread field is not a failed check,
+   because it shows what the reader missed, not what the shop did.
+2. **Checks the list is complete** (`check_report`). Every open claim on the list (computed from the
+   vendor and year in `jobs.yaml`, not from the agent) must have been run through `check_invoice`.
+3. **Checks every quote** (`evidence_problems`). The quote must be the whole value at that place in
+   that claim's result: a field, a cell of line N, or a value in the result's `claim` block. A
+   piece of a value, two values joined, or a value from another claim all fail.
+4. **Keeps findings and questions apart.** A `finding` must name at least one claim whose
+   check failed, which means a `finding` row in the table; otherwise it has to be a `question`.
+   A claim that's `not_checked` because a field wasn't read can't carry a finding. A claim that isn't on the list, or a kind
+   outside the two, is rejected.
+
+Anything wrong goes back to the agent once. Then the report goes to the analyst either way, with
+anything still failing printed at the top. The job ends with one status from `rules.yaml`:
+`report_ready`, `check_failed`, `incomplete` (an invoice on the list couldn't be read, because an
+SIE call failed or the page was unreadable, or a field a check needed wasn't read) or `no_report`. SIE errors follow the workflow's rule: a
+transient failure leaves that claim `not_checked` with the reason and the job `incomplete`; a
+refusal, or every call failing, stops the run with no outputs.
+
+What the code can't check, so the analyst reads it: whether a pattern is real, whether the
+explanation in a note is right (the flat rate in example 2 is the agent's reading), patterns the
+agent didn't look for, whether a finding's note is about the claim whose check failed or only names
+it, and claims the shop invoiced without being the listed vendor. A finding may also name a clear
+claim next to the failed one, and the code accepts that: example 1's finding names `siu-03`, which
+passed every check, beside `siu-02`, which failed. And a quote proves what the
+workflow read, not what the page says: `clm-08`'s invented tax would pass the quote check.
+
+```mermaid
+flowchart TD
+    J["SIU request in jobs.yaml:<br/>shop + year"] --> A["Claude runs the loop<br/>(claude-opus-5-5)"]
+    A --> L["claims_for_shop<br/>claims_system.py"]
+    A --> G["get_claim<br/>claims_system.py"]
+    A --> C["check_invoice = recipe.process_invoice<br/>LightOnOCR-3-4B + gliner2-large-v1 on SIE,<br/>checks in Python"]
+    L --> A
+    G --> A
+    C --> A
+    A --> S["submit_report:<br/>patterns, each a finding or a question"]
+    S --> T["Code builds the per-claim table<br/>from the workflow's results"]
+    T --> V{"Every claim checked?<br/>Quotes in the results?<br/>Finding has a failed check?"}
+    V -- "fails, first time" --> A
+    V -- "passes, or second try" --> R["siu-report.md and .json<br/>with the code's checks on top"]
+    R --> P["SIU analyst decides:<br/>ask the adjuster, ask the shop, refer, or close"]
+    C -. "transient SIE error" .-> N["that claim not_checked,<br/>job incomplete"]
+    C -. "refusal or every call failed" .-> X["stop, no outputs"]
+```
+
+### Run the agent
+
+The agent needs an `ANTHROPIC_API_KEY` in `.env` as well as the SIE key, and the `agent` dependency
+group:
+
+```bash
+uv run --group agent agent.py
+uv run make_agent_data.py   # optional: rewrite data/agent/
+```
+
+Each run writes `runs/<timestamp>/agent/`: `siu-report.md` (the code's checks, the per-claim table,
+findings, questions), `siu-report.json` (the same, with every workflow result), `transcript.json`
+and `cost.json` (Claude tokens and dollars by the model that answered, SIE calls). In
+`siu-report.md`, anything that came from an invoice or from Claude is escaped, and the summary and
+notes sit in fenced blocks, so a bill-to line can't turn into a link or an image. Nothing is sent to the shop, no claim is
+reopened, no payment is stopped, and nothing is referred anywhere; the analyst decides all of that.
+
+### What the agent did
+
+We ran the job five times using SIE Serverless on 2026-11-11 (UTC), with nothing changed between
+runs. These are the runs after the review fixes (tools scoped to the job, unread fields kept out of
+findings), which replace an earlier batch of five.
+
+### The agent examples
+
+**1. The same invoice on two claims.** `siu-02` and `siu-03`.
+- **Expected outcome:** one finding naming both claims, resting on `siu-02`'s failed `claim_match`;
+  the code accepts it.
+- **What came back:** on all five runs, a finding naming `CLM-26-118206` and `CLM-26-133540`,
+  quoting the invoice number and total from both results and the bill-to and service address from
+  `siu-02`, with `claim_match` and its detail in the note. Three of five also quoted Fenwick's
+  authorized 2033.08 next to the invoice total. The code accepted it every time.
+- **Verdict:** Pass.
+
+**2. Same total, two neighbours: a question, not a finding.** `siu-04` and `siu-05`.
+- **Expected outcome:** a question naming both claims.
+- **What came back:** a question on all five runs, never a finding. Every note named the flat-rate
+  line, Fernhollow Lane and the shared loss date, and every run also pulled in Dana Whitcombe's
+  claim on the same street, in the question, in its note, or (run 1) as a question of its own. Run 4
+  put it as "Possible innocent explanation: the same storm hit similar houses and the shop charges a
+  flat rate. Only the adjuster can confirm that two separate jobs were done."
+- **Verdict:** Pass. Whether the flat rate really explains it is still the analyst's call; the code
+  can't read the note.
+
+**3. A refusal isn't a verdict, and what the list can't see.** `siu-06`, `siu-08`, `siu-09`.
+- **Expected outcome:** seven claims on the list, `siu-06` as `not_checked`, and the code's line on
+  where the list came from.
+- **What came back:** seven claims and `siu-06` as `not_checked` with "claim is closed; the workflow
+  only checks open claims, so this is no result against the shop" on every run. `siu-08` and
+  `siu-09` never appeared. On run 1 the agent read the refusal as a failed check and filed it as a
+  finding (from `transcript.json`):
+
+  ```json
+  {"kind": "finding", "claims": ["CLM-26-152733"],
+   "note": "The claim_match check came back 'review': 'Filed under CLM-26-152733, which is closed, not open'. ..."}
+  ```
+
+  The code sent it back with "pattern 3 is a finding, but none of its claims has a failed check in
+  the workflow's result; make it a question, or name the claim whose check failed", and the second
+  report made it a question.
+- **Verdict:** Pass. The completeness limit holds as designed: `siu-09`, a Brightwater invoice on a
+  claim where Brightwater isn't the listed vendor, is missing from every report, and only the code's
+  line says such a claim could exist.
+
+### Results
+
+5 of 5 runs of the one job came out as expected: every run ended `report_ready`, with the same
+per-claim table (`siu-02` and `siu-07` findings, `siu-06` not checked, four clear) and the same
+finding and question for examples 1 and 2. Run 1 also filed `siu-07`'s `authorized_amount` failure as a
+finding of its own, which the code accepts, since that check failed.
+
+**Where it works:** the per-claim table can't drift, because code builds it from the workflow's
+results, and on these pages the workflow gave the same answers every run. The patterns held up too.
+Every run found the repeated invoice and called it a finding, and every run kept the equal totals as
+a question. The one time the agent overreached (run 2, the closed claim as a finding), the code
+caught it and the revision fixed it. No page in these runs had an unread field, so the rule that keeps
+an unread field out of a finding didn't come up live; `selfcheck.py` covers it with `siu-04`'s tax
+cell blanked.
+
+**Where it fails:**
+- **A question nobody needed.** On run 4 the agent asked about "220 Millrace Road" across all seven
+  claims, and runs 1 and 3 brought it up inside another question. The workflow's extraction notes
+  say that address was dropped on all seven invoices because it isn't on a labelled line. It's
+  Brightwater's own letterhead address. The agent's notes guessed as much and raised it anyway,
+  just in case. The code can't tell a useful question from a noisy one, so the analyst spends a
+  minute on it. (In the earlier batch it was a question of its own on all five runs.)
+- **What it can't find.** `siu-09` is never on the list, by design: the lookup goes through the
+  vendor on the claim. If Brightwater billed through another shop's claim, nothing here would
+  notice.
+- **What the quote check can't catch.** It proves the workflow read a value, not that the page
+  prints it. Nothing in these runs hit that, but `clm-08` in the workflow's own results shows the
+  OCR model can fill in a blank, and a quote of that value would pass.
+
+**Cost.** Every run made 8 tool calls (one `claims_for_shop` and seven `check_invoice`; no run used
+`get_claim`) and 21 SIE calls, 3 per invoice like the workflow. Claude cost $0.06 to $0.20 a job,
+about $0.09 on average. Each run without a revision used 15,532 input tokens (most read from the
+prompt cache) and 3,011 to 3,313 output tokens; the run with the revision was the dearest, at 29,250
+input and 6,233 output tokens. Runs took 63 to 67 s, except the first, with the revision, at 185 s. The workflow costs 3 SIE calls and about 6 s per invoice warm (30 calls in 57 s
+for ten), with no Claude tokens, so the agent adds about $0.09 a job, a bit over a cent per claim,
+on top of the same SIE calls.
+
+### What you do next
+
+The SIU analyst reads `siu-report.md`: the code's checks first, then the per-claim table, then
+findings and questions. They ask the adjuster about the questions, decide whether a finding goes to
+the shop, the fraud bureau or nowhere, and look for any claim the list can't include (a shop billing
+on another vendor's claim) some other way.
+
+### What this adds to the workflow-vs-agent question
+
+- **Code can check completeness, up to a point.** It's easy to assume no code can check whether the
+  agent found every claim. Here code does, against claim and document records the agent didn't write,
+  and it never had to send a report back for a missing claim. The limit is that it finds claims
+  through the vendor listed on them: `siu-09` was missing from all five reports, and only the
+  code's line says why.
+- **The verifier can refuse, and a refusal isn't a verdict.** This workflow declines to check a
+  closed claim and files that as a `claim_match` review. On one run in five the agent read it as a
+  failed check against the shop and wrote it up as a finding. The code reads the claim's status, not
+  the check's name, and sent it back.
+- **Code can keep findings and questions apart.** A finding accuses the shop, so it needs a failed
+  check behind it (an unread field isn't one), and that rule did its job. What it can't do is judge the prose: the "220
+  Millrace Road" question came back on three runs in five, and the flat-rate explanation in example 2 is
+  still the agent's reading.
+- **Quotes prove what the workflow read, not what the page says.** Every quote matched a value in
+  the workflow's result, and that's all the check can say: the OCR model's mistakes pass straight
+  through it.
+- **On this exact question, a script would do.** Once you've seen these two patterns, "group by
+  shop, run the checks, flag a repeated invoice number or total" is a few lines and costs the
+  workflow's 3 SIE calls per invoice with no Claude tokens. The agent adds about $0.09 a job here
+  and earns it on the next referral, which will ask something else.
+
 ## Potential improvements
 
 - **Teach it your invoices' labels.** `documents` in `rules.yaml` is what GLiNER2 is asked to
@@ -453,11 +741,17 @@ with one worker pool per image routes each model to its pool. See
 ## Files
 
 - `recipe.py`: the pipeline
+- `agent.py`: the SIU agent (Claude's loop, its tools, the per-claim table and the checks on its
+  report)
 - `claims_system.py`: the claims system lookups over the CSV seeds
-- `selfcheck.py`: offline checks with hand-written pages and stand-in replies, no SIE call
+- `selfcheck.py`: offline checks with hand-written pages and stand-in replies, no SIE or Claude
+  call
 - `make_data.py`: draws the synthetic invoices and writes the claims-system seeds
-- `rules.yaml`: fields, labels, checks, normalisation and thresholds
+- `make_agent_data.py`: draws Brightwater's invoices and writes the agent's seed and job
+- `rules.yaml`: fields, labels, checks, normalisation and thresholds, and the agent's settings
+  under `agent:`
 - `data/`: the four CSV seeds and `repair-invoices.pdf`
+- `data/agent/`: the agent's own claims-system seed, `brightwater-invoices.pdf` and `jobs.yaml`
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
 
 See the SIE task page for [document field extraction](https://superlinked.com/doc-field-extraction?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=insurance-check-invoice-against-claim).
