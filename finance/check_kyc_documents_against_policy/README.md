@@ -418,16 +418,15 @@ list.
 
 The workflow above handles the daily cases, where every step is known. A few times a week the
 KYC analyst gets a job it was never built for, and that's what [`agent.py`](./agent.py) is for.
-It's the agent from the post
-[When to Use a Workflow and When to Use an Agent](https://superlinked.com/blog/agentic-vs-workflows-small-models?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-check-kyc-documents-against-policy),
-built for real, with two jobs from that post. Each one lands on a different branch of the post's test:
+It has two jobs, and each one lands on a different branch of the test in
+[Workflow or agent?](../../README.md#workflow-or-agent):
 
 - **A customer who just moved** is the first branch: a person at the screen. The analyst asks
   three questions, each depending on the last answer, and reads every answer before anything
   reaches the customer. A workflow can't hold up its end of that conversation.
 - **The regulator's letter** is the third branch: nobody wrote the steps down, but the result
   can be checked. The KYC workflow checks each file the agent finds, and the agent can't argue
-  with it. The post says no code checks whether the agent found every account. Here code does,
+  with it. It's easy to assume no code can check whether the agent found every account. Here code does,
   and building that check showed the "find" half of the letter is a workflow, not an agent job.
 
 ### The odd jobs
@@ -681,8 +680,8 @@ reads of the growing conversation: about 25,000 to 34,000 tokens for the convers
 
 ### What this adds to the workflow-vs-agent question
 
-- **Completeness can be checked in code, and here it had to be.** The post says no code checks
-  whether the agent found every account. Here the register is a count the agent didn't write,
+- **Completeness can be checked in code, and here it had to be.** It's easy to assume no code can
+  check whether the agent found every account. Here the register is a count the agent didn't write,
   and reading every address scan with the workflow's own `read_document` gives the set it should
   have found, for 2 SIE calls per scan and no Claude call. It caught the missing account in 5 of
   5 runs.
