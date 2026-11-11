@@ -406,9 +406,8 @@ The workflow above is done when it writes `decisions.csv`. The lawyer's job isn'
 counterparty rejects a redline, the lawyer asks what we can give instead, the counterparty sends
 new wording, and the lawyer wants to know if it meets the playbook, then wants the reply. Each
 question depends on the last answer and on the other side's latest email, so nobody can write the
-steps down in advance. In the test from
-[When to Use a Workflow and When to Use an Agent](https://superlinked.com/blog/agentic-vs-workflows-small-models),
-this is the first branch: someone is at the screen asking and replying, so it goes to an agent,
+steps down in advance. In the test in
+[Workflow or agent?](../../README.md#workflow-or-agent), this is the first case: someone is at the screen asking and replying, so it goes to an agent,
 and that person checks each answer. Here code can still check a good part of each answer too, so
 the agent's output also goes through checks in code after every turn.
 
@@ -645,17 +644,17 @@ with a lawyer at the screen, and it's not how you'd review the queue.
 
 ### What this adds to the workflow-vs-agent question
 
-- **The lawyer still checks, but has less to check.** The post says the person at the screen
+- **The lawyer still checks, but has less to check.** The usual argument is that the person at the screen
   does the checking because nobody wrote down how to check "what does the policy accept instead?". Here a good
   share of that can be written down: a fallback is data or it doesn't exist, code applies its
   conditions, and `check_answer` flags any number or place that didn't come from the playbook, the
   NDA or the lawyer. Claude never needed it on these runs, but it's there for the run that does.
-- **The tool, not the agent, picks the context.** The post's verifier checks one file. Here it
+- **The tool, not the agent, picks the context.** A workflow used as a verifier usually checks one file. Here it
   checks one clause, and that only works because Claude can't choose what to check it against.
   Corrin's new Section 7 passes in the full NDA and is `unclear` on its own, so the tool always
   swaps the text into the whole draft.
-- **The verifier can be blind.** The post says the agent "can't talk [the verifier] into a
-  different answer". True, and here the verifier passed the trade-secret tail in all ten runs. The
+- **The verifier can be blind.** The point of a verifier is that the agent can't talk it into a
+  different answer. True, and here the verifier passed the trade-secret tail in all ten runs. The
   gap is in the workflow's rules, so that's where the fix goes (see below), not into the agent's
   prompt. The verifier's checks also caught a gap in my own tool: the first batch's notes couldn't
   quote the clause because `review_nda` didn't hand Claude the text.
