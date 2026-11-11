@@ -1,6 +1,6 @@
 # Choosing between SIE Serverless, SIE Cluster and SIE Local
 
-You've run a recipe, it does the job, and now you have to decide where its models run: SIE Serverless (we run the GPUs and you pay per call), SIE Cluster (you run SIE in your own cloud with Helm), or SIE Local (SIE on your own machine). Your recipe code runs on your machine in all three cases. Only the models move.
+You've run a recipe, it does the job, and now you have to decide where its models run: SIE Serverless (we run the GPUs and you pay for what each call uses), SIE Cluster (you run SIE in your own cloud with Helm), or SIE Local (SIE on your own machine). Your recipe code runs on your machine in all three cases. Only the models move.
 
 Start with your recipe, because for most of them the recipe makes part of the choice for you. Then pick from your situation, and read what changes once you run the models yourself. The run times and call counts in each recipe README come from SIE Serverless. We haven't run the recipes using SIE Cluster or SIE Local yet (see [What we haven't checked yet](#what-we-havent-checked-yet)).
 
@@ -75,13 +75,13 @@ SIE Serverless sends your inputs to Superlinked, and it can serve some models on
 
 #### Your recipes keep a GPU busy most of the day
 
-With SIE Serverless you pay per call; with SIE Cluster you pay for GPU hours whether they're busy or not, so the busier the GPU, the better SIE Cluster looks. Each recipe README lists its SIE calls per run, so you can work out where the two cross: calls per run × runs per day × the [price per call](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run#pricing), against the hourly price of an L4 node (and an H100 node if you use the large LLM).
+With SIE Serverless you pay for what each call uses: tokens for text models, pages for OCR, pairs for a reranker, images, audio or GPU seconds for the rest. With SIE Cluster you pay for GPU hours whether they're busy or not, so the busier the GPU, the better SIE Cluster looks. To work out where the two cross, count what one run uses in those units (each recipe README lists its SIE calls per run, which is a good place to start), multiply by runs per day and the [price per unit](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run#pricing), and compare that with the hourly price of an L4 node (and an H100 node if you use the large LLM).
 
 ### Use SIE Local
 
 #### You're developing, or your data can't leave your laptop
 
-Iterating on `rules.yaml` costs nothing per call, and nothing leaves your machine. It works for the 15 recipes that need one image and fit an L4 (the two `cuda12-transformers5` recipes need the Transformers 5 install from the [SIE server README](https://github.com/superlinked/sie/blob/main/packages/sie_server/README.md#installation), since one Python environment holds only one `transformers` version). On Apple Silicon, the [SIE quickstart](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run) says SIE Local serves embeddings and reranking, with generation in a separate process on another port, so start with recipes that only embed and rerank. We haven't run any recipe there yet.
+Iterating on `rules.yaml` costs nothing, and nothing leaves your machine. It works for the 15 recipes that need one image and fit an L4 (the two `cuda12-transformers5` recipes need the Transformers 5 install from the [SIE server README](https://github.com/superlinked/sie/blob/main/packages/sie_server/README.md#installation), since one Python environment holds only one `transformers` version). On Apple Silicon, the [SIE quickstart](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=choosing-where-models-run) says SIE Local serves embeddings and reranking, with generation in a separate process on another port, so start with recipes that only embed and rerank. We haven't run any recipe there yet.
 
 **Pro-tip:** run a recipe using SIE Serverless, run it again using SIE Local, and compare the files in `runs/`. Expect most of what the recipe decides to match and the scores to differ, because batch size, rounding and the GPU all move them. In SIE's own tests, scoring the same pair alone or among 20 candidates moved `Qwen/Qwen3-Reranker-4B`'s score by up to 0.019 on an H100 and up to 0.097 on an L4, and on an L4 `Qwen/Qwen3-Reranker-0.6B` picked a different top candidate in 3 of 60 questions. Compare what the recipe decides, and look twice at anything whose score sits close to a threshold in `rules.yaml`.
 

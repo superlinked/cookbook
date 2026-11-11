@@ -596,7 +596,7 @@ findings), which replace an earlier batch of five.
   where the list came from.
 - **What came back:** seven claims and `siu-06` as `not_checked` with "claim is closed; the workflow
   only checks open claims, so this is no result against the shop" on every run. `siu-08` and
-  `siu-09` never appeared. On run 1 the agent read the refusal as a failed check and filed it as a
+  `siu-09` never appeared. On one run the agent read the refusal as a failed check and filed it as a
   finding (from `transcript.json`):
 
   ```json
@@ -621,7 +621,7 @@ finding of its own, which the code accepts, since that check failed.
 **Where it works:** the per-claim table can't drift, because code builds it from the workflow's
 results, and on these pages the workflow gave the same answers every run. The patterns held up too.
 Every run found the repeated invoice and called it a finding, and every run kept the equal totals as
-a question. The one time the agent overreached (run 2, the closed claim as a finding), the code
+a question. The one time the agent overreached (the closed claim as a finding, on one run), the code
 caught it and the revision fixed it. No page in these runs had an unread field, so the rule that keeps
 an unread field out of a finding didn't come up live; `selfcheck.py` covers it with `siu-04`'s tax
 cell blanked.

@@ -15,8 +15,11 @@
 
 Coding agents are good now, and they're billed per token. Point one at every lint warning, docstring
 and one-line fix in a backlog and most of the bill goes on work a much smaller model, or no model at
-all, could have done. Some teams have started running open models as the default for coding and
-keeping a frontier model for the exceptions, and the usual question is which tasks go where.
+all, could have done. Some teams now run open models as the default for coding and keep a frontier
+model for the exceptions. Revolut moved about 2,000 engineers onto GLM served on 56 Nvidia B200s, at
+a blended 30 cents per million tokens, roughly a tenth of what it had been paying Anthropic and
+OpenAI ([David Abitbol at AI Engineer NYC, October 2026](https://ai.engineer/nyc/2026/talks/revolut)).
+The usual question is which tasks go where.
 
 The developer's job doesn't change much: someone files an issue, someone makes the change, the tests
 run in CI and a reviewer reads the diff before it merges. What changes is who makes the change. That
