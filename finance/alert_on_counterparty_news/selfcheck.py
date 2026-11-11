@@ -14,6 +14,7 @@ import csv
 import functools
 import io
 import json
+import re
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -620,6 +621,7 @@ def check_outputs() -> None:
 
 FILES = agent.CreditFiles()
 LOSS = event(customer_loss=0.88, none=0.04)  # what the event check says for N-04 fixed to CP-1004
+ARTICLE_QUOTE = "Northwind has lost its largest customer, a national parcel carrier"
 
 
 def committed(article_id: str) -> recipe.Result:
@@ -632,7 +634,8 @@ def committed(article_id: str) -> recipe.Result:
 
 
 def job(result: recipe.Result, *replies: Any, read: tuple[str, ...] = ()) -> agent.Job:
-    """A job on one workflow result; `replies` are the event checks' stand-in replies."""
+    """A job on one workflow result; `replies` are the event checks' stand-in replies, in call
+    order (the judge checks every candidate on a suggested link's row, in row order)."""
     rows = agent.review_items(result, CPS, RULES)
     box = agent.Job(result, rows, CPS, FILES, RULES, StandIn(events=replies), recipe.CallLog())
     for cp_id in read:
@@ -667,7 +670,7 @@ def item(row: int = 1, outcome: str = "suggest_link", cp: str = "CP-1004", **kw:
         "event": "customer_loss",
         "score": 0.88,
         "statements": [
-            {"source": "article", "quote": "a national parcel carrier that accounted for about"},
+            {"source": "article", "quote": ARTICLE_QUOTE},
             {"source": "CP-1004", "quote": "national parcel carrier (about a third of revenue)"},
         ],
     }
@@ -675,11 +678,16 @@ def item(row: int = 1, outcome: str = "suggest_link", cp: str = "CP-1004", **kw:
     return found
 
 
+def quotes(*pairs: tuple[str, str]) -> list[dict[str, str]]:
+    return [{"source": source, "quote": quote} for source, quote in pairs]
+
+
 GOOD_NOTE = (
     "Suggest CP-1004 Northwind Logistics Ltd: its largest customer is a national parcel "
     "carrier, about a third of revenue. CP-1005 supplies regional utilities. With the link "
     "fixed the event check says customer_loss 0.88."
 )
+BOTH = ("CP-1004", "CP-1005")
 
 
 def has(problems: list[str], words: str) -> bool:
@@ -736,11 +744,13 @@ def check_agent_event_check() -> None:
         result = committed(article_id)
         for e in result.events:
             assert agent.event_text(result, e.counterparty_id, RULES)[0] == e.model_read
-    # N-04 with the link fixed to CP-1004 reads the sentences naming Northwind.
+    # N-04 with the link fixed to CP-1004 reads the sentences naming Northwind, and with it
+    # fixed to CP-1005 the very same sentences: the event check can't tell them apart.
     n04 = committed("N-04")
     text, name = agent.event_text(n04, "CP-1004", RULES)
     assert name == "Northwind", text
     assert "Northwind has lost its largest customer" in text, text
+    assert agent.event_text(n04, "CP-1005", RULES) == (text, name)
     box = job(n04, LOSS)
     got = json.loads(box.run("check_event_for", {"counterparty_id": "CP-1004"}))
     assert (got["status"], got["event"], got["score"]) == ("alert", "customer_loss", 0.88), got
@@ -756,11 +766,15 @@ def check_agent_event_check() -> None:
     box = job(n04, InsufficientCreditsError("no credits"))
     caught = raised(lambda: box.run("check_event_for", {"counterparty_id": "CP-1004"}))
     assert isinstance(caught, recipe.SIEStopped), caught
-    # The lookups.
-    looked = json.loads(
-        box.run("lookup_counterparty", {"counterparty_id": "", "name": "", "ticker": "NYSE:NWEG"})
-    )
-    assert [m["id"] for m in looked["matches"]] == ["CP-1005"], looked
+    # Tool input is checked against the tool's fields, not left to a TypeError.
+    for name, given in (
+        ("read_credit_file", {"id": "CP-1004"}),
+        ("read_credit_file", {"counterparty_id": 1004}),
+        ("get_review_item", {"x": ""}),
+        ("lookup_counterparty", {"name": "Northwind"}),
+    ):
+        caught = raised(functools.partial(box.run, name, given))
+        assert isinstance(caught, agent.ToolError), (name, given, caught)
     caught = raised(
         lambda: box.run(
             "lookup_counterparty", {"counterparty_id": "CP-1", "name": "x", "ticker": ""}
@@ -768,99 +782,229 @@ def check_agent_event_check() -> None:
     )
     assert isinstance(caught, agent.ToolError), caught
     assert isinstance(raised(lambda: FILES.read("CP-9999")), agent.ToolError)
-    assert "Brackwater repair yard (about 60% of revenue)" in FILES.text("CP-1009")
-    print("agent event check: same text as the workflow, link fixed, SIE errors, lookups ok")
+    assert "Brackwater repair yard (about 60% of revenue); Ostley Quay workshop" in FILES.values(
+        "CP-1009"
+    )
+    print("agent event check: same text as the workflow, link fixed, SIE errors, tool input ok")
+
+
+def check_agent_scope() -> None:
+    """Tools reach only this job's borrowers: the row's candidates and what a lookup returned."""
+    n04, n07 = committed("N-04"), committed("N-07")
+    box = job(n04)
+    # Article text can't steer a read to another borrower.
+    for cp_id in ("CP-1001", "CP-1009"):
+        caught = raised(functools.partial(box.run, "read_credit_file", {"counterparty_id": cp_id}))
+        assert isinstance(caught, agent.ToolError), (cp_id, caught)
+    for given in (
+        {"counterparty_id": "CP-1001", "name": "", "ticker": ""},
+        {"counterparty_id": "", "name": "Pellridge Foods", "ticker": ""},
+        {"counterparty_id": "", "name": "", "ticker": "NYSE:NWEG"},
+    ):
+        caught = raised(functools.partial(box.run, "lookup_counterparty", given))
+        assert isinstance(caught, agent.ToolError), (given, caught)
+    assert box.read_files == [], box.read_files
+    looked = json.loads(
+        box.run("lookup_counterparty", {"counterparty_id": "", "name": "Northwind", "ticker": ""})
+    )
+    assert [m["id"] for m in looked["matches"]] == ["CP-1004", "CP-1005"], looked
+    # N-07: CP-1005 isn't a candidate; its file opens only after the ticker the article prints
+    # was looked up, and a quote from it counts only then.
+    box = job(n07, read=("CP-1007",))
+    caught = raised(lambda: box.run("read_credit_file", {"counterparty_id": "CP-1005"}))
+    assert isinstance(caught, agent.ToolError), caught
+    left = {
+        "row": 1,
+        "outcome": "left_for_person",
+        "counterparty_id": "",
+        "event": "",
+        "score": None,
+        "statements": quotes(("CP-1005", "gas storage and wholesale supply")),
+    }
+    finding = {"items": [left, {**left, "row": 2}], "note": "The ticker is CP-1005's; you decide."}
+    problems, status = judged(box, finding)
+    assert has(problems, "doesn't exist in this job: 'CP-1005'"), problems
+    assert status == "check_failed", problems
+    looked = json.loads(
+        box.run("lookup_counterparty", {"counterparty_id": "", "name": "", "ticker": "NYSE:NWEG"})
+    )
+    assert [m["id"] for m in looked["matches"]] == ["CP-1005"], looked
+    box.run("read_credit_file", {"counterparty_id": "CP-1005"})
+    problems, status = judged(box, finding)
+    assert (problems, status) == ([], "left_for_person"), problems
+    print("agent scope: reads and quotes only the row's candidates and looked-up borrowers ok")
 
 
 def check_agent_judge() -> None:
     n04 = committed("N-04")
-    both = ("CP-1004", "CP-1005")
-    # The finding the spec expects passes, and the judge's own event check confirms it.
-    problems, status = judged(job(n04, LOSS, read=both), {"items": [item()], "note": GOOD_NOTE})
-    assert problems == [], problems
-    assert status == "finding_checked", problems
+    # Both candidates' checks with the link fixed come back the same (they read the same
+    # sentences): the evidence holds, but the check can't tell the pick apart, so the call
+    # isn't checked, whichever Northwind the agent picks.
+    problems, status = judged(
+        job(n04, LOSS, LOSS, read=BOTH), {"items": [item()], "note": GOOD_NOTE}
+    )
+    assert (problems, status) == ([], "call_not_checked"), (problems, status)
+    wrong = item(
+        cp="CP-1005",
+        statements=quotes(
+            ("article", ARTICLE_QUOTE),
+            ("CP-1005", "gas storage and wholesale supply to regional utilities"),
+        ),
+    )
+    note = "Suggest CP-1005 Northwind Energy Supply; event check customer_loss 0.88."
+    problems, status = judged(job(n04, LOSS, LOSS, read=BOTH), {"items": [wrong], "note": note})
+    assert status != "finding_checked", (problems, status)
+    assert (problems, status) == ([], "call_not_checked"), (problems, status)
+    # Checks that differ: the pick whose check agrees is finding_checked, the other fails.
+    box = job(n04, LOSS, QUIET, read=BOTH)
+    problems, status = judged(box, {"items": [item()], "note": GOOD_NOTE})
+    assert (problems, status) == ([], "finding_checked"), (problems, status)
+    problems, status = judged(job(n04, LOSS, QUIET, read=BOTH), {"items": [wrong], "note": note})
+    assert has(problems, "link fixed to CP-1005 says none"), problems
+    assert status == "check_failed", problems
     # Adversarial findings: each must fail, so none can come out finding_checked.
     cases: list[tuple[str, dict[str, Any], tuple[str, ...], str]] = [
         (
             "an invented quote",
             item(
-                statements=[
-                    {"source": "article", "quote": "Northwind has lost its largest customer"},
-                    {
-                        "source": "CP-1004",
-                        "quote": "national parcel carrier (about half of revenue)",
-                    },
-                ]
+                statements=quotes(
+                    ("article", ARTICLE_QUOTE),
+                    ("CP-1004", "national parcel carrier (about half of revenue)"),
+                )
             ),
-            both,
+            BOTH,
             "isn't word for word in CP-1004",
         ),
         (
             "CP-1005's file quoted as CP-1004's",
             item(
-                statements=[
-                    {"source": "article", "quote": "Northwind has lost its largest customer"},
-                    {"source": "CP-1004", "quote": "three regional utilities"},
-                ]
+                statements=quotes(
+                    ("article", ARTICLE_QUOTE), ("CP-1004", "supply to regional utilities")
+                )
             ),
-            both,
+            BOTH,
             "isn't word for word in CP-1004",
         ),
         (
             "only the other borrower's file backs the link",
             item(
-                statements=[
-                    {"source": "article", "quote": "Northwind has lost its largest customer"},
-                    {"source": "CP-1005", "quote": "three regional utilities"},
-                ]
+                statements=quotes(
+                    ("article", ARTICLE_QUOTE), ("CP-1005", "supply to regional utilities")
+                )
             ),
-            both,
+            BOTH,
             "needs a quote from CP-1004's credit file",
         ),
         (
             "a quote stitched from two fields",
             item(
-                statements=[
-                    {"source": "article", "quote": "Northwind has lost its largest customer"},
-                    {
-                        "source": "CP-1004",
-                        "quote": "national parcel carrier ... charge over the vehicle fleet",
-                    },
-                ]
+                statements=quotes(
+                    ("article", ARTICLE_QUOTE),
+                    ("CP-1004", "about a third of revenue) term loan"),
+                )
             ),
-            both,
+            BOTH,
             "isn't word for word",
         ),
-        ("a borrower the workflow didn't list", item(cp="CP-1009"), both, "not a candidate"),
+        (
+            "a one-letter quote",
+            item(statements=quotes(("article", "a"), ("CP-1004", "o"))),
+            BOTH,
+            "under 4 words",
+        ),
+        (
+            "a field label as a quote",
+            item(
+                statements=quotes(
+                    ("article", ARTICLE_QUOTE), ("CP-1004", "counterparty_id: CP-1004")
+                )
+            ),
+            BOTH,
+            "under 4 words",
+        ),
+        (
+            "a field label with its value",
+            item(
+                statements=quotes(
+                    ("article", ARTICLE_QUOTE),
+                    ("CP-1004", "largest_customers: national parcel carrier"),
+                )
+            ),
+            BOTH,
+            "isn't word for word in CP-1004",
+        ),
+        (
+            "part of a word",
+            item(
+                statements=quotes(
+                    ("article", "orthwind has lost its largest"),
+                    ("CP-1004", "national parcel carrier (about a third of revenue)"),
+                )
+            ),
+            BOTH,
+            "isn't word for word in article",
+        ),
+        (
+            "an article quote without the mention",
+            item(
+                statements=quotes(
+                    ("article", "a national parcel carrier that accounted for about"),
+                    ("CP-1004", "national parcel carrier (about a third of revenue)"),
+                )
+            ),
+            BOTH,
+            "contains the mention 'Northwind'",
+        ),
+        (
+            "a borrower outside the job as a source",
+            item(
+                statements=quotes(
+                    ("article", ARTICLE_QUOTE),
+                    ("CP-1004", "national parcel carrier (about a third of revenue)"),
+                    ("CP-1001", "two supermarket chains (about 70% of revenue)"),
+                )
+            ),
+            BOTH,
+            "doesn't exist in this job: 'CP-1001'",
+        ),
+        ("a borrower the workflow didn't list", item(cp="CP-1009"), BOTH, "not a candidate"),
         ("only the favoured file read", item(), ("CP-1004",), "CP-1005 was never read"),
-        ("a stronger score than the check", item(score=0.95), both, "the event check says 0.88"),
-        ("a different event", item(event="plant_closure"), both, "says customer_loss 0.88"),
-        ("an alert on a name case", item(outcome="suggest_alert"), both, "not allowed"),
+        ("a stronger score than the check", item(score=0.95), BOTH, "the event check says 0.88"),
+        ("a different event", item(event="plant_closure"), BOTH, "says customer_loss 0.88"),
+        ("an alert on a name case", item(outcome="suggest_alert"), BOTH, "not allowed"),
+        (
+            "a score on a row left to the analyst",
+            item(outcome="left_for_person", cp="", event="", score=0.9),
+            BOTH,
+            "leave it null",
+        ),
         (
             "a source that doesn't exist",
             item(
-                statements=[
-                    {"source": "article", "quote": "Northwind has lost its largest customer"},
-                    {"source": "loan file", "quote": "national parcel carrier"},
-                ]
+                statements=quotes(
+                    ("article", ARTICLE_QUOTE), ("loan file", "national parcel carrier (about")
+                )
             ),
-            both,
+            BOTH,
             "doesn't exist",
         ),
     ]
     for name, found, read, words in cases:
-        box = job(n04, LOSS, read=read)
+        box = job(n04, LOSS, QUIET, read=read)
         problems, status = judged(box, {"items": [found], "note": GOOD_NOTE})
         assert has(problems, words), (name, problems)
         assert status == "check_failed", (name, problems)
-    # The note: a figure from nowhere, a note naming the other borrower, an empty note.
+    # The note: a figure from nowhere, a note naming the other borrower, an empty note, a link
+    # or an HTML tag.
     for note, words in (
         (GOOD_NOTE + " It was 45% of revenue.", "45 in the note"),
         (GOOD_NOTE + " See also CP-2001.", "2001 in the note"),
         ("Suggest CP-1005 Northwind Energy Supply.", "doesn't name the suggested borrower CP-1004"),
         ("  ", "note to the analyst is empty"),
+        (GOOD_NOTE + " ![x](https://evil.example/p.png)", "a link or an HTML tag"),
+        (GOOD_NOTE + " <img src=x>", "a link or an HTML tag"),
     ):
-        problems, _ = judged(job(n04, LOSS, read=both), {"items": [item()], "note": note})
+        problems, _ = judged(job(n04, LOSS, QUIET, read=BOTH), {"items": [item()], "note": note})
         assert has(problems, words), (note, problems)
     # Rows: a missing one, an extra one, one twice.
     for items, words in (
@@ -869,22 +1013,24 @@ def check_agent_judge() -> None:
         ([item(), item()], "more than one item"),
     ):
         problems, status = judged(
-            job(n04, LOSS, LOSS, read=both), {"items": items, "note": GOOD_NOTE}
+            job(n04, LOSS, QUIET, read=BOTH), {"items": items, "note": GOOD_NOTE}
         )
         assert has(problems, words), (words, problems)
         assert status == "check_failed", (words, problems)
     # A link whose event is still unclear with the link fixed: the evidence held, the call didn't.
     unsure = event(customer_loss=0.40, none=0.35)
-    box = job(n04, unsure, read=both)
+    box = job(n04, unsure, QUIET, read=BOTH)
     found = item(score=0.40)
     problems, status = judged(box, {"items": [found], "note": GOOD_NOTE.replace("0.88", "0.40")})
     assert problems == [], (problems, status)
     assert status == "call_not_checked", (problems, status)
     # The judge's own event check failed: a person reads it, never finding_checked.
-    box = job(n04, ServerError("busy", status_code=503), read=both)
+    box = job(n04, ServerError("busy", status_code=503), QUIET, read=BOTH)
     problems, status = judged(box, {"items": [item()], "note": GOOD_NOTE})
     assert status == "sie_failed", (problems, status)
-    print(f"agent judge: the expected N-04 finding passes; {len(cases) + 6} broken ones fail ok")
+    print(
+        f"agent judge: identical checks aren't a checked call; {len(cases) + 9} broken ones fail ok"
+    )
 
 
 def check_agent_ticker_rule() -> None:
@@ -896,7 +1042,7 @@ def check_agent_ticker_rule() -> None:
         "counterparty_id": "",
         "event": "",
         "score": None,
-        "statements": [{"source": "CP-1007", "quote": "recycled food trays and cartons"}],
+        "statements": quotes(("CP-1007", "recycled food trays and cartons")),
     }
     both_rows = [left, {**left, "row": 2}]
     problems, status = judged(job(n07, read=("CP-1007",)), {"items": both_rows, "note": note})
@@ -912,10 +1058,10 @@ def check_agent_ticker_rule() -> None:
         cp="CP-1007",
         event="none",
         score=0.9,
-        statements=[
-            {"source": "article", "quote": "Tolland Packaging (NYSE: NWEG) won"},
-            {"source": "CP-1007", "quote": "recycled food trays and cartons"},
-        ],
+        statements=quotes(
+            ("article", "Tolland Packaging (NYSE: NWEG) won"),
+            ("CP-1007", "recycled food trays and cartons"),
+        ),
     )
     for found, words in (
         (link, "not allowed"),
@@ -927,6 +1073,38 @@ def check_agent_ticker_rule() -> None:
         assert has(problems, words), (words, problems)
         assert status == "check_failed", (words, problems)
     print("agent ticker rule: only left_for_person, on both N-07 rows ok")
+
+
+def check_agent_longer_name() -> None:
+    result = one(
+        "x", "Northwind Energy Services cut jobs.", tags={"Northwind Energy Services": "company"}
+    )
+    rows = agent.review_items(result, CPS, RULES)
+    assert [(r.kind, r.candidates) for r in rows] == [("longer_name", ["CP-1005"])], rows
+    other = item(
+        outcome="suggest_not_a_borrower",
+        cp="",
+        event="",
+        score=None,
+        statements=quotes(
+            ("article", "Northwind Energy Services cut jobs"),
+            ("CP-1005", "gas storage and wholesale supply to regional utilities"),
+        ),
+    )
+    note = "Northwind Energy Services cut jobs; CP-1005 is a gas storage business."
+    problems, status = judged(job(result, read=("CP-1005",)), {"items": [other], "note": note})
+    assert (problems, status) == ([], "call_not_checked"), (problems, status)
+    # No evidence, or only the article: the judge says what's missing.
+    for statements, words in (
+        ([], "needs a quote from the article"),
+        ([], "needs a quote from the credit file of CP-1005"),
+        (other["statements"][:1], "needs a quote from the credit file of CP-1005"),
+    ):
+        found = {**other, "statements": statements}
+        problems, status = judged(job(result, read=("CP-1005",)), {"items": [found], "note": note})
+        assert has(problems, words), (words, problems)
+        assert status == "check_failed", problems
+    print("agent longer name: not a borrower needs the article and the candidate's file ok")
 
 
 def check_agent_unclear_event() -> None:
@@ -944,10 +1122,10 @@ def check_agent_unclear_event() -> None:
         cp="CP-1009",
         event="plant_closure",
         score=0.38,
-        statements=[
-            {"source": "article", "quote": "reviewing the future of its Brackwater repair yard"},
-            {"source": "CP-1009", "quote": "secured on the Brackwater yard"},
-        ],
+        statements=quotes(
+            ("article", "reviewing the future of its Brackwater repair yard"),
+            ("CP-1009", "secured on the Brackwater yard"),
+        ),
     )
     note = "Suggest an alert for CP-1009: the Brackwater yard is about 60% of revenue."
     # Every quote holds, so the evidence passes, but code can't confirm the call.
@@ -957,11 +1135,17 @@ def check_agent_unclear_event() -> None:
     for found, words in (
         ({**alert, "event": "none"}, "needs a warning event"),
         ({**alert, "outcome": "suggest_filed"}, "needs the event 'none'"),
+        ({**alert, "score": 0.5}, "the workflow's event check gave 0.38"),
+        ({**alert, "event": "lawsuit"}, "matches no number"),
     ):
         problems, status = judged(job(result, read=("CP-1009",)), {"items": [found], "note": note})
         assert has(problems, words), problems
         assert status == "check_failed", problems
-    print("agent unclear event: evidence checked, the call left to the analyst ok")
+    # A null score is fine: nothing to match.
+    found = {**alert, "score": None}
+    problems, status = judged(job(result, read=("CP-1009",)), {"items": [found], "note": note})
+    assert (problems, status) == ([], "call_not_checked"), problems
+    print("agent unclear event: evidence and score checked, the call left to the analyst ok")
 
 
 class Block:
@@ -979,21 +1163,26 @@ class Usage:
 
 
 class Reply:
-    def __init__(self, stop: str, *content: Block) -> None:
+    def __init__(self, stop: str, *content: Block, model: str = "claude-opus-5-5") -> None:
         self.stop_reason, self.content, self.usage = stop, list(content), Usage()
+        self.model = model
 
 
 class Claude:
-    """Stands in for the Anthropic client: returns the planned replies in order."""
+    """Stands in for the Anthropic client: returns the planned replies in order (or raises a
+    planned error)."""
 
-    def __init__(self, *replies: Reply) -> None:
+    def __init__(self, *replies: Reply | BaseException) -> None:
         self.replies = list(replies)
         self.beta = self
         self.messages = self
 
     def create(self, **_: Any) -> Reply:
         assert self.replies, "Claude was asked again and no reply was planned"
-        return self.replies.pop(0)
+        reply = self.replies.pop(0)
+        if isinstance(reply, BaseException):
+            raise reply
+        return reply
 
 
 def use(name: str, number: int, **inputs: Any) -> Block:
@@ -1007,19 +1196,41 @@ def check_agent_loop() -> None:
     ]
     wrong = {"items": [item(score=0.95)], "note": GOOD_NOTE}
     right = {"items": [item()], "note": GOOD_NOTE}
-    # A finding the check sends back once, then a fixed one: accepted after one revision.
+    # A finding the check sends back once, then a fixed one: accepted after one revision. The
+    # judge's two event checks run once for the job; the revision reuses them (a third SIE
+    # call would find no stand-in reply and fail).
     claude = Claude(
         Reply("tool_use", *reads),
         Reply("tool_use", use("submit_finding", 3, **wrong)),
         Reply("tool_use", use("submit_finding", 4, **right)),
     )
-    box = job(n04, LOSS, LOSS)
+    box = job(n04, LOSS, QUIET)
     result = agent.run_agent(claude, box, fresh_for(box))
     assert result.revisions == 1, result.first_review
     assert has(result.first_review, "0.88"), result.first_review
     status = agent.status_of(result.finding, result.problems, result.checks, box, "", False)
     assert status == "finding_checked", (status, result)
     assert result.tool_calls == 4, (status, result)
+    assert box.client.events == [], box.client.events
+    # A revision that drops the link keeps no checks from the first finding.
+    left = item(outcome="left_for_person", cp="", event="", score=None)
+    claude = Claude(
+        Reply("tool_use", *reads),
+        Reply("tool_use", use("submit_finding", 3, **wrong)),
+        Reply("tool_use", use("submit_finding", 4, items=[left], note="Leave it to you.")),
+    )
+    box = job(n04, LOSS, QUIET)
+    result = agent.run_agent(claude, box, fresh_for(box))
+    assert result.checks == {}, result.checks
+    # A tool call with the wrong fields is an error for Claude to read, not a crash.
+    claude = Claude(
+        Reply("tool_use", use("read_credit_file", 1, id="CP-1004")),
+        Reply("end_turn"),
+        Reply("end_turn"),
+    )
+    box = job(n04)
+    result = agent.run_agent(claude, box, fresh_for(box))
+    assert result.transcript[1]["is_error"], result.transcript
     # A refusal is no finding, never read as the agent's work failing the check.
     box = job(n04)
     result = agent.run_agent(Claude(Reply("refusal")), box, fresh_for(box))
@@ -1030,7 +1241,7 @@ def check_agent_loop() -> None:
     assert "declined" in result.stopped, (status, result.stopped)
     # Past the tool-call limit: out of steps, even if a finding follows.
     many = [use("get_review_item", n) for n in range(RULES["agent"]["max_lookups"] + 1)]
-    box = job(n04, LOSS, read=("CP-1004", "CP-1005"))
+    box = job(n04, LOSS, QUIET, read=BOTH)
     result = agent.run_agent(
         Claude(Reply("tool_use", *many), Reply("tool_use", use("submit_finding", 99, **right))),
         box,
@@ -1049,19 +1260,106 @@ def check_agent_loop() -> None:
     )
     assert result.finding is None
     assert "without calling submit_finding" in result.stopped
-    print("agent loop: one revision, refusal, tool limit, no finding ok")
+    # An error that isn't a passing Claude API error stops the run instead of ending one job.
+    caught = raised(lambda: agent.run_agent(Claude(ValueError("bug")), job(n04), lambda _: None))
+    assert isinstance(caught, ValueError), caught
+    print("agent loop: one revision, final checks only, bad input, refusal, limits ok")
+
+
+def check_agent_claude_errors() -> None:
+    """Passing Claude API errors end one job; the rest stop the run (needs the agent group)."""
+    try:
+        import anthropic
+        import httpx2
+    except ImportError:
+        print("agent Claude errors: skipped, the agent group isn't installed")
+        return
+    request = httpx2.Request("POST", "https://api.anthropic.example/v1/messages")
+
+    def status(code: int) -> Exception:
+        response = httpx2.Response(code, request=request)
+        kinds = {400: anthropic.BadRequestError, 401: anthropic.AuthenticationError}
+        kind = kinds.get(code, anthropic.APIStatusError)
+        return kind("x", response=response, body=None)
+
+    n04 = committed("N-04")
+    for error in (
+        anthropic.APIConnectionError(request=request),
+        anthropic.APITimeoutError(request=request),
+        status(408),
+        status(409),
+        anthropic.RateLimitError("x", response=httpx2.Response(429, request=request), body=None),
+        anthropic.InternalServerError(
+            "x", response=httpx2.Response(500, request=request), body=None
+        ),
+    ):
+        result = agent.run_agent(Claude(error), job(n04), lambda _: None)
+        assert result.stopped.startswith("the Claude API failed"), (error, result.stopped)
+    for error in (status(400), status(401), status(422)):
+        caught = raised(functools.partial(agent.run_agent, Claude(error), job(n04), lambda _: None))
+        assert caught is error, (error, caught)
+    print("agent Claude errors: transient ones end the job, the rest stop the run ok")
+
+
+def check_agent_retry() -> None:
+    """A retry where every SIE call fails keeps the first pass; a refusal still stops."""
+
+    class Flaky(StandIn):
+        """NuNER Zero answers the first call, then raises `later` on every one after it."""
+
+        def __init__(self, later: BaseException, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.later = later
+
+        def extract(self, model: str, items: Any, **kwargs: Any) -> Any:
+            if model == NER and self.ner_calls:
+                self.ner_calls += 1
+                raise self.later
+            return super().extract(model, items, **kwargs)
+
+    folder = Path(tempfile.mkdtemp())
+    path = folder / "news.jsonl"
+    articles = [
+        article("R-1", "Pellridge Foods missed a payment", "Pellridge Foods missed a payment."),
+        article("R-2", "Halden Cold Storage missed a payment", "Halden Cold Storage missed it."),
+    ]
+    path.write_text("".join(json.dumps(a) + "\n" for a in articles), encoding="utf-8")
+    tags = {"Pellridge Foods": "company", "Halden Cold Storage": "company"}
+    replies = (ALERTING, ServerError("busy", status_code=503))
+    client = agent.CountingClient(
+        Flaky(ServerError("busy", status_code=503), tags=tags, events=replies)
+    )
+    with contextlib.redirect_stdout(io.StringIO()):
+        results, cost = agent.run_workflow(client, RULES, (path,), folder)
+    statuses = {r.article.id: r.status for r in results}
+    assert statuses == {"R-1": "alert", "R-2": "review"}, statuses
+    assert cost["retried_articles"] == ["R-2"], cost
+    assert cost["retry_failed"], cost
+    r2 = next(r for r in results if r.article.id == "R-2")
+    assert [row.kind for row in agent.review_items(r2, CPS, RULES)] == ["sie_failed"]
+    # A refusal on the retry still stops the run.
+    client = agent.CountingClient(
+        Flaky(InsufficientCreditsError("no credits"), tags=tags, events=replies)
+    )
+    with contextlib.redirect_stdout(io.StringIO()):
+        caught = raised(lambda: agent.run_workflow(client, RULES, (path,), folder))
+    assert isinstance(caught, recipe.SIEStopped), caught
+    print("agent retry: an all-failed retry keeps the first pass as sie_failed, a refusal stops ok")
 
 
 def check_agent_outputs() -> None:
     n04 = committed("N-04")
-    risky = {"items": [item()], "note": "=HYPERLINK(1) " + GOOD_NOTE}
+    evil = "![x](https://evil.example/p.png) <img src=x> a | b"
+    risky_item = item(statements=quotes(("article", evil)))
+    note = "=HYPERLINK(1) " + GOOD_NOTE + "\n```\n# not a heading\n" + evil
+    risky = {"items": [risky_item], "note": note}
     record = {
         "article_id": "N-04",
-        "headline": n04.article.headline,
+        "headline": evil,
         "status": "finding_checked",
-        "rows": [],
+        "rows": [{"number": 1, "mention": evil, "reason": "x\ny"}],
         "finding": risky,
-        "problems": [],
+        "problems": [f"the quote isn't word for word in article: {evil!r}"],
         "first_review": [],
         "judge_event_checks": {},
         "sie_failures": [],
@@ -1078,19 +1376,38 @@ def check_agent_outputs() -> None:
         ("finding_checked", "suggest_link CP-1004")
     ], rows
     assert rows[0]["agent_note"].startswith("'="), rows[0]["agent_note"]
-    assert (
-        agent.claude_usd(
-            agent.AgentResult(
-                input_tokens=1, cache_write_tokens=2, cache_read_tokens=3, output_tokens=4
-            ),
-            {"input": 1e6, "cache_write": 1e7, "cache_read": 1e8, "output": 1e9},
-        )
-        == 1 + 20 + 300 + 4000
+    # Text from articles, files and Claude can't render as an image, a tag, a link or a table
+    # cell break; the note sits in a fence longer than any backtick run in it.
+    notes = (folder / "agent" / "review_notes.md").read_text(encoding="utf-8")
+    outside = notes.split("````text")[0] + notes.split("````text")[1].split("\n````\n", 1)[1]
+    for bad in (r"!\[", r"<img", r"\|", r"\]\(", r"\n# "):
+        assert not re.search(r"(?<!\\)" + bad, outside), (bad, notes)
+    assert "\\!\\[x\\]\\(https://evil.example/p.png\\)" in outside, notes
+    assert "````text\n" + note + "\n````" in notes, notes
+    assert agent.md_safe("a\nb | c") == "a b \\| c"
+    # Each response is priced on the model that answered it; an unknown model is reported.
+    prices = {
+        "claude-opus-5-5": {"input": 1e6, "cache_write": 1e7, "cache_read": 1e8, "output": 1e9},
+        "claude-opus-5": {"input": 2e6, "cache_write": 0, "cache_read": 0, "output": 0},
+    }
+    tokens = Usage()
+    result = agent.AgentResult()
+    result.count("claude-opus-5-5", tokens)
+    result.count("claude-opus-5-20261001", tokens)
+    result.count("claude-other", tokens)
+    usd, unpriced = agent.claude_usd(result, prices)
+    assert usd == (1000 * 1 + 100 * 1000) + 1000 * 2, usd
+    assert unpriced == ["claude-other"], unpriced
+    assert result.input_tokens == 3000, result.input_tokens
+    claude = Claude(
+        Reply("end_turn", model="claude-opus-5"), Reply("end_turn", model="claude-opus-5")
     )
+    result = agent.run_agent(claude, job(n04), lambda _: None)
+    assert list(result.by_model) == ["claude-opus-5"], result.by_model
     counting = agent.CountingClient(StandIn(events=(dict(LOSS, request={"credits_debited": 4}),)))
     counting.extract(DECIDE, {"id": "x", "text": "t"}, output_schema={"event": {"type": "choice"}})
     assert (counting.calls, counting.credits) == (1, 4.0)
-    print("agent outputs: the analyst's queue only, CSV safe, cost counted ok")
+    print("agent outputs: the analyst's queue only, CSV and Markdown safe, cost per model ok")
 
 
 if __name__ == "__main__":
@@ -1106,8 +1423,12 @@ if __name__ == "__main__":
     check_outputs()
     check_agent_reasons()
     check_agent_event_check()
+    check_agent_scope()
     check_agent_judge()
     check_agent_ticker_rule()
+    check_agent_longer_name()
     check_agent_unclear_event()
     check_agent_loop()
+    check_agent_claude_errors()
+    check_agent_retry()
     check_agent_outputs()

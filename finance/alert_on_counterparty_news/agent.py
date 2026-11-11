@@ -14,9 +14,10 @@ Agent:     Claude runs one job per article in review and picks its next tool:
                                  the link fixed to one borrower
            submit_finding        plain Python, checked before it's accepted
 Judge:     `check_finding` in code after the loop: an allowed outcome for the row's reason, a
-           listed candidate, every quote word for word in its source, every candidate's file
-           read, every figure found somewhere, and for a suggested link the same event and score
-           from a fresh run of the event check. What it finds goes back to Claude once.
+           listed candidate, every quote whole words from one field of its source, every
+           candidate's file read, every figure of two or more digits found somewhere, a score
+           that matches an event check, and for a suggested link a fresh run of the event check
+           for every candidate on the row. What it finds goes back to Claude once.
 Output:    runs/<timestamp>/agent/: review_notes.md and review.csv (the analyst's queue with the
            agent's status and note), jobs/<article>.json (tool calls, checks, status),
            transcripts/<article>.json and cost.json. Nothing goes to a credit officer's alert
@@ -44,6 +45,7 @@ from typing import Any, cast
 
 from counterparties import CounterpartyList
 from sie_sdk import SIEClient
+from sie_sdk.client.errors import SIEError
 
 import recipe
 
@@ -60,6 +62,8 @@ OUTCOMES = (
 )
 SUGGESTIONS = ("suggest_link", "suggest_alert", "suggest_filed")  # name one candidate
 ARTICLE = "article"
+NOTE_MARKUP = re.compile(r"https?://|www\.|<\s*/?\s*[a-z!]", re.IGNORECASE)  # links, HTML tags
+MD_SPECIAL = re.compile(r"([\\`*_\[\]()<>|!#])")
 QUEUE_FIELDS = (*recipe.REVIEW_FIELDS, "agent_status", "agent_outcome", "agent_note")
 
 
@@ -91,14 +95,15 @@ class CreditFiles:
         notes = sorted(self.notes.get(counterparty_id, []), key=lambda note: note["date"])
         return {"file": self.files[counterparty_id], "notes": notes}
 
-    def text(self, counterparty_id: str) -> str:
-        """Everything in one borrower's file and notes: what a quote from it is checked against."""
+    def values(self, counterparty_id: str) -> list[str]:
+        """The field values and note texts of one borrower's file: what a quote from it is
+        checked against, one value at a time. Field names, the id and dates are left out, so
+        "counterparty_id: CP-1004" is not a quote from the file."""
         if counterparty_id not in self.files:
-            return ""
+            return []
         found = self.read(counterparty_id)
-        lines = [f"{key}: {value}" for key, value in found["file"].items()]
-        lines += [f"{n['date']} {n['kind']}: {n['note']}" for n in found["notes"]]
-        return "\n".join(lines)
+        fields = [v for k, v in found["file"].items() if k not in ("counterparty_id",)]
+        return [*fields, *(note["note"] for note in found["notes"])]
 
 
 # --- SIE calls, counted ------------------------------------------------------------------------
@@ -352,8 +357,15 @@ class Job:
     client: Any  # CountingClient, or a stand-in in selfcheck.py
     calls: recipe.CallLog
     read_files: list[str] = field(default_factory=list)  # ids read_credit_file returned
+    looked_up: list[str] = field(default_factory=list)  # ids lookup_counterparty returned
     outputs: list[str] = field(default_factory=list)  # every tool result, as JSON
     sie_failures: list[str] = field(default_factory=list)
+    judge_checks: dict[str, dict[str, Any]] = field(default_factory=dict)  # one SIE call per id
+
+    def scope(self) -> set[str]:
+        """The borrowers this job may read: the candidates on its review rows, and any
+        borrower lookup_counterparty returned for a name or ticker the article prints."""
+        return {c for row in self.rows for c in row.candidates} | set(self.looked_up)
 
     def run(self, name: str, tool_input: dict[str, Any]) -> str:
         """Run one lookup and return its result as JSON. Raises ToolError for Claude to read."""
@@ -365,6 +377,14 @@ class Job:
         }
         if name not in tools:
             raise ToolError(f"there is no tool called {name}")
+        schema = next(t["input_schema"] for t in tool_list(self.rules) if t["name"] == name)
+        if set(tool_input) != set(schema["properties"]):
+            raise ToolError(
+                f"{name} takes {sorted(schema['properties']) or 'no fields'}, "
+                f"got {sorted(tool_input) or 'no fields'}"
+            )
+        if not all(isinstance(value, str) for value in tool_input.values()):
+            raise ToolError(f"every field of {name} is a string")
         output = json.dumps(tools[name](**tool_input), ensure_ascii=False)
         self.outputs.append(output)
         return output
@@ -401,21 +421,37 @@ class Job:
         given = [value for value in (counterparty_id, name, ticker) if value.strip()]
         if len(given) != 1:
             raise ToolError("give exactly one of counterparty_id, name or ticker")
+        article = self.result.article.text
         if counterparty_id.strip():
-            try:
-                found = [self.cps.get(counterparty_id.strip())]
-            except KeyError:
-                found = []
+            cp_id = counterparty_id.strip()
+            if cp_id not in self.scope():
+                raise ToolError(
+                    f"{cp_id} isn't a candidate on this article's review rows or a borrower a "
+                    "lookup returned; look it up by a name or ticker the article prints"
+                )
+            found = [self.cps.get(cp_id)]
         elif name.strip():
+            if not contains_words(article, name):
+                raise ToolError(f"{name!r} isn't a name this article prints")
             found = self.cps.find_by_legal_name(name) or self.cps.find_by_alias(name)
         else:
-            symbol = ticker.split(":")[-1]
+            symbol = ticker.split(":")[-1].strip()
+            if not symbol or not contains_words(article, symbol):
+                raise ToolError(f"{ticker!r} isn't a ticker this article prints")
             found = self.cps.find_by_parent_ticker(symbol)
+        self.looked_up += [cp.id for cp in found if cp.id not in self.looked_up]
         return {"matches": [asdict(cp) for cp in found]}
 
     def read_credit_file(self, counterparty_id: str) -> dict[str, Any]:
-        found = self.files.read(counterparty_id.strip())
-        self.read_files.append(counterparty_id.strip())
+        cp_id = counterparty_id.strip()
+        if cp_id not in self.scope():
+            raise ToolError(
+                f"{cp_id} isn't a candidate on this article's review rows or a borrower "
+                "lookup_counterparty returned in this job; look it up first by a name or ticker "
+                "the article prints"
+            )
+        found = self.files.read(cp_id)
+        self.read_files.append(cp_id)
         return found
 
     def check_event_for(self, counterparty_id: str) -> dict[str, Any]:
@@ -438,6 +474,14 @@ def plain(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
+def contains_words(whole: str, part: str) -> bool:
+    """`part` appears in `whole` as whole words: "Northwind has lost" yes, "orthwind" or "o" no."""
+    wanted = plain(part)
+    return (
+        bool(wanted) and re.search(rf"(?<!\w){re.escape(wanted)}(?!\w)", plain(whole)) is not None
+    )
+
+
 def figures(text: str, min_digits: int) -> set[str]:
     """Decimals such as 0.78, and whole numbers with at least `min_digits` digits."""
     joined = re.sub(r"(?<=\d),(?=\d{3})", "", text)
@@ -445,12 +489,25 @@ def figures(text: str, min_digits: int) -> set[str]:
     return {re.sub(r"\.0+$", "", figure) for figure in re.findall(pattern, joined)}
 
 
-def source_text(source: str, job: Job) -> str | None:
-    """What a quote from `source` is checked against, or None for a source that doesn't exist."""
+def source_values(source: str, job: Job) -> list[str] | None:
+    """The texts a quote from `source` may come from, one field at a time, or None for a source
+    outside this job: the article (headline, body), or the file of a borrower in its scope."""
     if source == ARTICLE:
-        return job.result.article.text
-    if source in job.files.files:
-        return job.files.text(source)
+        return [job.result.article.headline, job.result.article.body]
+    if source in job.scope() and source in job.files.files:
+        return job.files.values(source)
+    return None
+
+
+def workflow_score(result: recipe.Result, cp_id: str, event: str, no_event: str) -> float | None:
+    """The workflow's own number for this borrower and event: `none`, or its top warning."""
+    for found in result.events:
+        if found.counterparty_id != cp_id:
+            continue
+        if event == no_event:
+            return found.none_score
+        if event and event == found.top_warning:
+            return found.top_warning_score
     return None
 
 
@@ -459,15 +516,17 @@ def check_finding(
     job: Job,
     fresh: Callable[[str], dict[str, Any] | None],
 ) -> tuple[list[str], dict[str, dict[str, Any]]]:
-    """Every problem in a finding, and the event checks the judge ran itself.
+    """Every problem in a finding, and the event checks the judge ran for it.
 
     `fresh(counterparty_id)` runs the workflow's event check for one borrower (None when the SIE
-    call failed). An empty list means everything code can check held up; it never means the
-    suggestion is right.
+    call failed); each borrower's check runs once per job and is reused on a revision. An empty
+    list means everything code can check held up; it never means the suggestion is right.
     """
     rules = job.rules["agent"]
     events = set(job.rules["events"])
     no_event = job.rules["no_event"]
+    tolerance = rules["score_tolerance"]
+    min_words = rules["quote_min_words"]
     problems: list[str] = []
     checks: dict[str, dict[str, Any]] = {}
     rows = {row.number: row for row in job.rows}
@@ -486,6 +545,7 @@ def check_finding(
         if row is None:
             continue
         outcome, cp_id, event = item["outcome"], item["counterparty_id"].strip(), item["event"]
+        score = item["score"]
         label = f"row {row.number}"
         if outcome not in row.allowed:
             problems.append(
@@ -506,41 +566,86 @@ def check_finding(
         if outcome == "suggest_filed" and event != no_event:
             problems.append(f"{label}: suggest_filed needs the event {no_event!r}")
         sources = set()
+        mention_quoted = False
         for statement in item["statements"]:
             source, quote = statement["source"].strip(), statement["quote"]
-            whole = source_text(source, job)
-            if whole is None:
-                problems.append(f"{label}: cites a source that doesn't exist: {source!r}")
+            values = source_values(source, job)
+            if values is None:
+                problems.append(
+                    f"{label}: cites a source that doesn't exist in this job: {source!r} (use "
+                    "the article, or the file of a candidate or a borrower you looked up)"
+                )
                 continue
-            if not plain(quote) or plain(quote) not in plain(whole):
-                problems.append(f"{label}: the quote isn't word for word in {source}: {quote!r}")
+            if len(re.findall(r"\w+", quote)) < min_words:
+                problems.append(
+                    f"{label}: the quote from {source} is under {min_words} words: {quote!r}"
+                )
+                continue
+            if not any(contains_words(value, quote) for value in values):
+                problems.append(
+                    f"{label}: the quote isn't word for word in {source} (whole words, from one "
+                    f"field or note): {quote!r}"
+                )
                 continue
             sources.add(source)
+            mention_quoted = mention_quoted or (
+                source == ARTICLE and contains_words(quote, row.mention)
+            )
         if outcome in SUGGESTIONS and cp_id:
             if ARTICLE not in sources:
                 problems.append(f"{label}: {outcome} needs a quote from the article")
             if cp_id not in sources:
                 problems.append(f"{label}: {outcome} needs a quote from {cp_id}'s credit file")
+        if outcome == "suggest_link" and not mention_quoted:
+            problems.append(
+                f"{label}: suggest_link needs an article quote that contains the mention "
+                f"{row.mention!r}"
+            )
+        if outcome == "suggest_not_a_borrower":
+            if ARTICLE not in sources:
+                problems.append(f"{label}: {outcome} needs a quote from the article")
+            if not sources & set(row.candidates):
+                problems.append(
+                    f"{label}: {outcome} needs a quote from the credit file of "
+                    f"{' or '.join(row.candidates) or 'the candidate'}"
+                )
         if outcome == "suggest_link" and cp_id in row.candidates:
-            check = checks.get(cp_id) or fresh(cp_id)
-            if check is None:
-                continue  # an SIE failure, recorded on the job: a person reads it
-            checks[cp_id] = check
-            score = item["score"]
-            if event != check["event"] or not isinstance(score, (int, float)):
+            # Every candidate's check, so status_of can see whether they tell the pick apart.
+            for candidate in row.candidates:
+                check = job.judge_checks.get(candidate) or fresh(candidate)
+                if check is not None:  # None: an SIE failure, recorded on the job
+                    job.judge_checks[candidate] = checks[candidate] = check
+            pick = checks.get(cp_id)
+            if pick is None:
+                continue
+            if event != pick["event"] or not isinstance(score, (int, float)):
                 problems.append(
                     f"{label}: the finding says {event or 'no event'} {score}, but the event "
-                    f"check with the link fixed to {cp_id} says {check['event']} "
-                    f"{check['score']:.2f} ({check['status']})"
+                    f"check with the link fixed to {cp_id} says {pick['event']} "
+                    f"{pick['score']:.2f} ({pick['status']})"
                 )
-            elif abs(float(score) - check["score"]) > rules["score_tolerance"]:
+            elif abs(float(score) - pick["score"]) > tolerance:
                 problems.append(
                     f"{label}: the finding gives {event} {score}, but the event check says "
-                    f"{check['score']:.2f}"
+                    f"{pick['score']:.2f}"
+                )
+        elif score is not None:
+            number = workflow_score(job.result, cp_id, event, no_event)
+            if number is None:
+                problems.append(
+                    f"{label}: the score {score} matches no number from the workflow's event "
+                    f"check for {cp_id or 'no borrower'} and {event or 'no event'}; leave it null"
+                )
+            elif abs(float(score) - number) > tolerance:
+                problems.append(
+                    f"{label}: the finding gives {event} {score}, but the workflow's event check "
+                    f"gave {number:.2f}"
                 )
     note = finding["note"]
     if not note.strip():
         problems.append("the note to the analyst is empty")
+    if NOTE_MARKUP.search(note):
+        problems.append("the note has a link or an HTML tag; write it as plain text")
     # Figures may come from the article, any tool result, the judge's own event checks, or a
     # counterparty id on the list ("CP-1005" is not a figure to check; "CP-2001" is).
     ids = " ".join(cp.id for cp in job.cps.all())
@@ -568,7 +673,13 @@ def status_of(
     stopped: str,
     ran_out: bool,
 ) -> str:
-    """The job's status, from what the checks found. Each one needs positive evidence."""
+    """The job's status, from what the checks found. Each one needs positive evidence.
+
+    A suggested link is finding_checked only when the event check with the link fixed to the
+    pick differs, in event or status, from the check for every other candidate on the row, so
+    that check could have caught a wrong pick. When the candidates read the same sentences
+    (N-04: both Northwinds), the checks agree and the call isn't checked.
+    """
     if job.sie_failures:
         return "sie_failed"
     if ran_out:
@@ -582,17 +693,25 @@ def status_of(
         return "check_failed"
     if all(outcome == "left_for_person" for outcome in outcomes):
         return "left_for_person"
+    rows = {row.number: row for row in job.rows}
+    not_checked = False
     for item in finding["items"]:
         if item["outcome"] == "left_for_person":
             continue
         if item["outcome"] != "suggest_link":
-            return "call_not_checked"
-        check = checks.get(item["counterparty_id"].strip())
-        if check is None:
+            not_checked = True
+            continue
+        pick_id = item["counterparty_id"].strip()
+        pick = checks.get(pick_id)
+        others = [checks.get(c) for c in rows[item["row"]].candidates if c != pick_id]
+        if pick is None or any(other is None for other in others):
             return "check_failed"  # never confirmed, so never finding_checked
-        if check["status"] == recipe.REVIEW:
-            return "call_not_checked"
-    return "finding_checked"
+        same = [
+            o for o in others if o and (o["event"], o["status"]) == (pick["event"], pick["status"])
+        ]
+        if pick["status"] == recipe.REVIEW or same or not others:
+            not_checked = True
+    return "call_not_checked" if not_checked else "finding_checked"
 
 
 # --- The agent loop ----------------------------------------------------------------------------
@@ -613,7 +732,21 @@ class AgentResult:
     cache_write_tokens: int = 0
     cache_read_tokens: int = 0
     output_tokens: int = 0
+    by_model: dict[str, dict[str, int]] = field(default_factory=dict)  # tokens per answering model
     transcript: list[dict[str, Any]] = field(default_factory=list)
+
+    def count(self, model: str, usage: Any) -> None:
+        """Add one response's tokens, under the model that actually answered it."""
+        tokens = {
+            "input_tokens": usage.input_tokens,
+            "cache_write_tokens": usage.cache_creation_input_tokens or 0,
+            "cache_read_tokens": usage.cache_read_input_tokens or 0,
+            "output_tokens": usage.output_tokens,
+        }
+        mine = self.by_model.setdefault(model, dict.fromkeys(tokens, 0))
+        for key, value in tokens.items():
+            mine[key] += value
+            setattr(self, key, getattr(self, key) + value)
 
 
 def make_claude() -> Any:
@@ -625,14 +758,22 @@ def make_claude() -> Any:
     return anthropic.Anthropic()
 
 
-def transient_claude_errors() -> tuple[type[Exception], ...]:
-    """Claude API errors that may pass: the job ends without a finding and a person reads it.
-    Empty without the agent group, so selfcheck.py can drive the loop with a stand-in."""
+def transient_claude_error(error: Exception) -> bool:
+    """A Claude API error that may pass (a lost connection or timeout, a rate limit, a 5xx, a
+    408 or 409): the job ends without a finding and a person reads it. Any other error stops the
+    run. False for everything without the agent group, so selfcheck.py's stand-ins raise."""
     try:
         import anthropic
     except ImportError:
-        return ()
-    return (anthropic.RateLimitError, anthropic.InternalServerError, anthropic.APIConnectionError)
+        return False
+    passing = (
+        anthropic.APIConnectionError,
+        anthropic.RateLimitError,
+        anthropic.InternalServerError,
+    )
+    if isinstance(error, passing):  # APIConnectionError covers APITimeoutError
+        return True
+    return isinstance(error, anthropic.APIStatusError) and error.status_code in (408, 409)
 
 
 def ask_claude(claude: Any, messages: list[Any], rules: dict[str, Any]) -> Any:
@@ -678,7 +819,7 @@ def one_lookup(job: Job, use: Any, result: AgentResult, max_lookups: int) -> dic
         result.tool_calls += 1
         try:
             output = job.run(use.name, dict(use.input))
-        except (ToolError, TypeError) as error:
+        except ToolError as error:
             output = str(error)
             block["is_error"] = True
     entry["output"] = output
@@ -699,7 +840,7 @@ def one_submission(
     result.tool_calls += 1
     finding = dict(use.input)
     problems, checks = check_finding(finding, job, fresh)
-    result.checks.update(checks)
+    result.checks = checks  # the last submission's checks only
     result.transcript.append({"tool": "submit_finding", "input": use.input, "problems": problems})
     if problems and result.revisions < job.rules["agent"]["max_revisions"]:
         result.revisions += 1
@@ -729,14 +870,12 @@ def run_agent(claude: Any, job: Job, fresh: Callable[[str], dict[str, Any] | Non
     for _ in range(settings["max_rounds"]):
         try:
             response = ask_claude(claude, messages, job.rules)
-        except transient_claude_errors() as error:
-            result.stopped = f"the Claude API failed: {type(error).__name__}"
+        except Exception as error:
+            if not transient_claude_error(error):
+                raise  # main() stops the run with the error's own message
+            result.stopped = f"the Claude API failed: {type(error).__name__}: {error}"
             return result
-        usage = response.usage
-        result.input_tokens += usage.input_tokens
-        result.output_tokens += usage.output_tokens
-        result.cache_read_tokens += usage.cache_read_input_tokens or 0
-        result.cache_write_tokens += usage.cache_creation_input_tokens or 0
+        result.count(getattr(response, "model", None) or settings["model"], response.usage)
         if response.stop_reason == "refusal":
             result.stopped = "Claude declined the request"
             return result
@@ -776,17 +915,37 @@ def run_agent(claude: Any, job: Job, fresh: Callable[[str], dict[str, Any] | Non
 # --- Cost --------------------------------------------------------------------------------------
 
 
-def claude_usd(result: AgentResult, prices: dict[str, float]) -> float:
-    """What one job's Claude requests cost, in dollars."""
-    return (
-        result.input_tokens * prices["input"]
-        + result.cache_write_tokens * prices["cache_write"]
-        + result.cache_read_tokens * prices["cache_read"]
-        + result.output_tokens * prices["output"]
-    ) / 1_000_000
+def price_of(model: str, prices: dict[str, dict[str, float]]) -> dict[str, float] | None:
+    """The prices for the model that answered, by its id with any date suffix dropped."""
+    return prices.get(model) or prices.get(re.sub(r"-\d{8}$", "", model))
+
+
+def claude_usd(result: AgentResult, prices: dict[str, dict[str, float]]) -> tuple[float, list[str]]:
+    """What one job's Claude requests cost, in dollars, each response priced on the model that
+    answered it (a fallback answer on its fallback model), and the models with no price."""
+    total, unpriced = 0.0, []
+    for model, tokens in result.by_model.items():
+        price = price_of(model, prices)
+        if price is None:
+            unpriced.append(model)
+            continue
+        total += (
+            tokens["input_tokens"] * price["input"]
+            + tokens["cache_write_tokens"] * price["cache_write"]
+            + tokens["cache_read_tokens"] * price["cache_read"]
+            + tokens["output_tokens"] * price["output"]
+        ) / 1_000_000
+    return total, unpriced
 
 
 # --- The run -----------------------------------------------------------------------------------
+
+
+def every_call_failed(error: recipe.SIEStopped) -> bool:
+    """True when the run stopped because every SIE call failed for a reason that may pass,
+    not because SIE refused the call (`recipe.is_fatal`)."""
+    cause = error.__cause__
+    return isinstance(cause, SIEError) and not recipe.is_fatal(cause)
 
 
 def run_workflow(
@@ -803,12 +962,23 @@ def run_workflow(
     failed = [
         r for r in results if any(row.kind == "sie_failed" for row in review_items(r, cps, rules))
     ]
+    retry_failed = ""
     if failed:
         retry = scratch / "retry.jsonl"
         retry.write_text(
             "".join(json.dumps(asdict(r.article)) + "\n" for r in failed), encoding="utf-8"
         )
-        again = {r.article.id: r for r in recipe.run(cast(SIEClient, client), rules, None, retry)}
+        try:
+            redone = recipe.run(cast(SIEClient, client), rules, None, retry)
+        except recipe.SIEStopped as error:
+            if not every_call_failed(error):
+                raise  # a refusal: the run stops, as in the workflow
+            # Every retry call failed: keep the first pass, so those articles go to the
+            # analyst as sie_failed.
+            retry_failed = str(error)
+            print(f"The retry failed too; those articles go to the analyst as sie_failed: {error}")
+            redone = []
+        again = {r.article.id: r for r in redone}
         results = [again.get(r.article.id, r) for r in results]
     cost = {
         "articles": len(results),
@@ -818,6 +988,7 @@ def run_workflow(
         "seconds": round(seconds, 1),
         "retried_articles": [r.article.id for r in failed],
         "retry_sie_calls": client.calls - before - calls,
+        "retry_failed": retry_failed,
     }
     return results, cost
 
@@ -851,7 +1022,7 @@ def answer(
     status = status_of(
         agent.finding, agent.problems, agent.checks, job, agent.stopped, agent.ran_out
     )
-    prices = rules["agent"]["prices"]
+    usd, unpriced = claude_usd(agent, rules["agent"]["prices"])
     spent = client.credits - credits
     return {
         "article_id": result.article.id,
@@ -872,7 +1043,9 @@ def answer(
             "cache_write_tokens": agent.cache_write_tokens,
             "cache_read_tokens": agent.cache_read_tokens,
             "output_tokens": agent.output_tokens,
-            "claude_usd": round(claude_usd(agent, prices), 4),
+            "claude_usd": round(usd, 4),
+            "claude_models": agent.by_model,
+            "unpriced_models": unpriced,
             "sie_calls": client.calls - before,
             "sie_credits": spent,
             "sie_usd": spent * rules["agent"]["sie_credit_usd"],
@@ -880,6 +1053,19 @@ def answer(
         },
         "transcript": agent.transcript,
     }
+
+
+def md_safe(text: Any) -> str:
+    """Text from an article, a file, a tool or Claude, safe on one Markdown line: every mark
+    Markdown or HTML could act on is escaped, and line breaks become spaces."""
+    return MD_SPECIAL.sub(r"\\\1", " ".join(str(text).split()))
+
+
+def fenced(text: str) -> list[str]:
+    """A free-text body in a fenced block whose fence is longer than any backtick run in it."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return [f"{fence}text", text, fence]
 
 
 def notes_markdown(jobs: list[dict[str, Any]], workflow: dict[str, Any]) -> str:
@@ -895,36 +1081,44 @@ def notes_markdown(jobs: list[dict[str, Any]], workflow: dict[str, Any]) -> str:
     ]
     for job in jobs:
         lines += [
-            f"## {job['article_id']}: {job['headline']}",
+            f"## {md_safe(job['article_id'])}: {md_safe(job['headline'])}",
             "",
             f"**Status:** `{job['status']}`",
         ]
         if job["stopped"]:
-            lines += ["", f"**Stopped because:** {job['stopped']}"]
+            lines += ["", f"**Stopped because:** {md_safe(job['stopped'])}"]
         for failure in job["sie_failures"]:
-            lines += ["", f"**SIE call failed:** {failure}"]
+            lines += ["", f"**SIE call failed:** {md_safe(failure)}"]
         lines += ["", "**Review rows:**", ""]
-        lines += [f"{row['number']}. {row['mention']}: {row['reason']}" for row in job["rows"]]
+        lines += [
+            f"{row['number']}. {md_safe(row['mention'])}: {md_safe(row['reason'])}"
+            for row in job["rows"]
+        ]
         finding = job["finding"]
         if finding:
-            lines += ["", f"**Agent's note:** {finding['note']}", ""]
+            lines += ["", "**Agent's note:**", "", *fenced(finding["note"]), ""]
             for item in finding["items"]:
-                pick = f" {item['counterparty_id']}" if item["counterparty_id"] else ""
-                event = f", {item['event']} {item['score']}" if item["event"] else ""
+                pick = f" {md_safe(item['counterparty_id'])}" if item["counterparty_id"] else ""
+                event = f", {item['event']}" if item["event"] else ""
+                if item["event"] and item["score"] is not None:
+                    event += f" {item['score']}"
                 lines.append(f"- Row {item['row']}: `{item['outcome']}`{pick}{event}")
-                lines += [f'  - {s["source"]}: "{s["quote"]}"' for s in item["statements"]]
+                lines += [
+                    f'  - {md_safe(s["source"])}: "{md_safe(s["quote"])}"'
+                    for s in item["statements"]
+                ]
         for cp_id, check in job["judge_event_checks"].items():
             lines += [
                 "",
-                f"**Judge's own event check, link fixed to {cp_id}:** {check['status']}, "
+                f"**Judge's own event check, link fixed to {md_safe(cp_id)}:** {check['status']}, "
                 f"{check['event']} {check['score']:.2f}",
             ]
         if job["problems"]:
             lines += ["", "**Check these before acting:**", ""]
-            lines += [f"- {problem}" for problem in job["problems"]]
+            lines += [f"- {md_safe(problem)}" for problem in job["problems"]]
         if job["first_review"]:
             lines += ["", "**The check sent the first finding back for these:**", ""]
-            lines += [f"- {problem}" for problem in job["first_review"]]
+            lines += [f"- {md_safe(problem)}" for problem in job["first_review"]]
         lines.append("")
     return "\n".join(lines)
 
@@ -1033,15 +1227,11 @@ def main() -> None:
 
     try:
         recipe.stop_on_refusal(lambda: run(args))
-    except (
-        anthropic.AuthenticationError,
-        anthropic.PermissionDeniedError,
-        anthropic.NotFoundError,
-        anthropic.BadRequestError,
-    ) as error:
+    except anthropic.APIError as error:  # transient errors end one job; these stop the run
         raise SystemExit(
-            f"Stopped: the Claude API refused the request, {type(error).__name__}: {error}. "
-            "Check ANTHROPIC_API_KEY and the model name in rules.yaml. No outputs were written."
+            f"{error}\nStopped: the Claude API failed with {type(error).__name__}, which a "
+            "retry won't fix. Check ANTHROPIC_API_KEY, the model name in rules.yaml and your "
+            "Anthropic account. No outputs were written."
         ) from None
 
 

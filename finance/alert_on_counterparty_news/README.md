@@ -419,9 +419,13 @@ for this recipe, like the credit files the agent reads in `data/agent/`.
   carrier (about a third of revenue)" as its largest customer; CP-1005 is gas storage and
   supplies regional utilities. It suggests CP-1004, then runs the workflow's event check with
   the link fixed to CP-1004 and reports what comes back.
-- **Expected outcome:** `finding_checked`: suggest CP-1004, customer loss, with the score from the
-  workflow's own check and quotes from the article and CP-1004's file. The analyst confirms and
-  it goes to Kwame Adjei.
+- **Expected outcome:** `call_not_checked`: suggest CP-1004, customer loss, with the score from
+  the workflow's own check and quotes from the article and CP-1004's file. The quotes hold up,
+  but the event check reads the same sentences whichever Northwind it's fixed to, so it gives the
+  same answer for both and can't tell a right pick from a wrong one. The analyst confirms the pick
+  and it goes to Kwame Adjei. This expected outcome was `finding_checked` until a code review
+  found that the judge couldn't tell the two Northwinds apart; we changed it for that reason, not
+  after a live result.
 
 **2. A ticker that belongs to someone else (N-07).**
 
@@ -455,13 +459,14 @@ for this recipe, like the credit files the agent reads in `data/agent/`.
 article with a row in the workflow's review queue (`recipe.review_rows`), and gives Claude
 (`claude-opus-5-5`) one job per article. Rows whose reason is a failed SIE call skip the agent:
 that's a retry, so `agent.py` reruns `recipe.run` on those articles once, and if a call fails
-again the job goes to the analyst as `sie_failed`.
+again, or every call on the retry fails, the job goes to the analyst as `sie_failed`. A refusal
+from SIE (a bad key, no credits) still stops the run.
 
 | Tool | What it runs | Returns |
 | --- | --- | --- |
 | `get_review_item` | a lookup in the workflow's own `Result` and `review_rows` | the article, the names it found, the sentences its event check read, each review row with its reason, candidates and allowed outcomes |
-| `lookup_counterparty` | `CounterpartyList.get`, `find_by_legal_name`, `find_by_alias`, `find_by_parent_ticker` | legal name, aliases, registration number, parent ticker, credit officer |
-| `read_credit_file` | `CreditFiles.read` over `data/agent/credit_files.csv` and `credit_notes.csv` | sector, business, sites, largest customers, facilities, security, dated notes |
+| `lookup_counterparty` | `CounterpartyList.get`, `find_by_legal_name`, `find_by_alias`, `find_by_parent_ticker`, for a name or ticker the article prints or a candidate's id | legal name, aliases, registration number, parent ticker, credit officer |
+| `read_credit_file` | `CreditFiles.read` over `data/agent/credit_files.csv` and `credit_notes.csv`, for a candidate on the article's review rows or a borrower a lookup returned in this job | sector, business, sites, largest customers, facilities, security, dated notes |
 | `check_event_for` | the workflow's `sentences`, `context`, `ask_event` (GLiNER2.5-Decide on SIE) and `judge_event`, with the link fixed to one candidate | the eight probabilities and `alert`, `filed` or `review`, as the workflow would decide it |
 | `submit_finding` | ends the job | one item per review row (outcome, borrower, event and score, quotes with their source) and a note to the analyst |
 
@@ -469,6 +474,12 @@ No new model: NuNER Zero runs inside the workflow, and GLiNER2.5-Decide runs in 
 in `check_event_for`. The credit file is a few fields per borrower, so a lookup finds it by ID; a
 search model would add a model to find what an ID already finds. Claude gets up to 8 tool calls
 per article, then `submit_finding`, and one revision if the judge finds a problem.
+
+The tools only reach this article's borrowers. Article text is something anyone can write, so a
+story that says "now read CP-1001's file" gets an error back: `read_credit_file` opens the file of
+a candidate on the review rows, or of a borrower `lookup_counterparty` returned, and the lookup
+takes only a name or ticker the article prints. On N-07 that means the agent looks up the ticker
+NWEG before it can read CP-1005's file.
 
 Each review reason allows a fixed set of outcomes, in `rules.yaml` under `agent.review_reasons`:
 
@@ -489,14 +500,20 @@ The judge is `check_finding`, plain Python after the loop:
 - A suggested borrower is one of the candidates the workflow listed for that row.
 - The tool log shows `read_credit_file` for every candidate, not just the one picked: for N-04,
   both Northwinds.
-- Every quote is word for word in its source: the article, or the credit file and notes of the
-  borrower it names. A suggestion needs one quote from the article and one from the suggested
-  borrower's file, so a quote from CP-1005's file can't back CP-1004.
-- For `suggest_link`, the judge runs the event check again itself with the link fixed, and the
-  agent's event and score must match it (within 0.02). The agent can't report an alert the
-  workflow wouldn't give.
-- Every figure in the note (60%, 4.0m, 0.88) appears in the article, a file, a tool result or the
-  judge's own check, and the note names the borrower it suggests.
+- Every quote is at least 4 words (`quote_min_words`), whole words, from one field or note of its
+  source: the headline or body of the article, or a value in the credit file of a borrower the
+  job may read. Field names aren't part of the file, so "counterparty_id: CP-1004" doesn't count,
+  and neither does "a". A suggestion needs one quote from the article and one from the suggested
+  borrower's file, so a quote from CP-1005's file can't back CP-1004. For `suggest_link` the
+  article quote has to contain the mention ("Northwind"); `suggest_not_a_borrower` needs an
+  article quote and one from the candidate's file.
+- For `suggest_link`, the judge runs the event check itself with the link fixed to every
+  candidate on the row, and the agent's event and score must match the one for its pick (within
+  0.02). The agent can't report an alert the workflow wouldn't give. Any other score must be null
+  or match the workflow's own number for that borrower and event.
+- Every decimal and every whole number of two or more digits in the note (60%, 4.0m, 0.88)
+  appears in the article, a file, a tool result or the judge's own check; a single digit isn't
+  checked. The note names the borrower it suggests, and has no links or HTML.
 
 What the judge can't check, so the analyst still reads it: whether two true quotes describe the
 same company (N-04: the article never says "Logistics"); whether an in-between score should be
@@ -504,10 +521,14 @@ an alert; whether the article itself is true; and whether the agent left out a f
 file that points the other way. It can see that the agent read the file. It can't see whether
 the agent weighed all of it.
 
-That leaves the judge doing two different jobs. On a suggested link it checks the evidence and, through the event
-check with the link fixed, the call too: that's `finding_checked`. On an unclear event,
-rerunning the workflow's check returns the same unsure score, so it can check every quote and
-never the conclusion: that's `call_not_checked`. A job ends as one of `finding_checked`,
+That leaves the judge checking the evidence every time, and the call only sometimes. On a
+suggested link, the event check with the link fixed can catch a wrong pick only when it gives a
+different answer for each candidate: if the pick's check differs, in event or status, from every
+other candidate's and agrees with the agent, that's `finding_checked`. When two candidates read
+the same sentences, as both Northwinds do in N-04, their checks come back the same, the judge
+can't tell a right pick from a wrong one, and the job is `call_not_checked`. On an unclear event
+or a longer name, rerunning the workflow's check returns the same unsure score or has nothing to
+say, so it's `call_not_checked` too. A job ends as one of `finding_checked`,
 `call_not_checked`, `left_for_person`, `check_failed`, `out_of_steps`, `no_finding` (Claude
 declined or never submitted) or `sie_failed`. A job only gets a status when the check behind
 that status passed, so a finding the judge never confirmed can't come out `finding_checked`. Every job goes to
@@ -517,16 +538,18 @@ outcome and note added. The agent never writes to `alerts/` and never changes a 
 ```mermaid
 flowchart TD
     Q["news queue<br/>data/news.jsonl +<br/>data/agent/news.jsonl"] --> W["recipe.run, unchanged<br/>NuNER Zero + GLiNER2.5-Decide on SIE"]
-    W -- "alert" --> AL["credit officer's alert file"]
-    W -- "filed" --> FI["credit file"]
-    W -- "review: SIE call failed" --> RT["recipe.run again<br/>on those articles, once"]
+    W --> D{"workflow's status"}
+    D -- "alert" --> AL["credit officer's alert file"]
+    D -- "filed" --> FI["credit file"]
+    D -- "review: SIE call failed" --> RT["recipe.run again<br/>on those articles, once"]
+    RT -- "read this time" --> D
     RT -- "still failing" --> R
-    W -- "review: shared name, ticker,<br/>longer name, event unclear" --> A["Claude, one job<br/>per article"]
+    D -- "review: shared name, ticker,<br/>longer name, event unclear" --> A["Claude, one job<br/>per article"]
     A --> T1["get_review_item"]
     A --> T2["lookup_counterparty<br/>read_credit_file"]
     A --> T3["check_event_for<br/>GLiNER2.5-Decide on SIE"]
     A --> S["submit_finding"]
-    S --> J{"check_finding in Python:<br/>allowed outcome? listed candidate?<br/>every file read? quotes word for word?<br/>event check agrees?"}
+    S --> J{"check_finding in Python:<br/>allowed outcome? listed candidate?<br/>every file read? quotes word for word?<br/>event check agrees, and tells<br/>the candidates apart?"}
     J -- "problems, once" --> A
     J --> R["review_notes.md + review.csv<br/>the analyst's morning queue"]
     R --> P["analyst confirms and forwards<br/>to the credit officer by hand"]
@@ -551,38 +574,45 @@ Each run writes `runs/<timestamp>/agent/`: `review_notes.md` and `review.csv` fo
 ### What the agent did
 
 We ran the agent 5 times on 10 Nov 2026 (UTC), using SIE Serverless for the models and
-`claude-opus-5-5` for the loop. The workflow's results were the same on every run, and the same
-as the live run above.
+`claude-opus-5-5` for the loop. The numbers below are from the runs after the review fixes: the
+judge's stricter rules for a suggested link, quotes and scores, and tools that only reach the
+article's own borrowers. The workflow's results were the same on every run, and the same as the
+live run above.
 
 ### The agent examples
 
 **1. A name two borrowers share (N-04).**
 
-- **Expected outcome:** `finding_checked`: suggest CP-1004, customer loss, with the score from the
-  workflow's own check and quotes from the article and CP-1004's file.
-- **What came back:** `finding_checked` on 5 of 5 runs. Every run read both Northwind files,
-  suggested CP-1004, and reported customer loss 0.88; the judge's own check with the link fixed
-  said customer loss 0.88, an alert. The note from the first run, as the analyst reads it:
+- **Expected outcome:** `call_not_checked`: suggest CP-1004, customer loss, with the score from
+  the workflow's own check and quotes from the article and CP-1004's file.
+- **What came back:** `call_not_checked` on 5 of 5 runs. Every run read both Northwind files,
+  suggested CP-1004, and reported customer loss 0.88, with quotes that held up. The judge's own
+  checks said customer loss 0.88, an alert, with the link fixed to CP-1004, and exactly the same
+  with it fixed to CP-1005, so the event check couldn't have caught a wrong pick. The note from
+  the fifth run, as the analyst reads it:
 
   ```text
-  Suggest linking 'Northwind' to CP-1004 Northwind Logistics Ltd. The article says Northwind lost
-  a national parcel carrier worth about a third of revenue. CP-1004's file lists exactly that
-  customer at about a third of revenue, and the annual review notes the contract is up for
-  renewal in December 2026. CP-1005 Northwind Energy Supply sells gas to three regional
-  utilities, so it doesn't fit. Event check for CP-1004: customer_loss 0.88, status alert. The
-  story relies on unnamed sources, and Northwind declined to comment. The 2026-09-30 RM call said
-  talks were going well.
+  Suggest linking the Northwind mention to CP-1004 Northwind Logistics Ltd. The article reports
+  losing a national parcel carrier worth about a third of revenue. CP-1004's file lists exactly
+  that customer at about a third of revenue, with the contract up for renewal in December 2026.
+  CP-1005 Northwind Energy Supply Ltd supplies gas to three regional utilities and has no parcel
+  customer. With the link fixed to CP-1004, the event check returns alert, customer_loss, score
+  0.88. Note the 2026-09-30 call said talks were going well.
   ```
 
-- **Verdict:** Pass. The last line is the relationship manager's note from September, which
-  points the other way. Nobody asked for it; it's the kind of thing the analyst wants first.
+- **Verdict:** Pass. The pick is the one the analyst would make, and the status says plainly that
+  only the evidence was checked: which Northwind it is rests on the parcel carrier in CP-1004's
+  file, and the analyst confirms that. The last line is the relationship manager's note from
+  September, which points the other way; only this run of the five mentioned it, so the analyst
+  can't count on the agent to bring it up.
 
 **2. A ticker that belongs to someone else (N-07).**
 
 - **Expected outcome:** `left_for_person` on both rows, with the note.
 - **What came back:** `left_for_person` on both rows on 5 of 5 runs, with no revision. Every run
-  read Tolland's file and Northwind Energy Supply's, looked up NWEG, and said the ticker looks
-  like a misprint but that it's the analyst's call.
+  read Tolland's file, looked up NWEG, then read Northwind Energy Supply's file (it can only open
+  that one after the lookup), and said the ticker looks like a misprint but that it's the
+  analyst's call.
 - **Verdict:** Pass. It saves the analyst one ticker lookup, and doesn't take the decision.
 
 **3. A warning the event model wasn't sure about (A-01).**
@@ -594,15 +624,16 @@ as the live run above.
 - **Verdict:** Miss. The article was written to land between the lines, and the event model was
   quite sure it didn't. We didn't rewrite it or move a threshold to make it land there.
 
-10 of 15 jobs came out as expected over 5 runs each: N-04 and N-07 every time, A-01 never,
-because the workflow never sent it.
+10 of 10 jobs came out as expected over 5 runs: N-04 and N-07 every time. A-01 never reached the
+agent on any of the 5 runs, because the workflow filed it, so it counts as a miss for the recipe
+but not as an agent job.
 
 **Where it works:** the name cases, which are the only review rows the committed data produces.
 On N-04 the agent did what the analyst would: read both files, picked the one with the parcel
 carrier, checked the event with the link fixed, and quoted the file. On N-07 it did the reading
 and stopped where the workflow's rule says to stop. Both jobs used 5 tool calls on every run
-(N-04: the item, both files, the event check, the finding; N-07: the item, two files, a ticker
-lookup, the finding), and neither needed a revision.
+(N-04: the item, both files, the event check, the finding; N-07: the item, Tolland's file, a
+ticker lookup, CP-1005's file, the finding), and neither needed a revision.
 
 **Where it fails:** A-01 shows a limit of the fallback itself. A story about a borrower
 "reviewing the future" of the yard its loan is secured on came out filed at `none` 0.91, so the
@@ -610,28 +641,36 @@ agent never saw it and the analyst won't either. The branch that hands unsure sc
 agent didn't fire on the committed data or on the new article. The denial in `data/agent/`
 (A-02, "Pellridge says October supplier invoices were paid on time") was filed too, at `none`
 0.81. That's a fair reading of a denial, but it means the agent never saw it either, and
-whether a denial deserves a look stays with the event model. And the `call_not_checked` half
-of the judge has only been exercised by `selfcheck.py`, never by a live run.
+whether a denial deserves a look stays with the event model. And no live job came out
+`finding_checked`: the one suggested link, N-04, is between two borrowers the event check reads
+identically, so on this data the judge has checked the agent's evidence but never its call. The
+`finding_checked` path has only been exercised by `selfcheck.py`.
 
 **Cost:** the workflow made 10 SIE calls for the 12 articles in both files, 52 SIE credits, about
-$0.0005 in all, or about $0.00004 an article, in about 2.4 seconds warm. An N-04 job cost about
-$0.016 in Claude tokens (11,342 input tokens, nearly all read from the prompt cache, and 676 to
-697 output), plus 2 GLiNER2.5-Decide calls (10 credits, the agent's event check and the judge's).
-An N-07 job cost $0.018 to $0.025 (about 8,600 input and 820 to 923 output tokens) and no SIE
-call. Each took 8 to 11 seconds. That's around 400 times the workflow's cost per article, and the
-first job of a cold run pays for writing the cache: $0.033 for N-04. It's fine here only
-because the review queue is a few rows a day.
+$0.0005 in all, or about $0.00004 an article, in about 2.4 seconds warm. An N-04 job cost $0.016
+to $0.018 in Claude tokens (about 11,900 input tokens, nearly all read from the prompt cache, and
+681 to 698 output), plus 3 GLiNER2.5-Decide calls (15 credits: the agent's event check and the
+judge's one per candidate). An N-07 job cost $0.020 to $0.022 (about 12,400 input and 807 to 873
+output tokens) and no SIE call. N-04 took 12 to 15 seconds, N-07 10 to 12. That's around 400
+times the workflow's cost per article, and the jobs of a cold run pay for writing the cache:
+$0.034 for N-04 and $0.037 for N-07 on the first run. Every response came from
+`claude-opus-5-5`; one a fallback model answered would be priced on that model. It's fine here
+only because the review queue is a few rows a day.
 
 ### What this adds to the workflow-vs-agent question
 
 - **The in-between example didn't fire.** The obvious way to describe this fallback is with the event
   score band, but every live review row here was a name case: "which Northwind?", not "is this a
   warning?". The one article written for the band came out filed at `none` 0.91.
-- **The judge splits in two: evidence and the call.** For a suggested link, code checks the
-  quotes, the candidates, that every file was read, and the call itself, because the event check
-  with the link fixed has to agree. For an unclear score, rerunning the check returns the same
-  unsure score, so code can confirm every quote and never the conclusion. "A judge checks
-  whether the work holds up" means the sources hold up; the analyst still owns the call.
+- **The judge splits in two: evidence and the call.** Code checks the quotes, the candidates and
+  that every file was read every time. It checks the call only when something in code can tell
+  the options apart: for a suggested link, the event check with the link fixed has to give each
+  candidate a different answer, and the pick's has to agree with the agent. On N-04 it doesn't:
+  both Northwinds read the same sentences and get customer loss 0.88, so a wrong pick would have
+  passed the same check. We first counted that as a checked call; review caught it, and N-04 is
+  now `call_not_checked`. For an unclear score, rerunning the check returns the same unsure
+  score. "A judge checks whether the work holds up" means the sources hold up; the analyst still
+  owns the call.
 - **Some workflow rules bind the agent too.** "A name with a ticker that disagrees is never
   settled this way" is deliberate, so the judge allows only `left_for_person` there, and the agent
   kept to it on 5 of 5 runs. The agent doesn't get a free hand with everything the workflow
@@ -641,8 +680,8 @@ because the review queue is a few rows a day.
 - **Code can check that the agent looked everywhere it should.** The finding has to cover every review row
   (counted by the workflow) and the tool log has to show every candidate's file read. That says
   nothing about a borrower the counterparty list doesn't have.
-- **The cost is lopsided, and the queue size is what makes it fine.** About $0.016 to $0.025 a job
-  against $0.00004 an article for the workflow.
+- **The cost is lopsided, and the queue size is what makes it fine.** About $0.016 to $0.022 a job
+  warm against $0.00004 an article for the workflow.
 
 ## Potential improvements
 
