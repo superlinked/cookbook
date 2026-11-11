@@ -375,9 +375,8 @@ unclear name means.
 
 The workflow above is right to hand some stories to a person. Its rules say don't guess for a name
 two borrowers share, never settle a name whose ticker belongs to someone else, and send an event
-score that lands between the alert and filed lines to review. In the
-[workflow-vs-agent post](https://superlinked.com/blog/agentic-vs-workflows-small-models?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=finance-alert-on-counterparty-news),
-that's the branch called "When the Workflow Gets Something It Wasn't Built For": hand the
+score that lands between the alert and filed lines to review. In [Workflow or agent?](../../README.md#workflow-or-agent),
+that's the third case, a workflow getting an input it wasn't built for: hand the
 unsure inputs to an agent overnight, put a judge after it, and send everything to the analyst's
 queue. It fits here because the next step on each review row depends on what you find (whose
 file mentions a parcel carrier? is that ticker a misprint?), so the steps can't be written down
@@ -625,7 +624,7 @@ because the review queue is a few rows a day.
 
 ### What this adds to the workflow-vs-agent question
 
-- **The post's in-between example didn't fire.** The post describes the fallback with the event
+- **The in-between example didn't fire.** The obvious way to describe this fallback is with the event
   score band, but every live review row here was a name case: "which Northwind?", not "is this a
   warning?". The one article written for the band came out filed at `none` 0.91.
 - **The judge splits in two: evidence and the call.** For a suggested link, code checks the
