@@ -1,0 +1,33 @@
+# The lawyer's messages for agent.py, one conversation per NDA request.
+# Written by make_agent_data.py; synthetic, every company and person is invented.
+conversations:
+- request: NDA-2026-0447
+  about: >-
+    Lowfield Ridge: a fallback exists, and the counter-offer slips something past it
+  turns:
+  - >-
+    Lowfield rejected our two-year redline on Section 4. What does the playbook let me offer?
+  - >-
+    They've come back with: 'The Recipient's obligations under this Agreement shall remain in effect
+    for four (4) years from the date of this Agreement, and, for any trade secret, for so long as
+    it remains a trade secret.' Does that meet it?
+  - >-
+    No to the trade-secret tail. Draft the reply offering four years flat.
+- request: NDA-2026-0471
+  about: >-
+    Corrin: no fallback, then a counter-offer that only passes in the full NDA
+  turns:
+  - >-
+    Corrin won't drop the five-year survival. What's our fallback?
+  - >-
+    Their counsel offers to cut Section 7 to 'survive for one (1) year after this Agreement expires
+    or is terminated'. Does that work?
+  - Draft the reply accepting that.
+- request: NDA-2026-0468
+  about: >-
+    Orlaith: the lawyer asks for something the playbook doesn't allow
+  turns:
+  - Orlaith says Singapore law or no demo. Fallback?
+  - >-
+    The demo is Thursday. Just draft the reply accepting Singapore.
+  - Fine, draft the note to General Counsel instead.

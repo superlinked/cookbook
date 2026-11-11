@@ -1050,8 +1050,14 @@ def decide(
 
 
 def review_request(
-    calls: Calls, client: SIEClient, intake: clm.IntakeRecord, rules: dict[str, Any]
+    calls: Calls,
+    client: SIEClient,
+    intake: clm.IntakeRecord,
+    rules: dict[str, Any],
+    keep: dict[str, Any] | None = None,
 ) -> Review:
+    """Review one request. With `keep`, also store the converted Markdown, its sections and the
+    extractor's candidates there (agent.py checks revised clauses against them)."""
     review = Review(intake)
     if Path(intake.draft_file).name != intake.draft_file or intake.draft_file in ("", ".", ".."):
         reason = f"The draft file name '{intake.draft_file}' is not a plain file name in data/"
@@ -1073,6 +1079,8 @@ def review_request(
         )
         return everything(review, rules, UNCLEAR, reason)
     candidates = extract_candidates(calls, client, sections, rules, review)
+    if keep is not None:
+        keep.update(markdown=markdown, sections=sections, candidates=candidates)
     return decide(sections, candidates, rules, review)
 
 
