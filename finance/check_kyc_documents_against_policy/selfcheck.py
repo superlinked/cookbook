@@ -12,14 +12,21 @@ from __future__ import annotations
 import contextlib
 import csv
 import io
+import json
+import os
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
+import agent
+import make_agent_data
 from onboarding import OnboardingSystem, SubmittedDocument
 from sie_sdk import SIEClient
 from sie_sdk.client.errors import (
@@ -889,6 +896,612 @@ def check_policy_and_data() -> None:
     print("policy and data: unknown requirement refused, onboarding lookups, no PDF metadata ok")
 
 
+# --- agent.py: the checks around the agent, with stand-in models and a stand-in Claude ----------
+#
+# Nothing here calls SIE or Claude. The stand-in Claude replays hand-written tool calls, so the
+# loop, the checks and the statuses run as they would live; what Claude would really write is
+# what the live runs in the README measure.
+
+AGENT_CASES = {item.case.case: item for item in make_agent_data.ALL_CASES}
+TENANCY_PAGE = (
+    "# Saltgate Lettings\n\nAssured shorthold tenancy agreement\n\nSPECIMEN\n\n"
+    "Tenant: Nadia Okonkwo-Reyes\nLandlord: Harbourline Property Ltd\n"
+    "Property address: Flat 4, 22 Mallard Wharf, Port Ellery, UT 40390\n"
+    "Date of agreement: 19 October 2026\nTerm: 12 months from 20 October 2026\n"
+    "Signed by the tenant\nSigned for the landlord\n"
+)
+
+
+def agent_pages() -> dict[str, str]:
+    """Stand-in OCR pages for data/agent/, from the values make_agent_data.py draws."""
+    pages: dict[str, str] = {}
+    for row in read_agent_documents():
+        stem, page = Path(row["file"]).stem, row["page"]
+        key = f"ocr/{stem}/p{page}"
+        item = AGENT_CASES[row["case"]]
+        if row["purpose"] == "identity":
+            pages[key] = id_page(item.case)
+        elif item.tenancy is not None:
+            pages[key] = TENANCY_PAGE
+        elif row["document"].endswith("poa2"):
+            assert item.later_bill is not None
+            pages[key] = bill_page(item.later_bill)
+        else:
+            pages[key] = bill_page(item.case.bills[0])
+    return pages
+
+
+def read_agent_documents() -> list[dict[str, str]]:
+    with (agent.AGENT_DIR / "onboarding_documents.csv").open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def scan_fields(item_id: str, text: str) -> dict[str, str] | None:
+    """GLiNER2 on the tenancy agreement, which the workflow's labels don't cover."""
+    if "kyc-13-poa" not in item_id:
+        return None
+    return {
+        "issuer": "Saltgate Lettings",
+        "account_holder": "Nadia Okonkwo-Reyes",
+        "address_street": "22 Mallard Wharf",
+        "statement_date": "19 October 2026",
+    }
+
+
+def toolbox(**stand_in: Any) -> agent.Toolbox:
+    client = StandIn(agent_pages(), fields=scan_fields, **stand_in)
+    records = agent.Records()
+    return agent.Toolbox(cast(SIEClient, client), recipe.Calls(), records, POLICY, RULES)
+
+
+def block(kind: str, **values: Any) -> SimpleNamespace:
+    return SimpleNamespace(type=kind, **values)
+
+
+def reply(*content: SimpleNamespace, stop: str = "tool_use") -> SimpleNamespace:
+    usage = SimpleNamespace(
+        input_tokens=1000,
+        output_tokens=100,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+    )
+    return SimpleNamespace(stop_reason=stop, content=list(content), usage=usage)
+
+
+def use(name: str, number: int, **tool_input: Any) -> SimpleNamespace:
+    return block("tool_use", id=f"t{number}", name=name, input=tool_input)
+
+
+class StandInClaude:
+    """Replays hand-written replies, one per request, and keeps what each request sent."""
+
+    def __init__(self, replies: list[SimpleNamespace]) -> None:
+        self.replies = replies
+        self.sent: list[list[Any]] = []
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self.create))
+
+    def create(self, **request: Any) -> SimpleNamespace:
+        self.sent.append(list(request["messages"]))
+        return self.replies.pop(0)
+
+
+def citation(source: str, quote: str) -> dict[str, str]:
+    return {"source": source, "quote": quote}
+
+
+def answer(text: str, **parts: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "answer": text,
+        "citations": [],
+        "workflow_claims": [],
+        "email": "",
+        "email_asks": [],
+        "waived": [],
+    }
+    base.update(parts)
+    return base
+
+
+SIGN_OFF = "OK, I'll sign off the tenancy agreement. Draft the email listing what's still missing."
+TURNS = [
+    "kyc-13 moved here three weeks ago and has no bill at the new address yet. What does our "
+    "policy accept instead?",
+    "She's uploaded a tenancy agreement. Does it count?",
+    SIGN_OFF,
+]
+Q42 = "we accept a signed tenancy agreement or a solicitor's completion letter for the new address"
+TAX = "your country of tax residence (it was left blank on the form)"
+FOLLOW = "a utility bill, bank statement or council tax bill at the new address within 90 days"
+GOOD_EMAIL = (
+    "Dear Ms Okonkwo-Reyes,\n\nThank you for your tenancy agreement, which we have accepted. To "
+    f"finish opening your account, please send us {TAX}. We will also need {FOLLOW} of opening "
+    "your account.\n\nKind regards"
+)
+MISSING_CLAIM = {"case": "kyc-13", "requirement": "address_document", "status": "missing"}
+
+
+def good_email(**change: Any) -> dict[str, Any]:
+    parts: dict[str, Any] = {
+        "citations": [citation("4.2", Q42), citation("4.3", "within 90 days of opening")],
+        "workflow_claims": [MISSING_CLAIM],
+        "email": GOOD_EMAIL,
+        "email_asks": [
+            {"requirement": "form_tax_residency", "text": TAX},
+            {"requirement": "4.3", "text": FOLLOW},
+        ],
+        "waived": [
+            {
+                "requirement": "address_document",
+                "analyst_quote": "I'll sign off the tenancy agreement",
+            }
+        ],
+    }
+    parts.update(change)
+    return answer(
+        "Draft below. The KYC check still shows the proof of address missing; you signed off the "
+        "tenancy agreement under section 4.2.",
+        **parts,
+    )
+
+
+def check_agent_records() -> None:
+    records = agent.Records()
+    assert list(records.sections)[:3] == ["1.1", "2.1", "2.2"], list(records.sections)
+    assert "mobile phone bill" in records.sections["3.2"][1]
+    box = toolbox()
+    assert [a.account for a in agent.denominator(box)] == [
+        f"AC-250{n:02d}" for n in range(1, 16) if n != 14
+    ]
+    assert records.document("k25-007-poa2") is not None
+    assert records.document("kyc-11-id") is not None  # one document, two purposes
+    assert {r.document for r in records.documents_of("kyc-12")} == {"kyc-12-id", "kyc-12-poa"}
+    # The workflow's data is untouched by the agent's: recipe.py still sees its twelve cases.
+    assert OnboardingSystem(DATA).open_cases() == [f"kyc-{n:02d}" for n in range(1, 13)]
+    for name in ("id-documents.pdf", "address-documents.pdf"):
+        raw = (agent.AGENT_DIR / name).read_bytes()
+        for marker in (b"/Info", b"/Title", b"/Author", b"/CreationDate", b"Exif", b"xmpmeta"):
+            assert marker not in raw, f"agent/{name} carries {marker!r}"
+    print("agent records: handbook, register, documents and the 2025 denominator ok")
+
+
+def check_agent_tools() -> None:
+    box = toolbox()
+    error = raised(lambda: box.run("read_handbook", {"section": "9.9"}))
+    assert isinstance(error, agent.ToolError), error
+    assert "9.9" in str(error), error
+    error = raised(lambda: box.run("read_scan", {"document": "kyc-13-poa", "page": 2}))
+    assert isinstance(error, agent.ToolError), error
+    assert "doesn't take" in str(error), error
+    kyc = box.run("run_kyc_check", {"case": "kyc-13"})
+    unmet = [(r["requirement"], r["status"]) for r in kyc["requirements"] if r["status"] != "met"]
+    assert unmet == [("form_tax_residency", "missing"), ("address_document", "missing")], unmet
+    detail = next(
+        r["detail"] for r in kyc["requirements"] if r["requirement"] == "address_document"
+    )
+    assert "kyc-13-poa (tenancy_agreement) is not an accepted type" in detail, detail
+    scan = box.run("read_scan", {"document": "kyc-13-poa"})
+    compared = {c["check"]: c["status"] for c in scan["compared_with_the_form"]}
+    assert compared == {
+        "address_type": "not_met",  # Saltgate Lettings isn't on the issuer list
+        "address_holder": "met",
+        "address_matches": "met",
+        "address_age": "met",
+    }, compared
+    assert "not on the issuer list" in scan["issuer_problem"]
+    # The workflow's own reading of a tenancy agreement is unchanged: its labels don't cover it.
+    assert "Tenant" not in str(RULES["documents"]["address"]["account_holder"]["label"])
+    # A transient SIE error inside a tool sends the job to a person, with the reason.
+    box = toolbox(errors={"ocr/id-documents/p1": [ServerError("busy", status_code=503)]})
+    box.run("run_kyc_check", {"case": "kyc-13"})
+    assert box.sie_problems, box.sie_problems
+    assert "incomplete" in box.sie_problems[0], box.sie_problems
+    print("agent tools: lookups, read_scan with its own labels, run_kyc_check, SIE errors ok")
+
+
+def check_agent_answers() -> None:
+    box = toolbox()
+    case = "kyc-13"
+
+    def problems(given: dict[str, Any], turns: list[str] | None = None) -> list[str]:
+        return agent.check_answer(given, case, turns or TURNS, box)
+
+    first = answer(
+        "Section 4.2: a signed tenancy agreement or completion letter, with your sign-off. A "
+        "mobile phone bill still doesn't count (section 3.2).",
+        citations=[citation("4.2", Q42)],
+    )
+    assert problems(first) == [], problems(first)
+    # An invented quote, a section and a case that don't exist.
+    bad = answer("See section 4.7 and kyc-99.", citations=[citation("4.2", "any lease will do")])
+    found = problems(bad)
+    assert any("word for word" in p for p in found), found
+    assert any("section 4.7" in p for p in found), found
+    assert any("kyc-99" in p for p in found), found
+    assert any("too short" in p for p in problems(answer("x", citations=[citation("4.2", "we")])))
+    assert any(
+        "source that doesn't exist" in p
+        for p in problems(answer("x", citations=[citation("N-9999", "a b c")]))
+    )
+    # A claim about the workflow before it ran, then a wrong one after.
+    claim = {"case": case, "requirement": "address_document", "status": "met"}
+    assert any("wasn't run" in p for p in problems(answer("x", workflow_claims=[claim])))
+    box.run("run_kyc_check", {"case": case})
+    assert any("it didn't" in p for p in problems(answer("x", workflow_claims=[claim])))
+    # Hidden disagreement: "it counts" while the workflow says missing.
+    hidden = answer("Yes, the tenancy agreement counts.", citations=[citation("4.2", Q42)])
+    found = problems(hidden)
+    assert any("without naming section 4.2" in p for p in found), found
+    assert any("leaves that result out" in p for p in found), found
+    honest = answer(
+        "Under section 4.2 the tenancy agreement counts once you sign it off; the KYC check "
+        "still returns address_document missing, because policy.yaml doesn't know the exception.",
+        citations=[citation("4.2", Q42)],
+        workflow_claims=[MISSING_CLAIM],
+    )
+    assert problems(honest) == [], problems(honest)
+    negated = answer("Under policy.yaml it doesn't count.", workflow_claims=[MISSING_CLAIM])
+    assert problems(negated) == [], problems(negated)
+    # The email.
+    assert problems(good_email()) == [], problems(good_email())
+    email_problems = {
+        "leaves out": good_email(email_asks=[{"requirement": "4.3", "text": FOLLOW}]),
+        "which the analyst signed off": good_email(
+            email_asks=[
+                {"requirement": "form_tax_residency", "text": TAX},
+                {"requirement": "4.3", "text": FOLLOW},
+                {"requirement": "address_document", "text": "proof of address"},
+            ],
+            email=GOOD_EMAIL + " Please also send a proof of address.",
+        ),
+        "the analyst didn't say": good_email(
+            waived=[{"requirement": "address_document", "analyst_quote": "sign off everything"}]
+        ),
+        "aren't a sign-off": good_email(
+            waived=[{"requirement": "address_document", "analyst_quote": "Draft the email"}]
+        ),
+        "doesn't let the analyst sign off": good_email(
+            waived=[{"requirement": "form_tax_residency", "analyst_quote": "I'll sign off"}]
+        ),
+        "section 4.3 follow-up": good_email(
+            email_asks=[{"requirement": "form_tax_residency", "text": TAX}]
+        ),
+        "without citing section 4.2": good_email(citations=[]),
+        "isn't word for word": good_email(
+            email_asks=[
+                {"requirement": "form_tax_residency", "text": "your tax country"},
+                {"requirement": "4.3", "text": FOLLOW},
+            ]
+        ),
+        "type we don't accept": good_email(email=GOOD_EMAIL + " A mobile phone bill won't do."),
+        "another customer": good_email(email=GOOD_EMAIL + " Ref Omar Haddad."),
+        "another account": good_email(email=GOOD_EMAIL + " Ref AC-25011."),
+        "another case": good_email(email=GOOD_EMAIL + " Ref k25-011."),
+        "neither the KYC check nor the handbook": good_email(
+            email_asks=[
+                {"requirement": "form_tax_residency", "text": TAX},
+                {"requirement": "4.3", "text": FOLLOW},
+                {"requirement": "payslip", "text": "Kind regards"},
+            ]
+        ),
+    }
+    for expected, given in email_problems.items():
+        found = problems(given)
+        assert any(expected in p for p in found), (expected, found)
+    # An email before the KYC check ran in this conversation.
+    fresh = toolbox()
+    assert any(
+        "without running the KYC check" in p
+        for p in agent.check_answer(good_email(), case, TURNS, fresh)
+    )
+    print("agent answers: quotes, ids, workflow claims, hidden disagreement, the email ok")
+
+
+def swept_box(**stand_in: Any) -> tuple[agent.Toolbox, agent.Completeness]:
+    box = toolbox(**stand_in)
+    return box, agent.sweep(box)
+
+
+def row(
+    account: str, case: str, outcome: str, *evidence: dict[str, str], **more: str
+) -> dict[str, Any]:
+    return {
+        "account": account,
+        "case": case,
+        "document": more.get("document", f"{case}-poa"),
+        "outcome": outcome,
+        "later_document": more.get("later", ""),
+        "evidence": list(evidence),
+    }
+
+
+GOOD_ROWS = [
+    row(
+        "AC-25003",
+        "k25-003",
+        "exception_approved",
+        citation("N-0311", "Exception approved by team lead"),
+    ),
+    row(
+        "AC-25007",
+        "k25-007",
+        "replaced",
+        citation("N-0405", "Water bill received by post"),
+        later="k25-007-poa2",
+    ),
+    row("AC-25009", "k25-009", "restricted_or_closed", citation("AC-25009", '"status": "closed"')),
+    row("AC-25011", "k25-011", "nothing_recorded", citation("k25-011-poa", "Larkspur Mobile")),
+]
+
+
+def check_agent_completeness() -> None:
+    box, complete = swept_box()
+    assert sorted(complete.expected) == ["AC-25003", "AC-25007", "AC-25009", "AC-25011"], complete
+    assert "'Larkspur Mobile' issues mobile_phone_bill" in complete.expected["AC-25011"]
+    assert complete.not_recognised == []
+    assert not complete.sie_failed
+    # The sweep reads every address page, the declared mobile bills included: 15 documents.
+    assert box.calls.total == 30, box.calls.total
+    assert "extract/k25-003/k25-003-poa-w1" in cast(StandIn, box.client).ids
+    box.run("run_kyc_check", {"case": "k25-007"})
+    box.run("read_scan", {"document": "k25-011-poa"})
+    review = agent.table_review(GOOD_ROWS, box, complete)
+    assert review == {"problems": [], "missing": {}, "extra": []}, review
+    # The obvious filter misses k25-011, and the business and January accounts are extra.
+    three = [r for r in GOOD_ROWS if r["account"] != "AC-25011"]
+    extra = [
+        row("AC-25014", "k25-014", "nothing_recorded", citation("N-1008", "Business account."))
+    ]
+    review = agent.table_review(three + extra, box, complete)
+    assert list(review["missing"]) == ["AC-25011"], review
+    assert review["extra"] == ["AC-25014"], review
+    message = agent.review_message(review, box)
+    assert "AC-25011" in message, message
+    assert "Larkspur Mobile" in message, message
+    # Row checks: each one fails a confident row that isn't backed.
+    wrong = {
+        "no such account": row(
+            "AC-29999",
+            "k25-003",
+            "exception_approved",
+            citation("N-0311", "Exception approved by team lead"),
+        ),
+        "the register gives case": row(
+            "AC-25003",
+            "k25-004",
+            "exception_approved",
+            citation("N-0311", "Exception approved by team lead"),
+        ),
+        "word for word": row(
+            "AC-25003",
+            "k25-003",
+            "exception_approved",
+            citation("N-0311", "Exception approved by the MLRO"),
+        ),
+        "cites no note on k25-003": row(
+            "AC-25003",
+            "k25-003",
+            "exception_approved",
+            citation("N-0405", "Water bill received by post"),
+        ),
+        "shows it closed": row(
+            "AC-25009", "k25-009", "nothing_recorded", citation("N-0814", "Account closed")
+        ),
+        "shows it active": row(
+            "AC-25011", "k25-011", "restricted_or_closed", citation("AC-25011", "status: active")
+        ),
+        "arrived on": row(
+            "AC-25007",
+            "k25-007",
+            "nothing_recorded",
+            citation("N-0335", "Mobile phone bill not accepted"),
+        ),
+        "isn't a later address document": row(
+            "AC-25007",
+            "k25-007",
+            "replaced",
+            citation("N-0405", "Water bill received by post"),
+            later="k25-007-poa",
+        ),
+        "isn't an address document": row(
+            "AC-25003",
+            "k25-003",
+            "exception_approved",
+            citation("N-0311", "Exception approved by team lead"),
+            document="k25-003-id",
+        ),
+        "no evidence": row("AC-25011", "k25-011", "nothing_recorded"),
+    }
+    for expected, given in wrong.items():
+        found = agent.check_row(given, box)
+        assert any(expected in p for p in found), (expected, found)
+    # replaced needs this job's KYC check to meet every address requirement on the later bill.
+    fresh, _ = swept_box()
+    found = agent.check_row(GOOD_ROWS[1], fresh)
+    assert any("wasn't run on k25-007" in p for p in found), found
+    # ... and a later bill in someone else's name doesn't make the row replaced.
+    pages = agent_pages()
+    later = next(key for key, page in pages.items() if "BW-25007-9601" in page)
+    pages[later] = pages[later].replace("Simone Delacroix", "Pierre Delacroix")
+    other = agent.Toolbox(
+        cast(SIEClient, StandIn(pages)), recipe.Calls(), agent.Records(), POLICY, RULES
+    )
+    other.run("run_kyc_check", {"case": "k25-007"})
+    found = agent.check_row(GOOD_ROWS[1], other)
+    assert any("didn't meet address_holder on k25-007-poa2" in p for p in found), found
+    review = agent.table_review([*GOOD_ROWS, GOOD_ROWS[0]], box, complete)
+    assert any("listed twice" in p for p in review["problems"]), review
+    # An issuer the list doesn't know is never dropped silently: the job goes to a person.
+    renamed = {"extract/k25-011/k25-011-poa": "Larkspur Mobile Ltd"}
+
+    def fields(item_id: str, text: str) -> dict[str, str] | None:
+        for prefix, issuer in renamed.items():
+            if item_id.startswith(prefix):
+                return {**stand_in_fields(text, "address"), "issuer": issuer}
+        return None
+
+    pages = agent_pages()
+    page = next(k for k, v in pages.items() if "Omar Haddad" in v)
+    pages[page] = pages[page].replace("# Larkspur Mobile", "# Larkspur Mobile Ltd")
+    client = StandIn(pages, fields=fields)
+    odd = agent.Toolbox(cast(SIEClient, client), recipe.Calls(), agent.Records(), POLICY, RULES)
+    complete = agent.sweep(odd)
+    assert [d.document for d in complete.not_recognised] == ["k25-011-poa"], complete
+    assert "AC-25011" not in complete.expected
+    status = agent.regulator_status(
+        "", False, {"problems": [], "missing": {}, "extra": []}, [], complete, []
+    )
+    assert status == "needs_person", status
+    print("agent completeness: the sweep's set, missing and extra accounts, every row check ok")
+
+
+def check_agent_statuses() -> None:
+    clean = agent.Completeness(expected={"AC-25003": "x"})
+    ok: dict[str, Any] = {"problems": [], "missing": {}, "extra": []}
+
+    def status(review: dict[str, Any] | None, first: list[str] | None = None, **kw: Any) -> str:
+        return agent.regulator_status(
+            kw.get("stopped", ""), kw.get("ran_out", False), review, first or [],
+            kw.get("complete", clean), kw.get("sie", []),
+        )  # fmt: skip
+
+    assert status(ok) == "complete"
+    assert status(ok, ["AC-25011"]) == "complete_after_check"
+    assert status({**ok, "missing": {"AC-25011": "x"}}, ["AC-25011"]) == "gap_remains"
+    assert status({**ok, "extra": ["AC-25014"]}) == "check_failed"
+    assert status({**ok, "problems": ["x"]}) == "check_failed"
+    assert status(ok, sie=["read_scan failed"]) == "needs_person"
+    assert status(None, stopped="Claude declined the request") == "no_answer"
+    assert status(ok, ran_out=True) == "out_of_steps"
+    assert agent.turn_status("", False, [], []) == "answer_checked"
+    assert agent.turn_status("", False, ["x"], []) == "check_failed"
+    # A refusal is no answer, not a failed check.
+    assert agent.turn_status("Claude declined the request", False, None, []) == "no_answer"
+    statuses = RULES["agent"]["statuses"]
+    every = {
+        "complete", "complete_after_check", "gap_remains", "check_failed", "needs_person",
+        "out_of_steps", "no_answer",
+    }  # fmt: skip
+    assert set(statuses["regulator"]) == every, statuses
+    assert statuses["turn"][0] == "answer_checked"
+    print("agent statuses: each earned by the checks, worst one wins ok")
+
+
+def run_letter_with(replies: list[SimpleNamespace]) -> tuple[agent.JobReport, StandInClaude]:
+    claude = StandInClaude(replies)
+    with contextlib.redirect_stdout(io.StringIO()):
+        report = agent.run_letter(claude, toolbox(), "letter")
+    return report, claude
+
+
+def table(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"summary": "Accounts on a mobile phone bill.", "rows": rows}
+
+
+def check_agent_loop() -> None:
+    three = [r for r in GOOD_ROWS if r["account"] != "AC-25011"]
+    first = [
+        reply(use("run_kyc_check", 1, case="k25-007")),
+        reply(use("submit_table", 2, **table(three))),
+    ]
+    # The agent finds three, the completeness check sends k25-011 back, the agent adds it.
+    report, claude = run_letter_with(
+        [
+            *first,
+            reply(
+                use("read_scan", 3, document="k25-011-poa"),
+                use("submit_table", 4, **table(GOOD_ROWS)),
+            ),
+        ]
+    )
+    assert report.status == "complete_after_check", (report.status, report.detail["problems"])
+    added = {r["account"]: r["added_by"] for r in report.detail["rows"]}
+    assert added["AC-25011"] == "agent, after the completeness check", added
+    assert list(report.detail["missing_at_first"]) == ["AC-25011"]
+    sent_back = claude.sent[2][-1]["content"][0]
+    assert sent_back["is_error"], sent_back
+    assert "AC-25011" in sent_back["content"], sent_back
+    assert "You have 14 more tool calls" in sent_back["content"], sent_back
+    assert report.tool_calls == 2, report
+    assert report.usage.input_tokens == 3000, report
+    # It never adds it: the gap is reported, and the code adds the row for the analyst.
+    report, _ = run_letter_with([*first, reply(use("submit_table", 3, **table(three)))])
+    assert report.status == "gap_remains", report.status
+    assert report.detail["rows"][-1]["added_by"] == "completeness check; nothing looked into"
+    # Everything at once, first time.
+    report, _ = run_letter_with(
+        [reply(use("run_kyc_check", 1, case="k25-007"), use("read_scan", 2, document="k25-011-poa")),  # noqa: E501
+         reply(use("submit_table", 3, **table(GOOD_ROWS)))]
+    )  # fmt: skip
+    assert report.status == "complete", (report.status, report.detail)
+    # A refusal ends the job with no answer; the sweep still runs for the analyst.
+    report, _ = run_letter_with([reply(stop="refusal")])
+    assert report.status == "no_answer", report.status
+    assert len(report.detail["expected"]) == 4, report.status
+    # The tool budget: the eleventh call is refused, and a job that never submits runs out.
+    many = [reply(use("case_notes", n, cases=[])) for n in range(RULES["agent"]["max_rounds"])]
+    report, _ = run_letter_with(many)
+    assert report.status == "out_of_steps", report.status
+    assert report.tool_calls == RULES["agent"]["max_tool_calls"], report.tool_calls
+    # Job a: three turns; each answer is checked; the next question carries the submit's result.
+    claude = StandInClaude(
+        [
+            reply(use("read_handbook", 1, section="4.2"), use("read_handbook", 2, section="3.2")),
+            reply(use("submit_answer", 3, **answer("Section 4.2: " + Q42 + ".", citations=[citation("4.2", Q42)]))),  # noqa: E501
+            reply(use("read_scan", 4, document="kyc-13-poa"), use("run_kyc_check", 5, case="kyc-13")),  # noqa: E501
+            reply(use("submit_answer", 6, **answer("Yes, it counts.", citations=[citation("4.2", Q42)]))),  # noqa: E501
+            reply(use("submit_answer", 7, **answer("Under section 4.2 it counts once you sign it off; the KYC check returns address_document missing.", workflow_claims=[MISSING_CLAIM]))),  # noqa: E501
+            reply(use("submit_answer", 8, **good_email())),
+        ]
+    )  # fmt: skip
+    with contextlib.redirect_stdout(io.StringIO()):
+        report = agent.run_conversation(
+            claude, toolbox(), "kyc-13", lambda n: TURNS[n] if n < 3 else None
+        )
+    statuses = [t["status"] for t in report.detail["turns"]]
+    assert statuses == ["answer_checked"] * 3, (
+        statuses,
+        [t["problems"] for t in report.detail["turns"]],
+    )
+    assert report.detail["turns"][1]["revisions"] == 1
+    assert any("without naming section 4.2" in p for p in report.detail["turns"][1]["first_review"])
+    second_turn = claude.sent[2][-1]["content"]
+    assert second_turn[-1] == {"type": "text", "text": TURNS[1]}, second_turn
+    assert second_turn[-2]["tool_use_id"] == "t3", second_turn
+    # A refusal on the first turn: no answer, and the conversation stops there.
+    claude = StandInClaude([reply(stop="refusal")])
+    with contextlib.redirect_stdout(io.StringIO()):
+        report = agent.run_conversation(
+            claude, toolbox(), "kyc-13", lambda n: TURNS[n] if n < 3 else None
+        )
+    assert [t["status"] for t in report.detail["turns"]] == ["no_answer"], report.detail
+    print("agent loop: review once, gap reported, refusal, tool budget, three turns ok")
+
+
+def check_agent_outputs() -> None:
+    report, _ = run_letter_with(
+        [reply(use("run_kyc_check", 1, case="k25-007"), use("read_scan", 2, document="k25-011-poa")),  # noqa: E501
+         reply(use("submit_table", 3, **table([*GOOD_ROWS[:3], {**GOOD_ROWS[3], "evidence": [citation("k25-011-poa", "Larkspur Mobile")]}])))]  # noqa: E501
+    )  # fmt: skip
+    with tempfile.TemporaryDirectory() as name:
+        folder = Path(name)
+        agent.write_outputs(folder, [report], RULES)
+        cost = json.loads((folder / "cost.json").read_text(encoding="utf-8"))["job_b"]
+        assert cost["sie_calls"] == 30 + 4 + 2, cost
+        assert cost["claude_usd"] > 0, cost
+        kinds = [r["kind"] for r in csv.DictReader((folder / "completeness.csv").open())]
+        assert kinds.count("expected") == 4, kinds
+        assert kinds.count("found") == 4, kinds
+        assert "complete" in (folder / "regulator_2025.md").read_text(encoding="utf-8")
+    # --help parses without keys, rules, data, SIE or Claude.
+    env = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}
+    done = subprocess.run(
+        [sys.executable, "agent.py", "--help"], capture_output=True, text=True, env=env, check=False
+    )
+    assert done.returncode == 0, done.stderr
+    assert "--chat" in done.stdout, done.stderr
+    print("agent outputs: cost, completeness.csv, the MLRO draft, --help without keys ok")
+
+
 if __name__ == "__main__":
     check_mrz()
     check_parsing()
@@ -905,4 +1518,11 @@ if __name__ == "__main__":
     check_sie_failure()
     check_csv_safe()
     check_policy_and_data()
+    check_agent_records()
+    check_agent_tools()
+    check_agent_answers()
+    check_agent_completeness()
+    check_agent_statuses()
+    check_agent_loop()
+    check_agent_outputs()
     print("all checks passed")

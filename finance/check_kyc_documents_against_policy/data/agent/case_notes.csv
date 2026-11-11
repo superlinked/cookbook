@@ -1,0 +1,24 @@
+note,case,date,author_role,text
+N-0102,k25-001,2025-01-09,analyst,ID and energy bill checked against the form. No issues.
+N-0131,k25-002,2025-01-22,analyst,Water bill checked. Customer prefers post to email.
+N-0309,k25-003,2025-02-11,analyst,Customer lives in university halls and has no bills in her own name. Uploaded a mobile phone bill instead. Referred to team lead.
+N-0311,k25-003,2025-02-13,team_lead,"Exception approved by team lead: student in university halls, no bills in own name; follow up for bank statement in 90 days"
+N-0322,k25-004,2025-02-20,analyst,Energy bill fine. Customer asked about overdraft; passed to lending.
+N-0335,k25-007,2025-02-27,analyst,"Mobile phone bill not accepted as proof of address (handbook 3.2). Emailed the customer asking for a utility bill, bank statement or council tax bill."
+N-0340,k25-007,2025-02-28,team_lead,Account opened with proof of address outstanding; chase in 6 weeks.
+N-0402,k25-005,2025-03-04,analyst,"customer asked if a mobile bill would do; told no, sent energy bill"
+N-0417,k25-006,2025-03-13,analyst,Water bill checked. No flat number; it's a house.
+N-0405,k25-007,2025-04-02,analyst,Water bill received by post and scanned (k25-007-poa2). Proof of address now on file.
+N-0466,k25-008,2025-04-16,analyst,ID checked in branch.
+N-0512,k25-009,2025-05-07,analyst,"Customer asked for an exception: no bills in own name, lives with partner. Mobile phone bill uploaded. Exception requested from team lead."
+N-0519,k25-009,2025-05-09,team_lead,Exception not approved. Account opened with restrictions until an accepted proof of address arrives.
+N-0603,k25-010,2025-06-04,analyst,ID checked in branch. Energy bill fine.
+N-0730,k25-009,2025-07-30,analyst,Second reminder sent for proof of address. No reply.
+N-0814,k25-009,2025-08-14,analyst,Account closed: no accepted proof of address received after two reminders.
+N-0821,k25-012,2025-08-21,analyst,Water bill checked. No issues.
+N-0917,k25-013,2025-09-17,analyst,"ID and energy bill checked. Ship's officer, often abroad; prefers email."
+N-1002,k25-012,2025-10-02,analyst,Account restricted pending a source of funds review (unrelated to KYC documents).
+N-1008,k25-014,2025-10-08,analyst,Business account. Director's mobile phone bill held on file with the company documents.
+N-1113,k25-015,2025-11-13,analyst,Water bill checked. No issues.
+N-1219,k25-016,2025-12-19,analyst,Mobile phone bill not accepted. Customer sent a bank statement by email on 2 January; account to open in the new year.
+N-0104,k25-016,2026-01-05,analyst,Bank statement checked. Account opens 6 January 2026.
