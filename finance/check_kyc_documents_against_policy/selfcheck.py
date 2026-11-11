@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import functools
 import io
 import json
 import os
@@ -948,24 +949,32 @@ def scan_fields(item_id: str, text: str) -> dict[str, str] | None:
     }
 
 
-def toolbox(**stand_in: Any) -> agent.Toolbox:
+def every_agent_case(records: agent.Records) -> frozenset[str]:
+    """Both jobs' cases, for checks that use one toolbox for both; agent.run never does."""
+    return agent.job_a_cases("kyc-13") | agent.job_b_cases(records, RULES)
+
+
+def toolbox(cases: frozenset[str] | None = None, **stand_in: Any) -> agent.Toolbox:
     client = StandIn(agent_pages(), fields=scan_fields, **stand_in)
     records = agent.Records()
-    return agent.Toolbox(cast(SIEClient, client), recipe.Calls(), records, POLICY, RULES)
+    scope = every_agent_case(records) if cases is None else cases
+    return agent.Toolbox(cast(SIEClient, client), recipe.Calls(), records, POLICY, RULES, scope)
 
 
 def block(kind: str, **values: Any) -> SimpleNamespace:
     return SimpleNamespace(type=kind, **values)
 
 
-def reply(*content: SimpleNamespace, stop: str = "tool_use") -> SimpleNamespace:
+def reply(
+    *content: SimpleNamespace, stop: str = "tool_use", model: str = "claude-opus-5-5"
+) -> SimpleNamespace:
     usage = SimpleNamespace(
         input_tokens=1000,
         output_tokens=100,
         cache_creation_input_tokens=0,
         cache_read_input_tokens=0,
     )
-    return SimpleNamespace(stop_reason=stop, content=list(content), usage=usage)
+    return SimpleNamespace(stop_reason=stop, content=list(content), usage=usage, model=model)
 
 
 def use(name: str, number: int, **tool_input: Any) -> SimpleNamespace:
@@ -975,14 +984,17 @@ def use(name: str, number: int, **tool_input: Any) -> SimpleNamespace:
 class StandInClaude:
     """Replays hand-written replies, one per request, and keeps what each request sent."""
 
-    def __init__(self, replies: list[SimpleNamespace]) -> None:
+    def __init__(self, replies: list[Any]) -> None:
         self.replies = replies
         self.sent: list[list[Any]] = []
         self.beta = SimpleNamespace(messages=SimpleNamespace(create=self.create))
 
     def create(self, **request: Any) -> SimpleNamespace:
         self.sent.append(list(request["messages"]))
-        return self.replies.pop(0)
+        item = self.replies.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return cast(SimpleNamespace, item)
 
 
 def citation(source: str, quote: str) -> dict[str, str]:
@@ -1095,6 +1107,42 @@ def check_agent_tools() -> None:
     box.run("run_kyc_check", {"case": "kyc-13"})
     assert box.sie_problems, box.sie_problems
     assert "incomplete" in box.sie_problems[0], box.sie_problems
+    # Each job's tools reach only its own cases: job a kyc-13, job b the 2025 register's.
+    records = agent.Records()
+    job_a = toolbox(agent.job_a_cases("kyc-13"))
+    for name, given in (
+        ("lookup_case", {"case": "k25-011"}),
+        ("read_scan", {"document": "kyc-01-poa"}),
+        ("run_kyc_check", {"case": "kyc-12"}),
+    ):
+        error = raised(functools.partial(job_a.run, name, given))
+        assert isinstance(error, agent.ToolError), (name, error)
+        assert "outside this job" in str(error), (name, error)
+    assert job_a.run("lookup_case", {"case": "kyc-13"})["case"] == "kyc-13"
+    scope_b = agent.job_b_cases(records, RULES)
+    assert scope_b == {f"k25-{n:03d}" for n in range(1, 16)}, sorted(scope_b)
+    job_b = toolbox(scope_b)
+    refused: list[tuple[str, dict[str, Any]]] = [
+        ("lookup_case", {"case": "kyc-13"}),
+        ("read_scan", {"document": "kyc-13-poa"}),
+        ("read_scan", {"document": "k25-016-poa"}),
+        ("run_kyc_check", {"case": "k25-016"}),
+        ("list_documents", {"cases": ["k25-003", "kyc-13"], "declared_type": ""}),
+        ("case_notes", {"cases": ["k25-016"]}),
+    ]
+    for name, given in refused:
+        error = raised(functools.partial(job_b.run, name, given))
+        assert isinstance(error, agent.ToolError), (name, error)
+    listed = job_b.run("list_documents", {"cases": [], "declared_type": ""})
+    assert {d["case"] for d in listed["documents"]} == scope_b, listed
+    notes = job_b.run("case_notes", {"cases": []})
+    assert {n["case"] for n in notes["notes"]} <= scope_b, notes
+    wide = job_b.run(
+        "find_accounts", {"product": "any", "opened_from": "2020-01-01", "opened_to": "2030-01-01"}
+    )
+    assert "AC-25016" not in {a["account"] for a in wide["accounts"]}, wide
+    assert job_b.run("read_handbook", {"section": "Section 4.2"})["section"] == "4.2"
+    assert job_b.run("read_handbook", {"section": "§4.2"})["section"] == "4.2"
     print("agent tools: lookups, read_scan with its own labels, run_kyc_check, SIE errors ok")
 
 
@@ -1139,8 +1187,37 @@ def check_agent_answers() -> None:
         workflow_claims=[MISSING_CLAIM],
     )
     assert problems(honest) == [], problems(honest)
+    # A negation doesn't take an answer out of the check: "it doesn't count" talks about the
+    # document too, and hiding the handbook's side is as bad as hiding the workflow's.
     negated = answer("Under policy.yaml it doesn't count.", workflow_claims=[MISSING_CLAIM])
-    assert problems(negated) == [], problems(negated)
+    assert any("without naming section 4.2" in p for p in problems(negated)), problems(negated)
+    # Any answer about the tenancy agreement or the proof of address, however it's phrased.
+    for said in (
+        "Yes, the tenancy agreement counts as proof of address, so no bill is needed.",
+        "Yes, she can use the tenancy agreement as proof of address.",
+        "The document she uploaded is valid proof of address for her.",
+        "kyc-13-poa is fine.",
+    ):
+        found = problems(answer(said, citations=[citation("4.2", Q42)]))
+        assert any("without naming section 4.2" in p for p in found), (said, found)
+        assert any("leaves that result out" in p for p in found), (said, found)
+    # ... and an email that says it counts, behind an answer that doesn't mention it.
+    quiet = answer(
+        "Draft below.",
+        email="Dear Ms Okonkwo-Reyes, your tenancy agreement counts as proof of address.",
+    )
+    found = problems(quiet)
+    assert any("leaves that result out" in p for p in found), found
+    assert any("without naming section 4.2" in p for p in found), found
+    # Section numbers on a word boundary: 14.2 and 4.21 aren't 4.2.
+    for wrong in ("section 14.2", "section 4.21"):
+        near = answer(
+            f"Under {wrong} the tenancy agreement counts once you sign it off.",
+            workflow_claims=[MISSING_CLAIM],
+        )
+        assert any("without naming section 4.2" in p for p in problems(near)), wrong
+    assert agent.names_section("4.2", "see section 4.2.")
+    assert agent.section_number("Section 4.2") == agent.section_number("§ 4.2") == "4.2"
     # The email.
     assert problems(good_email()) == [], problems(good_email())
     email_problems = {
@@ -1187,6 +1264,33 @@ def check_agent_answers() -> None:
     for expected, given in email_problems.items():
         found = problems(given)
         assert any(expected in p for p in found), (expected, found)
+    # The analyst's words sign nothing off when negated or asked as a question.
+    for turn, quote in (
+        ("Don't sign off the tenancy agreement yet.", "sign off the tenancy agreement"),
+        (
+            "I can't sign off the tenancy agreement until I see the signature.",
+            "sign off the tenancy agreement",
+        ),
+        ("Should I sign off the tenancy agreement?", "sign off the tenancy agreement"),
+        ("Should I sign off the tenancy agreement", "sign off the tenancy agreement"),
+        (
+            "I'll sign off the tenancy agreement once it's signed. No, wait.",
+            "sign off the tenancy agreement once it's signed. No, wait",
+        ),
+    ):
+        given = good_email(waived=[{"requirement": "address_document", "analyst_quote": quote}])
+        found = problems(given, [*TURNS[:2], turn])
+        assert any("negated or a question" in p for p in found), (turn, found)
+    # The same words in a plain sentence do sign it off.
+    plain_turn = "I sign off the tenancy agreement. Draft the email."
+    given = good_email(
+        waived=[
+            {"requirement": "address_document", "analyst_quote": "sign off the tenancy agreement"}
+        ]
+    )
+    assert problems(given, [*TURNS[:2], plain_turn]) == [], problems(
+        given, [*TURNS[:2], plain_turn]
+    )
     # An email before the KYC check ran in this conversation.
     fresh = toolbox()
     assert any(
@@ -1322,14 +1426,34 @@ def check_agent_completeness() -> None:
     pages = agent_pages()
     later = next(key for key, page in pages.items() if "BW-25007-9601" in page)
     pages[later] = pages[later].replace("Simone Delacroix", "Pierre Delacroix")
+    records = agent.Records()
     other = agent.Toolbox(
-        cast(SIEClient, StandIn(pages)), recipe.Calls(), agent.Records(), POLICY, RULES
-    )
+        cast(SIEClient, StandIn(pages)), recipe.Calls(), records, POLICY, RULES,
+        every_agent_case(records),
+    )  # fmt: skip
     other.run("run_kyc_check", {"case": "k25-007"})
     found = agent.check_row(GOOD_ROWS[1], other)
     assert any("didn't meet address_holder on k25-007-poa2" in p for p in found), found
     review = agent.table_review([*GOOD_ROWS, GOOD_ROWS[0]], box, complete)
     assert any("listed twice" in p for p in review["problems"]), review
+    # nothing_recorded can't stand beside a note recording an approved exception.
+    hidden = row("AC-25003", "k25-003", "nothing_recorded", citation("k25-003-poa", "Larkspur"))
+    found = agent.check_row(hidden, box)
+    assert any("N-0311 on k25-003 records an approved exception" in p for p in found), found
+    # "Exception not approved" (k25-009) isn't one.
+    assert not re.search(RULES["agent"]["exception_approved_words"], agent.plain(
+        agent.Records().notes["N-0519"].text
+    ))  # fmt: skip
+    # exception_approved can't stand when a later document met every address requirement ...
+    claimed = row(
+        "AC-25007", "k25-007", "exception_approved", citation("N-0340", "Account opened with proof")
+    )
+    found = agent.check_row(claimed, box)  # box ran the KYC check on k25-007 above
+    assert any("k25-007-poa2, so the row is replaced" in p for p in found), found
+    # ... nor when a later document arrived and no KYC check ruled replaced out.
+    unchecked, _ = swept_box()
+    found = agent.check_row(claimed, unchecked)
+    assert any("to rule out replaced" in p for p in found), found
     # An issuer the list doesn't know is never dropped silently: the job goes to a person.
     renamed = {"extract/k25-011/k25-011-poa": "Larkspur Mobile Ltd"}
 
@@ -1343,7 +1467,10 @@ def check_agent_completeness() -> None:
     page = next(k for k, v in pages.items() if "Omar Haddad" in v)
     pages[page] = pages[page].replace("# Larkspur Mobile", "# Larkspur Mobile Ltd")
     client = StandIn(pages, fields=fields)
-    odd = agent.Toolbox(cast(SIEClient, client), recipe.Calls(), agent.Records(), POLICY, RULES)
+    records = agent.Records()
+    odd = agent.Toolbox(
+        cast(SIEClient, client), recipe.Calls(), records, POLICY, RULES, every_agent_case(records)
+    )
     complete = agent.sweep(odd)
     assert [d.document for d in complete.not_recognised] == ["k25-011-poa"], complete
     assert "AC-25011" not in complete.expected
@@ -1386,7 +1513,7 @@ def check_agent_statuses() -> None:
     print("agent statuses: each earned by the checks, worst one wins ok")
 
 
-def run_letter_with(replies: list[SimpleNamespace]) -> tuple[agent.JobReport, StandInClaude]:
+def run_letter_with(replies: list[Any]) -> tuple[agent.JobReport, StandInClaude]:
     claude = StandInClaude(replies)
     with contextlib.redirect_stdout(io.StringIO()):
         report = agent.run_letter(claude, toolbox(), "letter")
@@ -1422,7 +1549,7 @@ def check_agent_loop() -> None:
     assert "AC-25011" in sent_back["content"], sent_back
     assert "You have 14 more tool calls" in sent_back["content"], sent_back
     assert report.tool_calls == 2, report
-    assert report.usage.input_tokens == 3000, report
+    assert report.usage.total("input_tokens") == 3000, report
     # It never adds it: the gap is reported, and the code adds the row for the analyst.
     report, _ = run_letter_with([*first, reply(use("submit_table", 3, **table(three)))])
     assert report.status == "gap_remains", report.status
@@ -1474,6 +1601,37 @@ def check_agent_loop() -> None:
             claude, toolbox(), "kyc-13", lambda n: TURNS[n] if n < 3 else None
         )
     assert [t["status"] for t in report.detail["turns"]] == ["no_answer"], report.detail
+    # Claude API errors: transient ones end the job with no answer and the reason; anything else
+    # stops the run.
+    import anthropic
+    import httpx2 as httpx
+
+    request = httpx.Request("POST", "https://api.invalid/v1/messages")
+
+    def status_error(cls: type[anthropic.APIStatusError], code: int) -> anthropic.APIStatusError:
+        return cls("said no", response=httpx.Response(code, request=request), body=None)
+
+    transient: list[Exception] = [
+        anthropic.APIConnectionError(request=request),
+        anthropic.APITimeoutError(request=request),
+        status_error(anthropic.RateLimitError, 429),
+        status_error(anthropic.InternalServerError, 500),
+        status_error(anthropic.APIStatusError, 408),
+        status_error(anthropic.ConflictError, 409),
+    ]
+    for error in transient:
+        report, _ = run_letter_with([error])
+        assert report.status == "no_answer", (error, report.status)
+        assert type(error).__name__ in report.detail["stopped"], report.detail["stopped"]
+    for error in (
+        status_error(anthropic.AuthenticationError, 401),
+        status_error(anthropic.BadRequestError, 400),
+        status_error(anthropic.APIStatusError, 418),
+    ):
+        assert raised(functools.partial(run_letter_with, [error])) is error, error
+    # The model that answered is the one billed.
+    report, _ = run_letter_with([reply(stop="refusal", model="claude-opus-4-8")])
+    assert list(report.usage.by_model) == ["claude-opus-4-8"], report.usage
     print("agent loop: review once, gap reported, refusal, tool budget, three turns ok")
 
 
@@ -1492,6 +1650,42 @@ def check_agent_outputs() -> None:
         assert kinds.count("expected") == 4, kinds
         assert kinds.count("found") == 4, kinds
         assert "complete" in (folder / "regulator_2025.md").read_text(encoding="utf-8")
+    # Text from documents, tools and Claude can't inject Markdown into the outputs.
+    evil = "![x](https://evil.example/p.png) <img src=x> a|b\nnext"
+    safe = agent.md_safe(evil)
+    assert safe == r"\!\[x\]\(https://evil.example/p.png\) \<img src=x\> a\|b next", safe
+    poisoned = {
+        **report.detail,
+        "rows": [{**r, "document": evil, "evidence": [citation(evil, evil)]}
+                 for r in report.detail["rows"]],
+        "summary": "```\n" + evil,
+    }  # fmt: skip
+    page = agent.regulator_markdown(agent.JobReport(**{**vars(report), "detail": poisoned}))
+    for line in page.splitlines():
+        if line.startswith("| AC-"):
+            assert line.count(" | ") == 5, line  # six cells, the stray | escaped
+    unfenced = re.sub(r"(?ms)^(`{3,})text\n.*?^\1$", "", page)
+    assert not re.search(r"(?<!\\)(?:!\[|<img|\]\()", unfenced), unfenced
+    assert "````text" in page, page  # the fence outgrows the summary's own backticks
+    turn = {
+        "question": evil, "status": "answer_checked", "stopped": "", "problems": [evil],
+        "first_review": [], "tool_calls": [{"tool": "read_scan", "input": {"document": evil}}],
+        "answer": answer(evil, email="``` \n" + evil, citations=[citation("4.2", evil)]),
+    }  # fmt: skip
+    chat = agent.chat_markdown(
+        agent.JobReport("a", "answer_checked", {"case": "kyc-13", "turns": [turn]},
+                        agent.Usage(), 0, 0, 0.0, [])
+    )  # fmt: skip
+    outside = re.sub(r"(?ms)^(`{3,})text\n.*?^\1$", "", chat)
+    assert not re.search(r"(?<!\\)(?:!\[|<img|\]\()", outside), outside
+    assert chat.count("````text") == 1, chat  # the email with its own ``` gets a longer fence
+    # Tokens a fallback model answered are priced as that model, or reported as not priced.
+    usage = agent.Usage()
+    usage.add(reply().usage, "claude-opus-5-5")
+    usage.add(reply().usage, "some-fallback-model")
+    prices = RULES["agent"]["prices"]
+    assert usage.unpriced(prices) == ["some-fallback-model"], usage
+    assert usage.usd(prices) == (1000 * 4.00 + 100 * 20.00) / 1_000_000, usage.usd(prices)
     # --help parses without keys, rules, data, SIE or Claude.
     env = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}
     done = subprocess.run(

@@ -87,9 +87,12 @@ agent:
   # Set it to null for a model without server-side fallback.
   fallbacks: default
   fallback_beta: server-side-fallback-2026-07-01
-  # US dollars per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing
-  # on 7 Nov 2026 (5-minute cache writes). Check them before relying on the cost figures.
-  prices: {input: 4.00, cache_write: 5.00, cache_read: 0.20, output: 20.00}
+  # US dollars per million tokens per model, from
+  # https://platform.claude.com/docs/en/about-claude/pricing on 7 Nov 2026 (5-minute cache
+  # writes). Check them before relying on the cost figures. Tokens from a model that answered
+  # (a fallback, say) and isn't listed here are counted in cost.json but left out of claude_usd.
+  prices:
+    claude-opus-5-5: {input: 4.00, cache_write: 5.00, cache_read: 0.20, output: 20.00}
 
   # How read_scan reads a document the workflow's labels don't cover. These labels are added to
   # the ones in `documents: address:` above, for read_scan only; run_kyc_check and the
@@ -111,6 +114,8 @@ agent:
     turn: [answer_checked, check_failed, needs_person, out_of_steps, no_answer]
     regulator: [complete, complete_after_check, gap_remains, check_failed, needs_person, out_of_steps, no_answer]
   outcomes: [replaced, exception_approved, restricted_or_closed, nothing_recorded]
+  # A note whose text says this records an approved exception; nothing_recorded can't stand with one.
+  exception_approved_words: '\bexception\s+(?:was\s+|has\s+been\s+)?approved\b'
 
   # Ids an answer may name; each must exist. Matched on the answer as written.
   ids:
@@ -120,11 +125,15 @@ agent:
     account: '\bAC-\d{5}\b'
     section: '\b(?:[Ss]ections?|§)\s*(\d+\.\d+)'
 
-  # A sentence saying a document counts, in lower case. When this run's KYC check showed the
-  # case's proof of address missing, such a sentence needs the handbook section and the sign-off
-  # beside it. A sentence with a negation is skipped.
-  counts_words: '\b(?:counts?|passes|accepts?|accepted|acceptable|qualifies|is fine|will do|is enough|meets)\b'
-  negation: "\\b(?:not|never|no|doesn't|don't|isn't|won't|can't|cannot)\\b|n't\\b"
+  # When this job's latest KYC check shows the case's proof of address missing, an answer or email
+  # that talks about it needs the handbook section, the sign-off and that result beside it. Talking
+  # about it means naming one of the case's address documents, a type it was declared as, one of
+  # `address_words`, or one of `counts_words`, negated or not. All matched in lower case.
+  address_words: '\b(?:proof of address|address document|address proof)\b'
+  counts_words: '\b(?:counts?|passes|accepts?|accepted|acceptable|qualifies|is fine|will do|is enough|meets|valid)\b'
+  # An analyst sentence with a negation, ending in "?", or opening like a question signs nothing off.
+  negation: "\\b(?:not|never|no|doesn't|don't|isn't|won't|can't|cannot|until|unless)\\b|n't\\b"
+  question_start: '^(?:should|shall|can|could|would|will|may|do|does|did|is|are|am)\b'
   sign_off_words: '\bsign(?:ed|s|ing)?(?:\s+\w+){0,2}?[\s-]*off\b'
   exception_section: "4.2"       # the handbook section that accepts a document policy.yaml doesn't
   waivable: [address_document]   # what the analyst may sign off under that section
@@ -176,9 +185,10 @@ agent:
     - Each citation quotes its source word for word: a handbook section number such as "4.2", a
       case id, or a document id (quoting text a tool returned for it).
     - Each workflow_claim (case, requirement, status) is exactly what run_kyc_check returned in
-      this conversation. When run_kyc_check showed a case's address_document missing, any answer
-      that says the case's document counts or is accepted must name section 4.2, the sign-off,
-      and carry the workflow_claim for address_document.
+      this conversation. When the latest run_kyc_check showed a case's address_document missing,
+      any answer or email that mentions the case's address document or proof of address, or
+      whether something counts, must name section 4.2, the sign-off, and carry the
+      workflow_claim for address_document.
     - Only when the analyst asks for an email: write it in `email`, list each thing it asks the
       customer for in email_asks (the requirement name from run_kyc_check, or a handbook section
       number for a handbook follow-up; `text` copied word for word from the email), and list in

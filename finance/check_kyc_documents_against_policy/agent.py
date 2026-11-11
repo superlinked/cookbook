@@ -99,6 +99,11 @@ class Note:
     text: str
 
 
+def section_number(text: str) -> str:
+    """ "4.2", "section 4.2", "Section 4.2" or "§4.2" -> "4.2"."""
+    return re.sub(r"^(?:sections?|§)\s*", "", text.strip(), flags=re.I).strip()
+
+
 def read_rows(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
@@ -245,6 +250,7 @@ class Toolbox:
     records: Records
     policy: dict[str, Any]
     rules: dict[str, Any]
+    cases: frozenset[str]  # the only cases this job's tools may reach (job_a_cases, job_b_cases)
     kyc: dict[str, CaseResult] = field(default_factory=dict)  # case -> latest run_kyc_check
     kyc_all: dict[str, list[CaseResult]] = field(default_factory=dict)
     seen: dict[str, list[str]] = field(default_factory=dict)  # id -> text tools returned about it
@@ -268,6 +274,12 @@ class Toolbox:
             raise ToolError(f"{name} got arguments it doesn't take: {error}") from error
         return tools[name](**tool_input)
 
+    def in_scope(self, case: str) -> None:
+        """Refuse a case outside this job, so text in a document or a note can't steer a tool to
+        another customer."""
+        if case not in self.cases:
+            raise ToolError(f"{case!r} is outside this job; the tools reach only its own cases")
+
     def remember(self, ids: list[str], output: Any) -> None:
         """Keep what a tool said about each id, as plain values and as the JSON Claude saw."""
         text = readable(output) + "\n" + json.dumps(output, ensure_ascii=False)
@@ -276,7 +288,7 @@ class Toolbox:
                 self.seen.setdefault(name, []).append(text)
 
     def read_handbook(self, section: str) -> dict[str, Any]:
-        number = section.strip().removeprefix("section").strip()
+        number = section_number(section)
         if number not in self.records.sections:
             raise ToolError(
                 f"no section {section!r}; sections are {', '.join(self.records.sections)}"
@@ -291,6 +303,7 @@ class Toolbox:
         return found
 
     def lookup_case(self, case: str) -> dict[str, Any]:
+        self.in_scope(case)
         application, _ = self._application(case)
         output = {
             "case": case,
@@ -313,6 +326,7 @@ class Toolbox:
         row = self.records.document(document)
         if row is None:
             raise ToolError(f"the onboarding system has no document {document!r}")
+        self.in_scope(row.case)
         application, folder = self._application(row.case)
         rules = scan_rules(self.rules)
         doc = SubmittedDocument(row.document, row.purpose, row.declared_type, row.file, row.page)
@@ -349,6 +363,7 @@ class Toolbox:
         return output
 
     def run_kyc_check(self, case: str) -> dict[str, Any]:
+        self.in_scope(case)
         application, folder = self._application(case)
         failures = len(self.calls.failures)
         result = recipe.process_case(
@@ -372,7 +387,8 @@ class Toolbox:
         rows = [
             vars(account)
             for account in self.records.accounts.values()
-            if product in ("any", account.product)
+            if account.case in self.cases
+            and product in ("any", account.product)
             and start <= date.fromisoformat(account.opened) <= end
         ]
         output = {"accounts": rows, "count": len(rows)}
@@ -381,7 +397,9 @@ class Toolbox:
         return output
 
     def list_documents(self, cases: list[str], declared_type: str) -> dict[str, Any]:
-        wanted = set(cases)
+        for case in cases:
+            self.in_scope(case)
+        wanted = set(cases) or set(self.cases)
         rows = [
             {
                 "case": row.case,
@@ -392,7 +410,7 @@ class Toolbox:
             }
             for row in self.records.documents
             if row.data_dir == self.records.systems[0][1]
-            and (not wanted or row.case in wanted)
+            and row.case in wanted
             and (not declared_type or row.declared_type == declared_type)
         ]
         for row in rows:
@@ -400,11 +418,25 @@ class Toolbox:
         return {"documents": rows, "count": len(rows)}
 
     def case_notes(self, cases: list[str]) -> dict[str, Any]:
-        wanted = set(cases)
-        rows = [vars(n) for n in self.records.notes.values() if not wanted or n.case in wanted]
+        for case in cases:
+            self.in_scope(case)
+        wanted = set(cases) or set(self.cases)
+        rows = [vars(n) for n in self.records.notes.values() if n.case in wanted]
         for row in rows:
             self.remember([row["note"], row["case"]], row)
         return {"notes": rows, "count": len(rows)}
+
+
+def job_a_cases(case: str) -> frozenset[str]:
+    """Job a's tools reach the one case the analyst asks about."""
+    return frozenset([case])
+
+
+def job_b_cases(records: Records, rules: dict[str, Any]) -> frozenset[str]:
+    """Job b's tools reach the cases of accounts the register shows opened in the regulator's
+    year, of any product, and nothing else."""
+    year = str(rules["agent"]["regulator"]["year"])
+    return frozenset(a.case for a in records.accounts.values() if a.opened.startswith(year + "-"))
 
 
 # --- Tool schemas ------------------------------------------------------------------------------
@@ -536,7 +568,7 @@ def plain(text: str) -> str:
 def source_text(source: str, box: Toolbox) -> str | None:
     """The text a quote from `source` must be in, or None when there's no such source."""
     records = box.records
-    number = source.strip().removeprefix("section").removeprefix("Section").strip()
+    number = section_number(source)
     if number in records.sections:
         heading, text = records.sections[number]
         return f"{heading}\n{text}"
@@ -611,45 +643,90 @@ def sentences(text: str) -> list[str]:
     return [part for part in re.split(r"(?<=[.!?;])\s+|\n+", text) if part.strip()]
 
 
-def says_it_counts(text: str, rules: dict[str, Any]) -> list[str]:
-    """Sentences saying a document counts or is accepted, without a negation."""
-    settings = rules["agent"]
-    return [
-        sentence
-        for sentence in sentences(text)
-        if re.search(settings["counts_words"], plain(sentence))
-        and not re.search(settings["negation"], plain(sentence))
-    ]
+def names_section(section: str, text: str) -> bool:
+    """The section number on its own, not inside 14.2 or 4.21."""
+    return re.search(rf"(?<![\d.]){re.escape(section)}(?!\.?\d)", text) is not None
+
+
+def address_talk(text: str, case: str, box: Toolbox) -> str:
+    """The first words in the text about the case's proof of address, or "": one of its address
+    document ids, the name of a type it was declared as, the words in `address_words`, or a word
+    saying something counts. A negation doesn't take a sentence out: "it doesn't count" talks
+    about the document as much as "it counts" does."""
+    settings, flat = box.rules["agent"], plain(text)
+    documents = address_documents(case, box)
+    declared = {row.declared_type for row in documents}
+    phrases = [row.document for row in documents]
+    phrases += [phrase for phrase, kind in settings["document_words"].items() if kind in declared]
+    for phrase in phrases:
+        found = re.search(rf"(?<![a-z0-9-]){re.escape(phrase.casefold())}s?(?![a-z0-9])", flat)
+        if found:
+            return found.group(0)
+    for pattern in (settings["address_words"], settings["counts_words"]):
+        found = re.search(pattern, flat)
+        if found:
+            return found.group(0)
+    return ""
 
 
 def check_disagreement(answer: dict[str, Any], box: Toolbox) -> list[str]:
-    """When this job's KYC check showed a case's proof of address missing, an answer that says a
-    document counts must name the handbook section, the sign-off and the workflow's result."""
+    """When this job's latest KYC check on a case shows its proof of address missing, any answer
+    or email that talks about that proof of address must name the handbook section, the sign-off
+    and the workflow's result."""
     settings = box.rules["agent"]
     text = f"{answer['answer']}\n{answer['email']}"
     claimed = {(c["case"], c["requirement"], c["status"]) for c in answer["workflow_claims"]}
+    section = settings["exception_section"]
     problems = []
     for case, result in box.kyc.items():
         missing = any(
             r.requirement == "address_document" and r.status == recipe.MISSING
             for r in result.requirements
         )
-        counted = says_it_counts(answer["answer"], box.rules)
-        if not missing or not counted:
+        talk = address_talk(text, case, box) if missing else ""
+        if not talk:
             continue
-        section = settings["exception_section"]
-        if section not in text or not re.search(settings["sign_off_words"], plain(text)):
+        if not names_section(section, text) or not re.search(
+            settings["sign_off_words"], plain(text)
+        ):
             problems.append(
-                f"says a document counts ({counted[0].strip()!r}) while the KYC check shows "
-                f"{case}'s address_document missing, without naming section {section} and the "
-                "sign-off"
+                f"talks about {talk!r} while the KYC check shows {case}'s address_document "
+                f"missing, without naming section {section} and the sign-off"
             )
         if (case, "address_document", recipe.MISSING) not in claimed:
             problems.append(
-                f"says a document counts while the KYC check shows {case}'s address_document "
+                f"talks about {talk!r} while the KYC check shows {case}'s address_document "
                 "missing, and leaves that result out of workflow_claims"
             )
     return problems
+
+
+def sign_off_problem(quote: str, analyst_turns: list[str], rules: dict[str, Any]) -> str:
+    """Why the analyst's quoted words don't sign anything off, or "" when they do. The quote must
+    be in what the analyst typed, hold the sign-off words, and come from sentences that are
+    neither negated ("don't sign off ... yet") nor a question ("should I sign off ...?")."""
+    settings = rules["agent"]
+    wanted = plain(quote)
+    said = [plain(part) for turn in analyst_turns for part in sentences(turn)]
+    joined = " ".join(said)
+    if not wanted or wanted not in joined:
+        return " on words the analyst didn't say"
+    if not re.search(settings["sign_off_words"], wanted):
+        return ", but the analyst's words aren't a sign-off"
+    spans, offset = [], 0
+    for sentence in said:
+        spans.append((offset, offset + len(sentence), sentence))
+        offset += len(sentence) + 1
+    for found in re.finditer(re.escape(wanted), joined):
+        around = [text for a, b, text in spans if a < found.end() and found.start() < b]
+        if not any(
+            re.search(settings["negation"], text)
+            or text.rstrip().endswith("?")
+            or re.search(settings["question_start"], text)
+            for text in around
+        ):
+            return ""
+    return ", but the analyst's sentence is negated or a question"
 
 
 def document_types(text: str, rules: dict[str, Any]) -> list[tuple[str, str]]:
@@ -678,7 +755,6 @@ def check_email(
         return [f"an email for {case} without running the KYC check on it in this conversation"]
     problems = []
     asks = {r.requirement for r in result.unmet if r.ask}
-    said = plain("\n".join(analyst_turns))
     waived = set()
     for item in answer["waived"]:
         requirement, quote = item["requirement"], item["analyst_quote"]
@@ -686,16 +762,12 @@ def check_email(
             problems.append(
                 f"waives {requirement}, which the handbook doesn't let the analyst sign off"
             )
-        elif not plain(quote) or plain(quote) not in said:
-            problems.append(f"waives {requirement} on words the analyst didn't say: {quote!r}")
-        elif not re.search(settings["sign_off_words"], plain(quote)):
-            problems.append(
-                f"waives {requirement}, but the analyst's words aren't a sign-off: {quote!r}"
-            )
+        elif why := sign_off_problem(quote, analyst_turns, box.rules):
+            problems.append(f"waives {requirement}{why}: {quote!r}")
         else:
             waived.add(requirement)
     exception, follow_up = settings["exception_section"], settings["follow_up_section"]
-    cited = {c["source"].strip().removeprefix("section").strip() for c in answer["citations"]}
+    cited = {section_number(c["source"]) for c in answer["citations"]}
     if waived and exception not in cited:
         problems.append(f"signs off {', '.join(sorted(waived))} without citing section {exception}")
     listed = {item["requirement"] for item in answer["email_asks"]}
@@ -791,14 +863,51 @@ def check_row(row: dict[str, Any], box: Toolbox) -> list[str]:
         ]
         if not notes:
             problems.append(f"{name}: exception_approved cites no note on {account.case}")
+        problems += [f"{name}: {p}" for p in check_not_replaced(account.case, later, box)]
     elif outcome == "restricted_or_closed":
         if account.status not in ("restricted", "closed"):
             problems.append(f"{name}: the register shows it {account.status}")
-    elif outcome == "nothing_recorded" and later:
-        problems.append(
-            f"{name}: nothing_recorded, but {later[0].document} arrived on {later[0].received}"
-        )
+    elif outcome == "nothing_recorded":
+        if later:
+            problems.append(
+                f"{name}: nothing_recorded, but {later[0].document} arrived on {later[0].received}"
+            )
+        pattern = box.rules["agent"]["exception_approved_words"]
+        approved = [
+            note.note
+            for note in records.notes.values()
+            if note.case == account.case and re.search(pattern, plain(note.text))
+        ]
+        if approved:
+            problems.append(
+                f"{name}: nothing_recorded, but note {approved[0]} on {account.case} records an "
+                "approved exception"
+            )
     return problems
+
+
+def check_not_replaced(case: str, later: list[DocumentRow], box: Toolbox) -> list[str]:
+    """`exception_approved` doesn't stand when a later address document met every address
+    requirement: that row is `replaced`. With a later document and no KYC check in this job,
+    nothing rules that out."""
+    if not later:
+        return []
+    if case not in box.kyc:
+        return [
+            f"exception_approved, but {later[0].document} arrived later and the KYC check wasn't "
+            f"run on {case} in this job to rule out replaced"
+        ]
+    met = [
+        doc.document
+        for doc in later
+        if not check_replaced({"later_document": doc.document}, case, later, box)
+    ]
+    if met:
+        return [
+            f"exception_approved, but the KYC check met every address requirement on the later "
+            f"{met[0]}, so the row is replaced"
+        ]
+    return []
 
 
 def check_replaced(
@@ -967,26 +1076,46 @@ def turn_status(
 # --- The agent loop ----------------------------------------------------------------------------
 
 
+TOKEN_KINDS = ("input_tokens", "cache_write_tokens", "cache_read_tokens", "output_tokens")
+PRICE_KEYS = {
+    "input_tokens": "input",
+    "cache_write_tokens": "cache_write",
+    "cache_read_tokens": "cache_read",
+    "output_tokens": "output",
+}
+
+
 @dataclass
 class Usage:
-    input_tokens: int = 0
-    cache_write_tokens: int = 0
-    cache_read_tokens: int = 0
-    output_tokens: int = 0
+    """Tokens per model that answered: a server-side fallback can answer on another model, and
+    its tokens are priced as that model's."""
 
-    def add(self, usage: Any) -> None:
-        self.input_tokens += usage.input_tokens
-        self.cache_write_tokens += usage.cache_creation_input_tokens or 0
-        self.cache_read_tokens += usage.cache_read_input_tokens or 0
-        self.output_tokens += usage.output_tokens
+    by_model: dict[str, dict[str, int]] = field(default_factory=dict)
 
-    def usd(self, prices: dict[str, float]) -> float:
+    def add(self, usage: Any, model: str) -> None:
+        tokens = self.by_model.setdefault(model, dict.fromkeys(TOKEN_KINDS, 0))
+        tokens["input_tokens"] += usage.input_tokens
+        tokens["cache_write_tokens"] += usage.cache_creation_input_tokens or 0
+        tokens["cache_read_tokens"] += usage.cache_read_input_tokens or 0
+        tokens["output_tokens"] += usage.output_tokens
+
+    def total(self, kind: str) -> int:
+        return sum(tokens[kind] for tokens in self.by_model.values())
+
+    def unpriced(self, prices: dict[str, dict[str, float]]) -> list[str]:
+        return sorted(model for model in self.by_model if model not in prices)
+
+    def usd(self, prices: dict[str, dict[str, float]]) -> float:
+        """Dollars for the models `prices` lists; `unpriced` names the others."""
         return (
-            self.input_tokens * prices["input"]
-            + self.cache_write_tokens * prices["cache_write"]
-            + self.cache_read_tokens * prices["cache_read"]
-            + self.output_tokens * prices["output"]
-        ) / 1_000_000
+            sum(
+                tokens[kind] * prices[model][PRICE_KEYS[kind]]
+                for model, tokens in self.by_model.items()
+                if model in prices
+                for kind in TOKEN_KINDS
+            )
+            / 1_000_000
+        )
 
 
 @dataclass
@@ -1039,10 +1168,19 @@ def ask_claude(
     )
 
 
-def transient_claude_errors() -> tuple[type[Exception], ...]:
+def transient_claude_error(error: Exception) -> bool:
+    """A Claude API failure that may pass if tried later: the turn or job ends with no answer and
+    the reason. Anything else stops the run."""
     import anthropic
 
-    return (anthropic.RateLimitError, anthropic.InternalServerError, anthropic.APIConnectionError)
+    transient = (
+        anthropic.APIConnectionError,
+        anthropic.RateLimitError,
+        anthropic.InternalServerError,
+    )
+    if isinstance(error, transient):  # APITimeoutError is an APIConnectionError
+        return True
+    return isinstance(error, anthropic.APIStatusError) and error.status_code in (408, 409)
 
 
 Judge = Callable[[dict[str, Any]], list[str]]
@@ -1068,10 +1206,12 @@ def run_round(
     for _ in range(settings["max_rounds"]):
         try:
             response = ask_claude(claude, system, tools, messages, box.rules)
-        except transient_claude_errors() as error:
-            result.stopped = f"the Claude API failed: {type(error).__name__}"
+        except Exception as error:
+            if not transient_claude_error(error):
+                raise
+            result.stopped = f"the Claude API failed: {type(error).__name__}: {error}"
             return result
-        usage.add(response.usage)
+        usage.add(response.usage, response.model)
         if response.stop_reason == "refusal":
             result.stopped = "Claude declined the request"
             return result
@@ -1333,40 +1473,58 @@ def run_letter(claude: Any, box: Toolbox, letter: str) -> JobReport:
 # --- Outputs -----------------------------------------------------------------------------------
 
 
+MARKDOWN_MARKS = re.compile(r"([\\`*_\[\]()<>|!#])")
+
+
+def md_safe(value: Any) -> str:
+    """Text from a document, a tool or Claude, safe in a Markdown line or table cell: every mark
+    that could make a link, an image, HTML, a heading or a new cell is escaped, and newlines
+    become spaces."""
+    return MARKDOWN_MARKS.sub(r"\\\1", " ".join(str(value).split()))
+
+
+def fenced(text: str) -> list[str]:
+    """A free-text body (an answer, an email) as a fenced block, its fence longer than any run of
+    backticks inside, so nothing in it renders as Markdown."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return [fence + "text", text, fence]
+
+
 def chat_markdown(report: JobReport) -> str:
     detail = report.detail
     lines = [
-        f"# {detail['case']}: the analyst's questions",
+        f"# {md_safe(detail['case'])}: the analyst's questions",
         "",
-        f"**Status:** `{report.status}`",
+        f"**Status:** {md_safe(report.status)}",
         "",
     ]
     for number, turn in enumerate(detail["turns"], start=1):
-        lines += [f"## Turn {number}: {turn['status']}", "", f"> {turn['question']}", ""]
+        lines += [f"## Turn {number}: {md_safe(turn['status'])}", ""]
+        lines += [f"> {md_safe(turn['question'])}", ""]
         if turn["stopped"]:
-            lines += [f"**Stopped because:** {turn['stopped']}", ""]
+            lines += [f"**Stopped because:** {md_safe(turn['stopped'])}", ""]
         answer = turn["answer"]
         if answer:
-            lines += [answer["answer"].strip(), ""]
+            lines += [*fenced(answer["answer"].strip()), ""]
             for claim in answer["workflow_claims"]:
-                lines.append(
-                    f"- KYC check: {claim['case']} {claim['requirement']} `{claim['status']}`"
-                )
+                said = " ".join(md_safe(claim[k]) for k in ("case", "requirement", "status"))
+                lines.append(f"- KYC check: {said}")
             for citation in answer["citations"]:
-                lines.append(f'- `{citation["source"]}`: "{citation["quote"]}"')
+                lines.append(f'- {md_safe(citation["source"])}: "{md_safe(citation["quote"])}"')
             lines.append("")
             if answer["email"].strip():
-                lines += ["**Email draft:**", "", "```text", answer["email"].strip(), "```", ""]
+                lines += ["**Email draft:**", "", *fenced(answer["email"].strip()), ""]
         if turn["problems"]:
             lines += ["**Check these before using the answer:**", ""]
-            lines += [f"- {p}" for p in turn["problems"]] + [""]
+            lines += [f"- {md_safe(p)}" for p in turn["problems"]] + [""]
         if turn["first_review"]:
             lines += ["**The checks sent the first answer back for these:**", ""]
-            lines += [f"- {p}" for p in turn["first_review"]] + [""]
+            lines += [f"- {md_safe(p)}" for p in turn["first_review"]] + [""]
         lines += ["**Tool calls:**", ""]
-        lines += [f"- `{c['tool']}` {json.dumps(c['input'])}" for c in turn["tool_calls"]] or [
-            "- none"
-        ]
+        calls = turn["tool_calls"]
+        lines += [f"- {md_safe(c['tool'])} {md_safe(json.dumps(c['input']))}" for c in calls]
+        lines += ["- none"] if not calls else []
         lines.append("")
     return "\n".join(lines)
 
@@ -1379,38 +1537,44 @@ def regulator_markdown(report: JobReport) -> str:
         "Draft for the MLRO. Each row's evidence was checked in code; whether a note's words "
         "support its outcome is for you to read.",
         "",
-        f"**Status:** `{report.status}`",
+        f"**Status:** {md_safe(report.status)}",
         "",
     ]
     if detail["stopped"]:
-        lines += [f"**Stopped because:** {detail['stopped']}", ""]
+        lines += [f"**Stopped because:** {md_safe(detail['stopped'])}", ""]
+    columns = ["account", "case", "document", "outcome", "later_document", "added_by"]
     lines += [
         "| Account | Case | Document | Outcome | Later document | Added by |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
     for row in detail["rows"]:
-        lines.append(
-            f"| {row['account']} | {row['case']} | {row['document']} | {row['outcome']} | "
-            f"{row['later_document']} | {row['added_by']} |"
-        )
+        lines.append("| " + " | ".join(md_safe(row[key]) for key in columns) + " |")
     lines.append("")
     if detail["summary"]:
-        lines += ["**The agent's summary:** " + detail["summary"], ""]
+        lines += ["**The agent's summary:**", "", *fenced(detail["summary"].strip()), ""]
     if detail["missing_at_first"]:
         lines += ["**Missing from the agent's first table, found by the completeness check:**", ""]
-        lines += [f"- {n}: {why}" for n, why in detail["missing_at_first"].items()] + [""]
+        lines += [
+            f"- {md_safe(n)}: {md_safe(why)}" for n, why in detail["missing_at_first"].items()
+        ]
+        lines.append("")
     if detail["problems"] or detail["extra"]:
         lines += ["**Check these before using the table:**", ""]
-        lines += [f"- {p}" for p in detail["problems"]]
-        lines += [f"- {n} isn't asked for" for n in detail["extra"]] + [""]
+        lines += [f"- {md_safe(p)}" for p in detail["problems"]]
+        lines += [f"- {md_safe(n)} isn't asked for" for n in detail["extra"]] + [""]
     unknown = [d for d in detail["swept"] if not d["issuer_type"]]
     if unknown:
         lines += ["**Issuer not recognised (a person checks the type):**", ""]
-        lines += [f"- {d['document']} ({d['account']}): {d['detail']}" for d in unknown] + [""]
+        lines += [
+            f"- {md_safe(d['document'])} ({md_safe(d['account'])}): {md_safe(d['detail'])}"
+            for d in unknown
+        ] + [""]
     lines += ["## Evidence", ""]
     for row in detail["rows"]:
         for item in row["evidence"]:
-            lines.append(f'- {row["account"]} `{item["source"]}`: "{item["quote"]}"')
+            lines.append(
+                f'- {md_safe(row["account"])} {md_safe(item["source"])}: "{md_safe(item["quote"])}"'
+            )
     lines += [
         "",
         "Not checked by code: anything outside the onboarding system (paper files, migrated "
@@ -1429,11 +1593,14 @@ def write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None
 
 
 def cost_entry(report: JobReport, rules: dict[str, Any]) -> dict[str, Any]:
+    prices = rules["agent"]["prices"]
     return {
         "status": report.status,
         "claude_model": rules["agent"]["model"],
-        **vars(report.usage),
-        "claude_usd": round(report.usage.usd(rules["agent"]["prices"]), 4),
+        "answered_by": report.usage.by_model,
+        **{kind: report.usage.total(kind) for kind in TOKEN_KINDS},
+        "claude_usd": round(report.usage.usd(prices), 4),
+        "not_priced": report.usage.unpriced(prices),  # no price in rules.yaml: not in claude_usd
         "sie_calls": report.sie_calls,
         "tool_calls": report.tool_calls,
         "seconds": round(report.seconds),
@@ -1556,12 +1723,12 @@ def run(args: argparse.Namespace) -> None:
         if args.job in ("a", "all") or args.chat:
             case, turns = scripted(CHAT_PATH)
             print(f"Job a: the analyst's questions about {case}")
-            box = Toolbox(client, calls, records, policy, rules)
+            box = Toolbox(client, calls, records, policy, rules, job_a_cases(case))
             ask = typed if args.chat else (lambda n: turns[n] if n < len(turns) else None)
             reports.append(run_conversation(claude, box, case, ask))
         if args.job in ("b", "all") and not args.chat:
             print("Job b: the regulator's letter")
-            box = Toolbox(client, calls, records, policy, rules)
+            box = Toolbox(client, calls, records, policy, rules, job_b_cases(records, rules))
             reports.append(run_letter(claude, box, LETTER_PATH.read_text(encoding="utf-8").strip()))
     if calls.failures and len(calls.failures) == calls.total:
         first = calls.failures[0][1]
@@ -1572,9 +1739,11 @@ def run(args: argparse.Namespace) -> None:
     write_outputs(output, reports, rules)
     for report in reports:
         cost = cost_entry(report, rules)
+        unpriced = f" (not priced: {', '.join(cost['not_priced'])})" if cost["not_priced"] else ""
         print(
             f"job {report.job}: {report.status}, {cost['tool_calls']} tool calls, "
-            f"{cost['sie_calls']} SIE calls, Claude ${cost['claude_usd']:.2f}, {cost['seconds']} s"
+            f"{cost['sie_calls']} SIE calls, Claude ${cost['claude_usd']:.2f}{unpriced}, "
+            f"{cost['seconds']} s"
         )
     print(f"Wrote {output}")
 
@@ -1586,16 +1755,12 @@ def main() -> None:
     except SIEStopped as error:
         raise SystemExit(f"Stopped: {error}") from None
     except Exception as error:
-        # The Claude API's refusals (a bad key, an unknown model) stop the run with their message.
-        if type(error).__module__.startswith("anthropic") and getattr(error, "status_code", 0) in (
-            400,
-            401,
-            403,
-            404,
-        ):
+        # Any Claude API error that isn't transient (a bad key, an unknown model, a bad request)
+        # stops the run: its own message first, then what to check.
+        if type(error).__module__.startswith("anthropic"):
             raise SystemExit(
-                f"Stopped: the Claude API refused the request, {type(error).__name__}: {error}. "
-                "Check ANTHROPIC_API_KEY and agent: model in rules.yaml. No outputs were written."
+                f"{error}\nStopped: the Claude API returned {type(error).__name__}. Check "
+                "ANTHROPIC_API_KEY and agent: model in rules.yaml. No outputs were written."
             ) from None
         raise
 

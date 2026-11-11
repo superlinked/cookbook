@@ -487,7 +487,9 @@ person, address, company and number is invented. Nothing in `data/` changes.
   (note N-0311), `AC-25007` got a water bill five weeks later (`k25-007-poa2`), `AC-25009` was
   closed in August, and `AC-25011` was uploaded as a utility bill but is from Larkspur Mobile,
   with nothing recorded. Two don't belong: `AC-25014` is a business account, and `AC-25016` was
-  received in December 2025 but opened in January 2026.
+  received in December 2025 but opened in January 2026. The letter's tools reach only accounts
+  opened in 2025, so `AC-25016` is kept out by construction; `AC-25014` is the one the agent has
+  to judge.
 - **Expected outcome:** a four-row table, each row with an outcome from the allowed list and
   evidence that checks out in code, and the completeness check finding no gap: `complete`, or
   `complete_after_check` when the check had to send an account back.
@@ -507,7 +509,11 @@ Claude (`claude-opus-5-5`, `agent: model` in `rules.yaml`) runs the loop with th
 SDK, like the recipes in [`agentic/`](../../agentic). Its tools call the same two SIE models as
 the workflow, `lightonai/LightOnOCR-3-4B` and `fastino/gliner2-large-v1`, and no new one. A
 policy-search model would be overkill for a 12-section handbook, so sections are looked up by
-number. Every tool reads; none sends an email or changes a case.
+number. Every tool reads; none sends an email or changes a case. And each job's tools reach only
+that job's records: in the conversation, `kyc-13` and its documents; in the letter, the accounts
+the register shows opened in 2025 and their cases, documents and notes. Any other case, document
+or account gets a tool error instead of data, so text printed in a scan or written in a note
+can't steer a tool to another customer. The handbook is open to both.
 
 | Tool | What it runs | What it returns |
 | --- | --- | --- |
@@ -521,19 +527,29 @@ number. Every tool reads; none sends an email or changes a case.
 **Checked in code after each answer** (`check_answer`): every quote from the handbook, a note or
 a tool result is in that source word for word and at least two words long; every case, document,
 note, account and section id exists; every claim about the workflow (`workflow_claims`) matches
-a `run_kyc_check` result from this conversation. Once the KYC check has shown the proof of address
-missing, an answer that says the document counts must also name section 4.2, the sign-off and
-that result (`check_disagreement`). An email (`check_email`) must ask for everything the KYC
-check asks for except what the analyst signed off, quoting the analyst's own words; ask for the
-4.3 follow-up when 4.2 was used; name only document types `policy.yaml` or handbook section 4
-accept; and name no other case, customer or account.
+a `run_kyc_check` result from this conversation. Once the latest KYC check shows the proof of
+address missing, any answer or email that talks about it at all (names the tenancy agreement or
+its id, says "proof of address", or says something counts, negated or not) must also name
+section 4.2, the sign-off and that result (`check_disagreement`). That's stricter than looking
+for "it counts": it also catches "she can use the tenancy agreement as proof of address", and it
+also sends back an answer that only says "it doesn't count" without the handbook's side. An
+email (`check_email`) must ask for everything the KYC check asks for except what the analyst
+signed off, quoting the analyst's own words from a sentence that isn't negated or a question
+("Don't sign off the tenancy agreement yet" and "Should I sign off the tenancy agreement?" sign
+nothing off); ask for the 4.3 follow-up when 4.2 was used; and name only document types
+`policy.yaml` or handbook section 4 accept. It also checks the email names no other case,
+customer or account; since the conversation's tools reach only `kyc-13`, that holds by
+construction, and the check is a backstop.
 
 **Checked in code after the letter** (`check_row`, `sweep`, `table_review`): each row's account,
 case and document exist and belong together, and its evidence quotes check out. `replaced` must
 name a later address document, and `run_kyc_check` in this job must meet every address
 requirement on it. `restricted_or_closed` must match the register, and a restricted or closed
-account can't be anything else. `exception_approved` must cite a note on that case.
-`nothing_recorded` must have no later address document. Then the completeness check, from
+account can't be anything else. `exception_approved` must cite a note on that case, and fails
+when a later address document arrived and either this job's KYC check met every address
+requirement on it (that row is `replaced`) or no KYC check ran to rule that out.
+`nothing_recorded` must have no later address document and no note on the case saying an
+exception was approved. Then the completeness check, from
 sources the agent didn't write: code queries the register itself for personal accounts opened in
 2025, and calls `read_document` and `issuer_type` on every address document of those cases,
 whatever they were declared as. It calls them directly, not through `sort_documents`, because
@@ -545,7 +561,9 @@ on the issuer list goes on an "issuer not recognised" list, never silently out.
 
 Each job ends with a status from `agent: statuses` in `rules.yaml`. A turn is `answer_checked`,
 `check_failed`, `needs_person` (an SIE call failed), `out_of_steps` or `no_answer` (Claude
-declined or the API failed). The letter is `complete`, `complete_after_check`, `gap_remains`,
+declined, or the Claude API failed in a way that may pass on a retry: a connection error, a
+timeout, a rate limit, a server error, or HTTP 408 or 409). Any other Claude API error, such as
+a bad key or an unknown model, stops the run with the error's own message and writes nothing. The letter is `complete`, `complete_after_check`, `gap_remains`,
 `check_failed`, `needs_person`, `out_of_steps` or `no_answer`, and the worst one found wins.
 Up to 10 tool calls per turn or per letter, plus 5 after the checks send something back.
 
@@ -604,24 +622,34 @@ Each run writes `runs/<timestamp>/agent/`: `chat_kyc-13.md` (the turns, answers,
 and check results), `email_kyc-13.txt` for the analyst to send, `regulator_2025.csv` and
 `regulator_2025.md` (the draft table for the MLRO, who signs the letter), `completeness.csv`
 (expected, found, missing, extra and not recognised), `job_a.json`, `job_b.json`, the
-transcripts, and `cost.json` with Claude tokens, dollars and SIE calls per job.
+transcripts, and `cost.json` with Claude tokens per model that answered, dollars and SIE calls
+per job. A model that answered through the server-side fallback and has no price under
+`agent: prices` is listed as not priced rather than billed at Opus rates. In the `.md` files,
+anything that came from a document, a tool or Claude is escaped, and answers and emails sit in
+fenced blocks, so a scan can't slip a link or an image into the page the MLRO reads.
 
 ### What the agent did
 
-We ran both jobs 5 times using SIE Serverless on 2026-11-10 (UTC).
+We ran both jobs 5 times using SIE Serverless on 2026-11-10 (UTC). These numbers are from the
+runs after the review fixes (tools limited to each job's own records, the stricter disagreement,
+sign-off and row checks). An earlier batch of 5 runs before the fixes came out 7 of 10; where it
+differed, it's said below.
 
 ### The agent examples
 
 **1. The customer who just moved (`kyc-13`).**
 
 - **Expected outcome:** three answers, each `answer_checked`, saying both sides in turn 2.
-- **What came back:** 5 of 5 runs, every turn `answer_checked`. Every turn 2 said both sides on
-  the first try (run 4's went back once, for quoting the single word "SPECIMEN"). Every email
-  asked for the tax residency and the 4.3 follow-up, and none asked for a proof of address now.
-  Two things we didn't plan for. The agent did all its looking in turn 1, every run: the case,
-  the KYC check, sections 4.1 to 4.3 and the scan (6 tool calls), then answered turns 2 and 3
-  from what it already had. And it flagged, unprompted, that the agreement is stamped SPECIMEN
-  and says "It is not a real one", which is exactly what an analyst should notice.
+- **What came back:** 5 of 5 runs, every turn `answer_checked`. Every turn 2 said both sides;
+  run 1's went back once, but only for quoting the single word "SPECIMEN". The stricter
+  disagreement check never had to send an answer back: every answer that touched the proof of
+  address, turn 1 included, carried the KYC check's `address_document` `missing` next to section
+  4.2 and the sign-off. Every email asked for the tax residency and the 4.3 follow-up, and none
+  asked for a proof of address now. Two things we didn't plan for. The agent did nearly all its
+  looking in turn 1: the case, the KYC check, three handbook sections and, in 4 of 5 runs, the
+  scan (6 tool calls in those runs), then answered turns 2 and 3 from what it already had. And
+  it flagged, unprompted, that the agreement is stamped SPECIMEN, which is exactly what an
+  analyst should notice.
 - **Verdict:** Pass. With a limit: GLiNER2 found no fields on the tenancy agreement in any run
   (SIE Serverless's empty-result reply), because the workflow's field descriptions are written
   for bills. So the code-side comparison of name, address and date never ran, and the agent read
@@ -631,13 +659,12 @@ We ran both jobs 5 times using SIE Serverless on 2026-11-10 (UTC).
 
 - **Expected outcome:** `complete` or `complete_after_check`, with the four right rows.
 - **What came back:** the final table had the right four accounts with the right outcomes in 5
-  of 5 runs. The status was `complete_after_check` in 2 runs. In 2 runs it was `check_failed`:
-  the agent quoted the register's status for `AC-25009` as the one word "closed", which the
-  quote check refuses as too short to show anything. In 1 run it was `needs_person`: an SIE call
-  in the completeness check timed out on `k25-001-poa`, so the code couldn't vouch for the count.
-- **Verdict:** Miss, 2 of 5. The rows were right every time. The status refused to say `complete`
-  when the checks couldn't confirm something, which is its job, and once for a reason that's
-  arguably too strict.
+  of 5 runs, and none of the stricter row checks fired. The status was `complete_after_check` in
+  4 runs. In 1 run it was `check_failed`: the agent quoted the register's status for `AC-25009`
+  as the one word "closed", which the quote check refuses as too short to show anything.
+- **Verdict:** Miss. 4 of 5 runs came out as expected. The rows were right every time; the one
+  miss is a right row whose evidence the check wouldn't accept, a reason that's arguably too
+  strict.
 
 **3. The account the agent doesn't look for (`k25-011`).**
 
@@ -648,35 +675,38 @@ We ran both jobs 5 times using SIE Serverless on 2026-11-10 (UTC).
   added it as `nothing_recorded`. The surprise is why it missed it. It never took the obvious
   shortcut of filtering on the declared type. Every run, it listed all fourteen cases'
   documents and started reading every scan in order, which is the right instinct, and ran out
-  of its 10 tool calls after three to five scans (`k25-003` to `k25-005`), well before
-  `k25-011`. Reading every scan is exactly what the completeness check does, as a batch.
+  of its 10 tool calls after four or five scans (`k25-001` to `k25-004` or `k25-005`), well
+  before `k25-011`. Reading every scan is exactly what the completeness check does, as a batch.
 - **Verdict:** Pass. The check did what it's for, five times out of five.
 
 ### Agent results
 
-7 of 10 jobs came out as expected over 5 runs each: 5 of 5 conversations and 2 of 5 letters.
+9 of 10 jobs came out as expected over 5 runs each: 5 of 5 conversations and 4 of 5 letters.
 
 **Where it works:** the conversation. Every answer quoted the handbook word for word, gave the
 KYC check's real result next to the handbook's exception, and left the decision to the analyst.
 No first draft hid the disagreement, so the check that would have caught it never had to. In the
 letter, the "what was done about each" half came out right in every run: the exception from the
 team lead's note, the later water bill confirmed by the workflow, the closure from the register,
-and nothing recorded for `k25-011`. Every run also pointed out, unasked, that `AC-25003`'s 90-day bank
-statement never arrived, which is worth the MLRO's time.
+and nothing recorded for `k25-011`. Four of five runs also pointed out, unasked, that
+`AC-25003`'s 90-day bank statement never arrived, which is worth the MLRO's time; the fifth said
+plainly which scans it hadn't read itself.
 
 **Where it fails:** finding. The agent found `k25-011` on its own in 0 of 5 runs, because finding
-it means reading every scan, and 15 scans don't fit in 10 tool calls. Two letters failed the
-quote check on a right row ("closed" as a quote), one went to a person after an SIE timeout, and
-GLiNER2 read nothing from the tenancy agreement, so the agent's name, address and date checks in
-job a came from the OCR text, not from code.
+it means reading every scan, and 15 scans don't fit in 10 tool calls. One letter failed the
+quote check on a right row ("closed" as a quote), and GLiNER2 read nothing from the tenancy
+agreement in any run, so the agent's name, address and date checks in job a came from the OCR
+text, not from code. No SIE call failed in these runs; in the earlier batch one timed out in the
+completeness check and sent that letter to a person, as it should.
 
 **What it cost.** The workflow costs 4 SIE calls per case and no Claude: 48 calls for 12 cases in
-93 s warm. The conversation took 6 tool calls, 4 SIE calls and $0.10 to $0.15 of Claude (median
-$0.12) per run, in 44 to 108 s. The letter took 12 or 13 tool calls, 41 to 46 SIE calls (30 of
-them the completeness check, 2 per address scan) and $0.16 to $0.22 of Claude (median $0.17), in
-about 2 minutes, or 19 minutes in the run that hit the timeout. Claude's input is mostly cached
-reads of the growing conversation: about 25,000 to 34,000 tokens for the conversation and
-53,000 to 55,000 for the letter, priced with the figures in `rules.yaml`.
+93 s warm. The conversation took 6 or 8 tool calls, 4 or 6 SIE calls and $0.11 to $0.15 of
+Claude (median $0.12) per run, in 46 to 57 s. The letter took 12 or 13 tool calls, 44 to 50 SIE
+calls (30 of them the completeness check, 2 per address scan) and $0.15 to $0.17 of Claude
+(median $0.17), in 117 to 135 s. Claude's input is mostly cached reads of the growing
+conversation: about 25,000 to 35,000 tokens for the conversation and 52,000 to 57,000 for the
+letter, priced with the figures in `rules.yaml`. Every request was answered by
+`claude-opus-5-5`; no fallback model answered.
 
 ### What this adds to the workflow-vs-agent question
 
@@ -698,8 +728,8 @@ reads of the growing conversation: about 25,000 to 34,000 tokens for the convers
 - **The person settles disagreements; code makes sure they see one.** The workflow said
   `missing` and the handbook said "accepted with sign-off" in every run. The check doesn't pick a
   side; it fails any answer that hides it. In 5 of 5 runs the agent showed both on its own.
-- **Strict checks cost you some right answers.** Two of the three letter misses were a right
-  row quoted too briefly. We left the two-word rule as it is: a one-word quote like "approved"
+- **Strict checks cost you some right answers.** The one letter miss was a right row quoted too
+  briefly, as were two of the three in the earlier batch. We left the two-word rule as it is: a one-word quote like "approved"
   could come from "Exception not approved". The price is a status a person has to look at.
 
 ## Potential improvements
