@@ -6,8 +6,8 @@ This repository holds example apps built on SIE. Each recipe is one job a team
 does every week, in one industry, built from SIE model calls plus rules in plain
 Python and YAML. Every recipe folder is self-contained: a reader can copy one
 folder into their own project and it runs with only `uv` and an SIE API key. Recipes in
-`agentic/` also need an `ANTHROPIC_API_KEY`, because Claude runs their agent loop and their tools
-call SIE models.
+`agentic/`, and the `agent.py` beside some workflows, also need an `ANTHROPIC_API_KEY`, because
+Claude runs their agent loop and their tools call SIE models.
 
 ## Layout
 
@@ -17,6 +17,13 @@ call SIE models.
 - Each recipe has its own `pyproject.toml` (`[tool.uv] package = false`),
   `uv.lock`, `.python-version` (3.12) and `.env.example`. There is no root
   Python project and no shared package.
+- A workflow recipe may also have an `agent.py` for the odd jobs the workflow
+  can't do (see "Workflow or agent?" in the root README). It imports the
+  workflow's functions from `recipe.py` in the same folder, keeps its extra
+  data in `data/agent/` (built by `make_agent_data.py`), and its `anthropic`
+  dependency in `[dependency-groups] agent` (`uv run --group agent agent.py`).
+  `recipe.py`'s results must not change. CI runs only `agent.py --help`, never
+  a live agent run.
 - `MODELS.md` lists every model the recipes use; `SELF_HOSTING.md` covers
   running them using SIE Cluster or SIE Local.
 - The root `README.md` indexes every recipe by industry; add a line there for a
@@ -37,7 +44,7 @@ Run everything from inside the recipe folder:
 
 A live run needs `SIE_API_KEY` in a `.env` in the
 recipe folder or the repo root, or `SIE_BASE_URL` pointing at SIE Cluster or SIE Local
-(the key is then optional). Recipes in `agentic/` also need `ANTHROPIC_API_KEY`.
+(the key is then optional). Recipes in `agentic/` and every `agent.py` also need `ANTHROPIC_API_KEY`.
 The first call can wait minutes while SIE Serverless starts a cold model.
 
 ## Development boundaries
