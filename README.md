@@ -60,8 +60,15 @@ in a loop, calling tools as it goes. We use one only where a workflow can't do t
   code checks the agent's work, and the result goes to a person's queue in the morning.
 
 If you can write the steps down and the job repeats, build a workflow. If you can do neither, a
-person keeps the job. [When to use a workflow, and when an agent](https://superlinked.com/blog/agentic-vs-workflows-small-models?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=readme) goes through the test on
-one bank's KYC work.
+person keeps the job.
+
+Four workflows also have an `agent.py` beside `recipe.py` for the jobs they can't do, each calling
+the workflow as a tool: [KYC checks](finance/check_kyc_documents_against_policy) (the analyst's
+follow-up questions, and a one-off request from the regulator),
+[counterparty news](finance/alert_on_counterparty_news) (the articles the workflow sends to review,
+overnight), [the contract playbook](legal/review_contract_against_playbook) (a lawyer's questions
+mid-negotiation) and [repair invoices](insurance/check_invoice_against_claim) (a one-off look at one
+shop's claims). They need an `ANTHROPIC_API_KEY` too, and run with `uv run --group agent agent.py`.
 
 ## Recipes
 

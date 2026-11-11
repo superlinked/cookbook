@@ -22,7 +22,8 @@ Claude runs their agent loop and their tools call SIE models.
   workflow's functions from `recipe.py` in the same folder, keeps its extra
   data in `data/agent/` (built by `make_agent_data.py`), and its `anthropic`
   dependency in `[dependency-groups] agent` (`uv run --group agent agent.py`).
-  `recipe.py`'s results must not change, and CI never runs `agent.py`.
+  `recipe.py`'s results must not change. CI runs only `agent.py --help`, never
+  a live agent run.
 - `MODELS.md` lists every model the recipes use; `SELF_HOSTING.md` covers
   running them using SIE Cluster or SIE Local.
 - The root `README.md` indexes every recipe by industry; add a line there for a
