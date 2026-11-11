@@ -15,8 +15,11 @@
 
 Coding agents are good now, and they're billed per token. Point one at every lint warning, docstring
 and one-line fix in a backlog and most of the bill goes on work a much smaller model, or no model at
-all, could have done. Some teams have started running open models as the default for coding and
-keeping a frontier model for the exceptions, and the usual question is which tasks go where.
+all, could have done. Some teams now run open models as the default for coding and keep a frontier
+model for the exceptions. Revolut moved about 2,000 engineers onto GLM served on 56 Nvidia B200s, at
+a blended 30 cents per million tokens, roughly a tenth of what it had been paying Anthropic and
+OpenAI ([David Abitbol at AI Engineer NYC, October 2026](https://ai.engineer/nyc/2026/talks/revolut)).
+The usual question is which tasks go where.
 
 The developer's job doesn't change much: someone files an issue, someone makes the change, the tests
 run in CI and a reviewer reads the diff before it merges. What changes is who makes the change. That
@@ -195,7 +198,7 @@ or Claude, though it does run pytest and ruff on copies of the library.
 
 ## Run it
 
-**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first).** The code runs on your machine either way. With SIE Serverless you pay per call and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first).** The code runs on your machine either way. With SIE Serverless you pay for what each call uses and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-route-coding-tasks-to-open-models-first). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
 You need [uv](https://docs.astral.sh/uv/), an SIE API key for SIE Serverless, and an `ANTHROPIC_API_KEY`. Model-written
 code runs when the tests run, so use a container.
