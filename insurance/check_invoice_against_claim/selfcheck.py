@@ -752,13 +752,16 @@ def agent_box(
         f"ocr/brightwater-invoices/p{d.page}": pages[d.document] for d in claims.waiting_invoices()
     }
     client = StandIn(by_id, **stand_in)
-    box = agent.Toolbox(cast(SIEClient, client), recipe.Calls(), claims, RULES, AGENT_DATA)
+    box = agent.Toolbox(cast(SIEClient, client), recipe.Calls(), claims, RULES, AGENT_DATA, JOB)
     return box, client
 
 
-def checked_box() -> tuple[agent.Toolbox, list[tuple[Any, Any]]]:
-    """A Toolbox that has listed the shop's claims and checked every one, on faithful pages."""
-    box, _ = agent_box()
+def checked_box(
+    pages: dict[str, str] | None = None,
+) -> tuple[agent.Toolbox, list[tuple[Any, Any]]]:
+    """A Toolbox that has listed the shop's claims and checked every one (faithful pages unless
+    `pages` gives others)."""
+    box, _ = agent_box(pages)
     box.run("claims_for_shop", {"vendor": JOB.vendor, "year": JOB.year})
     with contextlib.redirect_stdout(io.StringIO()):
         for doc in ON_LIST:
@@ -807,24 +810,31 @@ def check_agent_data() -> None:
 
 def check_agent_tools() -> None:
     box, client = agent_box()
-    # check_invoice only takes an id a lookup returned: no guessing siu-09 into the job.
+    # Every tool reaches only the job's own records: no other shop, year, claim or document,
+    # whatever an invoice's text asks for.
     for tool, args in (
         ("check_invoice", {"document": "siu-09"}),
         ("check_invoice", {"document": "../data/x"}),
         ("get_claim", {"claim_number": "CLM-26-999999"}),
+        ("get_claim", {"claim_number": NUMBER["siu-09"]}),  # in the system, not on the list
+        ("get_claim", {"claim_number": NUMBER["siu-08"]}),  # the shop's, but last year's
         ("claims_for_shop", {"vendor": JOB.vendor, "year": "2026"}),
+        ("claims_for_shop", {"vendor": JOB.vendor, "year": 2025}),
+        ("claims_for_shop", {"vendor": "Ashby Vale Exteriors", "year": JOB.year}),
         ("send_to_fraud_bureau", {}),
     ):
         error = raised(functools.partial(box.run, tool, args))
         assert isinstance(error, agent.ToolError), (tool, args, error)
     assert client.ids == []
-    rows = json.loads(box.run("claims_for_shop", {"vendor": JOB.vendor, "year": JOB.year}))
+    assert box.seen == {}
+    rows = json.loads(
+        box.run("claims_for_shop", {"vendor": f" {JOB.vendor.upper()}", "year": 2026})
+    )
     assert [row["document"] for row in rows] == ON_LIST
+    claim = json.loads(box.run("get_claim", {"claim_number": NUMBER["siu-01"]}))
+    assert [d["document"] for d in claim["documents"]] == ["siu-01"]
     assert "siu-09" not in box.seen
-    # get_claim on siu-09's claim would show its document; Claude would need the number first.
-    claim = json.loads(box.run("get_claim", {"claim_number": NUMBER["siu-09"]}))
-    assert claim["vendors"] == ["Ashby Vale Exteriors"]
-    assert "siu-09" in box.seen
+    assert "siu-08" not in box.seen
     # The same document twice runs the workflow once and returns the same result.
     with contextlib.redirect_stdout(io.StringIO()):
         first = box.run("check_invoice", {"document": "siu-01"})
@@ -874,7 +884,42 @@ def check_agent_table() -> None:
     row = agent.claim_rows(expected, failing.results)[3]
     assert row["outcome"] == "not_checked", row
     assert "SIE call failed" in row["reason"], row
-    print("agent table: closed claim and unread page are not_checked, not findings ok")
+    # A field that wasn't read proves nothing against the shop: siu-04 with its tax cell blank
+    # goes to review on invoice_math "Not read", and the table makes it not_checked.
+    blank = {doc: page(doc) for doc in AGENT_CLAIMS}
+    blank["siu-04"] = page("siu-04", fields={"Sales tax (6%)": ""})
+    unread_box, _ = checked_box(blank)
+    assert agent.only_unread(unread_box.results["siu-04"].flagged[0])
+    row = agent.claim_rows(expected, unread_box.results)[3]
+    assert (row["outcome"], row["cites"]) == ("not_checked", []), row
+    assert row["reason"].startswith("a field wasn't read"), row
+    # A finding can't rest on it, and the job is incomplete, not report_ready.
+    on_unread = with_pattern(
+        claims=[NUMBER["siu-04"]], evidence=evidence(NUMBER["siu-04"], "total", "$1,537.00")
+    )
+    unread_rows = agent.claim_rows(expected, unread_box.results)
+    found = agent.check_report(on_unread, unread_rows, unread_box.results, RULES)
+    assert any("is a finding, but" in p for p in found), found
+    assert agent.job_status(good_report(), [], unread_rows) == "incomplete"
+    # The same for a claim number or bill-to that wasn't read, and a value read two ways.
+    for check, detail_text in (
+        ("claim_match", "no claim number read on the invoice. Other checks not run: x"),
+        (
+            "claim_match",
+            "no bill-to name read; no vehicle read; the claim's VIN is 1HGCM82633A004352",
+        ),
+        ("conflicting_values", "total read as '1' / '2'"),
+        ("invoice_math", "Not read: tax (a blank tax line is not zero)"),
+    ):
+        assert agent.only_unread(recipe.Check(check, "review", detail_text)), detail_text
+    # A mismatch on a value that was read is a failed check, even next to an unread one.
+    for check, detail_text in (
+        ("claim_match", "no claim number read on the invoice; billed to 'X', not the insured"),
+        ("claim_match", "invoice says claim CLM-1, which is not a claim in the claims system"),
+        ("authorized_amount", "Total 4512.00 is over 4100.00"),
+    ):
+        assert not agent.only_unread(recipe.Check(check, "review", detail_text)), detail_text
+    print("agent table: closed claim, unread page and unread field are not_checked ok")
 
 
 def good_report() -> dict[str, Any]:
@@ -1001,6 +1046,22 @@ def check_agent_report() -> None:
     report = good_report()
     report["patterns"][1]["evidence"] = evidence(n["siu-04"], "invoice_number", "BRG-10449")
     assert problems(report, other.results) == []
+    # Two invoices on one claim: both rows count. siu-07's finding stays a finding, and a quote
+    # from either invoice is checked against its own result, when a clean invoice follows it.
+    clean = dataclasses.replace(box.results["siu-01"], document="siu-07b")
+    clean.claim_number = n["siu-07"]
+    twice = {**box.results, "siu-07b": clean}
+    two_rows = agent.claim_rows(expected, twice)
+    extra = dict(next(r for r in two_rows if r["document"] == "siu-01"))
+    extra.update(document="siu-07b", claim_number=n["siu-07"])
+    two_rows.append(extra)
+    report = with_pattern(
+        claims=[n["siu-07"]],
+        evidence=evidence(n["siu-07"], "total", box.results["siu-07"].fields["total"]),
+    )
+    assert agent.check_report(report, two_rows, twice, RULES) == []
+    report["patterns"][0]["evidence"] = evidence(n["siu-07"], "bill_to", "Dana Whitcombe")
+    assert agent.check_report(report, two_rows, twice, RULES) == []
     print("agent report: quotes, ids, finding vs question, completeness ok")
 
 
@@ -1026,8 +1087,33 @@ def check_agent_status() -> None:
     head = markdown.split("## Per-claim results")[0]
     assert "pattern 1: x" in head, head
     assert "Claim list: x" in head, head
-    assert "\\|" not in agent.cell("a b")
-    assert agent.cell("a|b") == "a\\|b"
+    # Text from invoices, tools and Claude can't render as a link, an image, HTML or a column.
+    hostile = "![x](https://evil.example/p.png) <img src=x> a|b"
+    assert agent.md_safe(hostile) == (
+        "\\!\\[x\\]\\(https://evil.example/p.png\\) \\<img src=x\\> a\\|b"
+    ), agent.md_safe(hostile)
+    assert agent.md_safe("a\nb") == "a b"
+    rows_hostile = [dict(rows[0], named_insured=hostile, reason="x\n| y |")]
+    report = good_report()
+    report["summary"] = "```\n" + hostile + "\n```"
+    report["patterns"][0]["note"] = hostile
+    report["patterns"][0]["evidence"][2]["quote"] = hostile
+    result = agent.AgentResult(report=report, problems=[f"pattern 1: {hostile}"])
+    markdown = agent.report_markdown(JOB, "check_failed", rows_hostile, result, "x", RULES)
+    fences: dict[str, bool] = {}
+    inside = ""
+    for line in markdown.splitlines():
+        if inside:
+            inside = "" if line == inside else inside
+            continue
+        if line.startswith("```"):
+            inside = line.removesuffix("text")
+            fences[inside] = True
+            continue
+        assert not re.search(r"(?<!\\)(!\[|<img)", line), line
+        if line.startswith("| "):
+            assert line.count(" | ") == 6, line  # seven columns, no stray break
+    assert "````" in fences, fences  # the summary's own ``` can't close its block
     print("agent status: four statuses, each earned; failures at the top of the report ok")
 
 
@@ -1122,7 +1208,58 @@ def check_agent_loop() -> None:
     result = agent.run_agent(ScriptedClaude(script), box, expected, "job", ())
     assert result.report is None
     assert "declined" in result.stopped
-    print("agent loop: one revision, then kept with its problems; tool cap; refusal ok")
+    # Claude API errors: 408, 409, 429, 5xx and errors without a status end the job with the
+    # reason; any other status (a bad request) stops the run.
+
+    class StatusError(Exception):
+        def __init__(self, status_code: int | None) -> None:
+            super().__init__(f"HTTP {status_code}")
+            if status_code is not None:
+                self.status_code = status_code
+
+    class Failing(ScriptedClaude):
+        def __init__(self, error: Exception) -> None:
+            super().__init__([])
+            self.error = error
+
+        def create(self, **request: Any) -> Said:
+            raise self.error
+
+    for status in (None, 408, 409, 429, 500, 529):
+        box = agent_box()[0]
+        result = agent.run_agent(Failing(StatusError(status)), box, expected, "job", (StatusError,))
+        assert result.report is None, (status, result)
+        assert "StatusError" in result.stopped, (status, result)
+    for status in (400, 401, 404, 422):
+        box = agent_box()[0]
+        error = raised(
+            functools.partial(
+                agent.run_agent, Failing(StatusError(status)), box, expected, "job", (StatusError,)
+            )
+        )
+        assert isinstance(error, StatusError), (status, error)
+    # A fallback answer is priced on the model that answered it.
+    fell_back = Said([Use("submit_report", good_report())])
+    fell_back.model = "claude-sonnet-5-5"  # type: ignore[attr-defined]
+    usage = agent.AgentResult()
+    usage.count(fell_back, RULES["agent"]["model"])
+    usage.count(Said([]), RULES["agent"]["model"])
+    prices = RULES["agent"]["prices"]
+    usd, unpriced = agent.claude_usd(usage, prices, RULES["agent"]["model"])
+    want = sum(
+        tokens * prices[model][kind]
+        for model, kind, tokens in (
+            ("claude-sonnet-5-5", "input", 10),
+            ("claude-sonnet-5-5", "output", 5),
+            (RULES["agent"]["model"], "input", 10),
+            (RULES["agent"]["model"], "output", 5),
+        )
+    )
+    assert abs(usd - want / 1_000_000) < 1e-12, (usd, want)
+    assert unpriced == [], unpriced
+    usage.by_model["claude-other"] = usage.by_model.pop("claude-sonnet-5-5")
+    assert agent.claude_usd(usage, prices, RULES["agent"]["model"])[1] == ["claude-other"]
+    print("agent loop: one revision, then kept with its problems; tool cap; refusals; errors ok")
 
 
 if __name__ == "__main__":

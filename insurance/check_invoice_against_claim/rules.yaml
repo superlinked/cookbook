@@ -119,7 +119,7 @@ agent:
   statuses:
     report_ready: Every claim on the list has a workflow result or a claim status that explains why not, and every check on the report passed
     check_failed: The report still fails a code check after one revision; the failures are at the top of the report
-    incomplete: An invoice on the list couldn't be read (an SIE call failed or the page was unreadable); the analyst gets the reason
+    incomplete: An invoice on the list couldn't be read (an SIE call failed or the page was unreadable), or a field a check needed wasn't read; the analyst gets the reason
     no_report: Claude declined, ran out of steps or the Claude API failed; there is no report
   pattern_kinds: [finding, question]
   # Where the claim list came from and what it can't include. Code writes this line, never Claude.
@@ -145,8 +145,9 @@ agent:
 
     Your tools:
     - claims_for_shop lists the claims the shop is the vendor on, with an invoice received that
-      year. Start here.
-    - get_claim gives one claim's record: insured, loss, vendors, estimate and supplements.
+      year. Start here. It only takes the shop and year in the request.
+    - get_claim gives one claim's record: insured, loss, vendors, estimate and supplements. It
+      only takes a claim on that list.
     - check_invoice runs the claims team's own invoice check on one document and returns its
       result: a status, the fields it read from the page, the line items and every check with
       its detail. That result is the only evidence about an invoice.
@@ -161,7 +162,9 @@ agent:
 
     Each pattern is a finding or a question:
     - A finding rests on a check that failed in the check_invoice result for at least one of the
-      claims it names. Say which check failed and what its detail says.
+      claims it names. Say which check failed and what its detail says. A check that only says a
+      value wasn't read ("Not read: ...", conflicting_values, "no claim number read") is not a
+      failed check: it shows what the reader missed, not what the shop did.
     - Anything else, however odd it looks, is a question for the adjuster or the analyst. If you
       can see an innocent explanation, say it in the note.
     In notes, say what the checks and fields show, never what the shop meant or intended.

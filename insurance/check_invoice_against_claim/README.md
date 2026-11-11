@@ -481,16 +481,18 @@ which comparisons to make, with up to 12 tool calls before it reports.
 
 | Tool | What it runs | What it returns |
 | --- | --- | --- |
-| `claims_for_shop(vendor, year)` | `ClaimsSystem.claims_for_vendor` in `claims_system.py`, a read-only lookup | Document id, claim number, insured, claim status, loss date and place, and when the invoice arrived, for every claim that lists this vendor with an invoice received that year |
-| `get_claim(claim_number)` | `ClaimsSystem.get_claim` | The claim record (insured, loss, vendors, estimate and supplements) and the documents filed on it |
+| `claims_for_shop(vendor, year)` | `ClaimsSystem.claims_for_vendor` in `claims_system.py`, a read-only lookup; only the shop and year in `jobs.yaml` | Document id, claim number, insured, claim status, loss date and place, and when the invoice arrived, for every claim that lists this vendor with an invoice received that year |
+| `get_claim(claim_number)` | `ClaimsSystem.get_claim`, for a claim on that list only | The claim record (insured, loss, vendors, estimate and supplements) and the shop's documents filed on it |
 | `check_invoice(document)` | `recipe.process_invoice`: `LightOnOCR-3-4B` reads the page and `gliner2-large-v1` finds the fields (two calls) on SIE, and Python runs every check | The workflow's own `InvoiceResult.as_json()`: status, fields, line items, every check with its detail |
 | `submit_report(summary, patterns)` | Nothing; it ends the loop | Patterns, each with a `kind` (`finding` or `question`), the claims it names, evidence (`claim`, `field_or_line`, `quote`) and a plain note |
 
 There's no new model. The two SIE models are the workflow's own, called through the workflow's own
 function, so `check_invoice` gives the agent exactly the answer the nightly run would.
-`check_invoice` only takes a document id that a lookup returned in this job, the same limit a real
-claims system's opaque ids would put on it; the agent can't guess its way to `siu-09`. Checking the same
-document twice returns the first result.
+Every tool reaches only this job's records. `claims_for_shop` refuses any shop or year but the ones
+in `jobs.yaml`, `get_claim` refuses a claim that isn't on that list, and `check_invoice` only takes a
+document id a lookup returned in this job, the same limit a real claims system's opaque ids would
+put on it. So the agent can't reach `siu-09` by construction, and text printed on an invoice can't
+steer a tool to another shop's claims. Checking the same document twice returns the first result.
 
 After the loop, code in [`agent.py`](./agent.py) does all of this, against what the tools returned
 and never against the agent's account of it:
@@ -498,27 +500,32 @@ and never against the agent's account of it:
 1. **Builds the per-claim table** (`claim_rows`) from the claims system and the workflow's results.
    `clear` needs the status `checks_passed`. `finding` needs a check that failed on an open claim. A
    closed claim, or a page that wasn't read, is `not_checked`, whatever check name the workflow
-   filed it under.
+   filed it under. So is an invoice whose only flagged checks say a field wasn't read ("Not read:
+   tax", "no claim number read", a value read two ways): an unread field is not a failed check,
+   because it shows what the reader missed, not what the shop did.
 2. **Checks the list is complete** (`check_report`). Every open claim on the list (computed from the
    vendor and year in `jobs.yaml`, not from the agent) must have been run through `check_invoice`.
 3. **Checks every quote** (`evidence_problems`). The quote must be the whole value at that place in
    that claim's result: a field, a cell of line N, or a value in the result's `claim` block. A
    piece of a value, two values joined, or a value from another claim all fail.
 4. **Keeps findings and questions apart.** A `finding` must name at least one claim whose
-   check failed; otherwise it has to be a `question`. A claim that isn't on the list, or a kind
+   check failed, which means a `finding` row in the table; otherwise it has to be a `question`.
+   A claim that's `not_checked` because a field wasn't read can't carry a finding. A claim that isn't on the list, or a kind
    outside the two, is rejected.
 
 Anything wrong goes back to the agent once. Then the report goes to the analyst either way, with
 anything still failing printed at the top. The job ends with one status from `rules.yaml`:
 `report_ready`, `check_failed`, `incomplete` (an invoice on the list couldn't be read, because an
-SIE call failed or the page was unreadable) or `no_report`. SIE errors follow the workflow's rule: a
+SIE call failed or the page was unreadable, or a field a check needed wasn't read) or `no_report`. SIE errors follow the workflow's rule: a
 transient failure leaves that claim `not_checked` with the reason and the job `incomplete`; a
 refusal, or every call failing, stops the run with no outputs.
 
 What the code can't check, so the analyst reads it: whether a pattern is real, whether the
 explanation in a note is right (the flat rate in example 2 is the agent's reading), patterns the
 agent didn't look for, whether a finding's note is about the claim whose check failed or only names
-it, and claims the shop invoiced without being the listed vendor. And a quote proves what the
+it, and claims the shop invoiced without being the listed vendor. A finding may also name a clear
+claim next to the failed one, and the code accepts that: example 1's finding names `siu-03`, which
+passed every check, beside `siu-02`, which failed. And a quote proves what the
 workflow read, not what the page says: `clm-08`'s invented tax would pass the quote check.
 
 ```mermaid
@@ -552,13 +559,16 @@ uv run make_agent_data.py   # optional: rewrite data/agent/
 
 Each run writes `runs/<timestamp>/agent/`: `siu-report.md` (the code's checks, the per-claim table,
 findings, questions), `siu-report.json` (the same, with every workflow result), `transcript.json`
-and `cost.json` (Claude tokens and dollars, SIE calls). Nothing is sent to the shop, no claim is
+and `cost.json` (Claude tokens and dollars by the model that answered, SIE calls). In
+`siu-report.md`, anything that came from an invoice or from Claude is escaped, and the summary and
+notes sit in fenced blocks, so a bill-to line can't turn into a link or an image. Nothing is sent to the shop, no claim is
 reopened, no payment is stopped, and nothing is referred anywhere; the analyst decides all of that.
 
 ### What the agent did
 
-We ran the job five times using SIE Serverless on 2026-11-10 (UTC), with nothing changed between
-runs.
+We ran the job five times using SIE Serverless on 2026-11-11 (UTC), with nothing changed between
+runs. These are the runs after the review fixes (tools scoped to the job, unread fields kept out of
+findings), which replace an earlier batch of five.
 
 ### The agent examples
 
@@ -567,17 +577,17 @@ runs.
   the code accepts it.
 - **What came back:** on all five runs, a finding naming `CLM-26-118206` and `CLM-26-133540`,
   quoting the invoice number and total from both results and the bill-to and service address from
-  `siu-02`, with `claim_match` and its detail in the note. Four of five also quoted Fenwick's
+  `siu-02`, with `claim_match` and its detail in the note. Three of five also quoted Fenwick's
   authorized 2033.08 next to the invoice total. The code accepted it every time.
 - **Verdict:** Pass.
 
 **2. Same total, two neighbours: a question, not a finding.** `siu-04` and `siu-05`.
 - **Expected outcome:** a question naming both claims.
 - **What came back:** a question on all five runs, never a finding. Every note named the flat-rate
-  line, Fernhollow Lane and the shared loss date, and four of five also pulled in Dana Whitcombe's
-  claim on the same street. Run 4 put it as "after one storm, the same flat-rate job on two similar
-  neighbouring houses would give identical invoices. This is only a question: the adjuster may want
-  to confirm both jobs were done."
+  line, Fernhollow Lane and the shared loss date, and every run also pulled in Dana Whitcombe's
+  claim on the same street, in the question, in its note, or (run 1) as a question of its own. Run 4
+  put it as "Possible innocent explanation: the same storm hit similar houses and the shop charges a
+  flat rate. Only the adjuster can confirm that two separate jobs were done."
 - **Verdict:** Pass. Whether the flat rate really explains it is still the analyst's call; the code
   can't read the note.
 
@@ -586,18 +596,18 @@ runs.
   where the list came from.
 - **What came back:** seven claims and `siu-06` as `not_checked` with "claim is closed; the workflow
   only checks open claims, so this is no result against the shop" on every run. `siu-08` and
-  `siu-09` never appeared. On run 2 the agent read the refusal as a failed check and filed it as a
+  `siu-09` never appeared. On run 1 the agent read the refusal as a failed check and filed it as a
   finding (from `transcript.json`):
 
   ```json
   {"kind": "finding", "claims": ["CLM-26-152733"],
-   "note": "The claim_match check came back as 'review' with the detail 'Filed under CLM-26-152733, which is closed, not open'. ..."}
+   "note": "The claim_match check came back 'review': 'Filed under CLM-26-152733, which is closed, not open'. ..."}
   ```
 
-  The code sent it back with "pattern 2 is a finding, but none of its claims has a failed check in
+  The code sent it back with "pattern 3 is a finding, but none of its claims has a failed check in
   the workflow's result; make it a question, or name the claim whose check failed", and the second
   report made it a question.
-- **Verdict:** Pass, with the completeness limit as designed: `siu-09`, a Brightwater invoice on a
+- **Verdict:** Pass. The completeness limit holds as designed: `siu-09`, a Brightwater invoice on a
   claim where Brightwater isn't the listed vendor, is missing from every report, and only the code's
   line says such a claim could exist.
 
@@ -605,20 +615,24 @@ runs.
 
 5 of 5 runs of the one job came out as expected: every run ended `report_ready`, with the same
 per-claim table (`siu-02` and `siu-07` findings, `siu-06` not checked, four clear) and the same
-finding and question for examples 1 and 2.
+finding and question for examples 1 and 2. Run 1 also filed `siu-07`'s `authorized_amount` failure as a
+finding of its own, which the code accepts, since that check failed.
 
 **Where it works:** the per-claim table can't drift, because code builds it from the workflow's
 results, and on these pages the workflow gave the same answers every run. The patterns held up too.
 Every run found the repeated invoice and called it a finding, and every run kept the equal totals as
 a question. The one time the agent overreached (run 2, the closed claim as a finding), the code
-caught it and the revision fixed it.
+caught it and the revision fixed it. No page in these runs had an unread field, so the rule that keeps
+an unread field out of a finding didn't come up live; `selfcheck.py` covers it with `siu-04`'s tax
+cell blanked.
 
 **Where it fails:**
-- **A question nobody needed.** On all five runs the agent also asked about "220 Millrace Road". The
-  workflow's extraction notes say that address was dropped on all seven invoices because it isn't on
-  a labelled line. It's Brightwater's own letterhead address. Most of the agent's notes guessed as
-  much, and then filed the question anyway, just in case. The code can't tell a useful question
-  from a noisy one, so the analyst spends a minute on it.
+- **A question nobody needed.** On run 4 the agent asked about "220 Millrace Road" across all seven
+  claims, and runs 1 and 3 brought it up inside another question. The workflow's extraction notes
+  say that address was dropped on all seven invoices because it isn't on a labelled line. It's
+  Brightwater's own letterhead address. The agent's notes guessed as much and raised it anyway,
+  just in case. The code can't tell a useful question from a noisy one, so the analyst spends a
+  minute on it. (In the earlier batch it was a question of its own on all five runs.)
 - **What it can't find.** `siu-09` is never on the list, by design: the lookup goes through the
   vendor on the claim. If Brightwater billed through another shop's claim, nothing here would
   notice.
@@ -627,10 +641,10 @@ caught it and the revision fixed it.
   OCR model can fill in a blank, and a quote of that value would pass.
 
 **Cost.** Every run made 8 tool calls (one `claims_for_shop` and seven `check_invoice`; no run used
-`get_claim`) and 21 SIE calls, 3 per invoice like the workflow. Claude cost $0.06 to $0.14 a job
-(about $0.09 on average; 15,172 input and about 3,100 output tokens, most input read from the prompt
-cache), and the run with the revision was the dearest, at 28,320 input and 5,860 output tokens. A
-run took 65 to 85 s. The workflow costs 3 SIE calls and about 6 s per invoice warm (30 calls in 57 s
+`get_claim`) and 21 SIE calls, 3 per invoice like the workflow. Claude cost $0.06 to $0.20 a job,
+about $0.09 on average. Each run without a revision used 15,532 input tokens (most read from the
+prompt cache) and 3,011 to 3,313 output tokens; the run with the revision was the dearest, at 29,250
+input and 6,233 output tokens. Runs took 63 to 67 s, except the first, with the revision, at 185 s. The workflow costs 3 SIE calls and about 6 s per invoice warm (30 calls in 57 s
 for ten), with no Claude tokens, so the agent adds about $0.09 a job, a bit over a cent per claim,
 on top of the same SIE calls.
 
@@ -653,8 +667,8 @@ on another vendor's claim) some other way.
   failed check against the shop and wrote it up as a finding. The code reads the claim's status, not
   the check's name, and sent it back.
 - **Code can keep findings and questions apart.** A finding accuses the shop, so it needs a failed
-  check behind it, and that rule did its job. What it can't do is judge the prose: the "220
-  Millrace Road" question came back on all five runs, and the flat-rate explanation in example 2 is
+  check behind it (an unread field isn't one), and that rule did its job. What it can't do is judge the prose: the "220
+  Millrace Road" question came back on three runs in five, and the flat-rate explanation in example 2 is
   still the agent's reading.
 - **Quotes prove what the workflow read, not what the page says.** Every quote matched a value in
   the workflow's result, and that's all the check can say: the OCR model's mistakes pass straight

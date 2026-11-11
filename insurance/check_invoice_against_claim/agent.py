@@ -8,8 +8,8 @@ Input:     data/agent/jobs.yaml (the request: shop, year, the analyst's text) an
            (a claims-system seed for claims_system.py, and brightwater-invoices.pdf).
 Loop:      Claude (rules.yaml agent.model) picks which claims to open and which comparisons to
            make, through four tools:
-           claims_for_shop   ClaimsSystem.claims_for_vendor, plain Python
-           get_claim         ClaimsSystem.get_claim, plain Python
+           claims_for_shop   ClaimsSystem.claims_for_vendor, the job's shop and year only
+           get_claim         ClaimsSystem.get_claim, a claim on the job's list only
            check_invoice     recipe.process_invoice: LightOnOCR-3-4B reads the page and
                              gliner2-large-v1 finds the fields (two calls) on SIE, Python checks
            submit_report     ends the loop
@@ -103,7 +103,8 @@ def tools(rules: dict[str, Any]) -> list[dict[str, Any]]:
             "description": (
                 "Every claim that lists this vendor (exact name) and has a repair invoice "
                 "received in this year: document id, claim number, insured, claim status, loss "
-                "date and place, and when the invoice arrived."
+                "date and place, and when the invoice arrived. Only the shop and year in the "
+                "request can be looked up."
             ),
             "strict": True,
             "input_schema": object_schema(
@@ -113,8 +114,9 @@ def tools(rules: dict[str, Any]) -> list[dict[str, Any]]:
         {
             "name": "get_claim",
             "description": (
-                "One claim's record by its exact claim number: status, insured, loss date and "
-                "place, vendors, estimate and supplements, and the documents filed on it."
+                "One claim's record by its exact claim number, for a claim on the shop's list: "
+                "status, insured, loss date and place, vendors, estimate and supplements, and "
+                "the shop's documents filed on it."
             ),
             "strict": True,
             "input_schema": object_schema({"claim_number": {"type": "string"}}),
@@ -165,14 +167,17 @@ def claim_json(claim: ClaimRecord) -> dict[str, Any]:
 
 @dataclass
 class Toolbox:
-    """What Claude's tools reach for one job. check_invoice only takes a document id a lookup
-    returned in this job, as a real claims system's opaque ids would force."""
+    """What Claude's tools reach for one job: only the job's own records. claims_for_shop takes
+    only the job's shop and year, get_claim only a claim on that list, and check_invoice only a
+    document id a lookup returned in this job. Text on an invoice can't steer a tool anywhere
+    else, because nothing else is reachable."""
 
     client: SIEClient
     calls: recipe.Calls
     claims: ClaimsSystem
     rules: dict[str, Any]
     data_dir: Path
+    job: Job
     seen: dict[str, ClaimDocument] = field(default_factory=dict)  # ids Claude was shown
     results: dict[str, recipe.InvoiceResult] = field(default_factory=dict)  # as returned
 
@@ -187,11 +192,20 @@ class Toolbox:
             raise ToolError(f"there is no tool called {name}")
         return json.dumps(output, indent=1, ensure_ascii=False)
 
+    def on_list(self) -> list[tuple[ClaimRecord, ClaimDocument]]:
+        """The job's claims: the shop and year in the job file, never Claude's arguments."""
+        return self.claims.claims_for_vendor(self.job.vendor, self.job.year)
+
     def claims_for_shop(self, vendor: str, year: Any) -> list[dict[str, Any]]:
         if not isinstance(year, int):
             raise ToolError("year must be a whole number, such as 2026")
+        if vendor.strip().casefold() != self.job.vendor.strip().casefold() or year != self.job.year:
+            raise ToolError(
+                f"this job covers {self.job.vendor!r} in {self.job.year} only; no other shop or "
+                "year can be looked up"
+            )
         rows = []
-        for claim, document in self.claims.claims_for_vendor(vendor, year):
+        for claim, document in self.on_list():
             self.seen[document.document] = document
             rows.append(
                 {
@@ -207,14 +221,18 @@ class Toolbox:
         return rows
 
     def get_claim(self, claim_number: str) -> dict[str, Any]:
-        claim = self.claims.get_claim(claim_number)
-        if claim is None:
-            raise ToolError(f"no claim {claim_number!r} in the claims system")
-        filed = [
-            d
-            for d in self.claims.waiting_invoices()
-            if claim_key(d.claim_number) == claim_key(claim.claim_number)
+        listed = [
+            (claim, document)
+            for claim, document in self.on_list()
+            if claim_key(claim.claim_number) == claim_key(claim_number)
         ]
+        if not listed:
+            raise ToolError(
+                f"{claim_number!r} is not a claim on this job's list; use a claim number from "
+                "claims_for_shop"
+            )
+        claim = listed[0][0]
+        filed = [document for _, document in listed]
         for document in filed:
             self.seen[document.document] = document
         return {
@@ -248,6 +266,23 @@ def unreadable(result: recipe.InvoiceResult) -> list[recipe.Check]:
     return [check for check in result.flagged if check.check == "readable"]
 
 
+# A claim_match problem that only says a value wasn't read ("no claim number read on the
+# invoice", "no vehicle read; the claim's VIN is ...").
+UNREAD_MATCH = re.compile(r"no [\w -]+ read(?: on the invoice)?|the claim's VIN is \S+")
+
+
+def only_unread(check: recipe.Check) -> bool:
+    """True when a flagged check only records that the reader didn't get a value: a field that
+    wasn't read, or was read two ways. That proves nothing against the shop, so it is not a
+    failed check."""
+    if check.check in ("readable", "conflicting_values") or check.detail.startswith("Not read"):
+        return True
+    if check.check == "claim_match":
+        problems = check.detail.split(". Other checks not run")[0].split("; ")
+        return all(UNREAD_MATCH.fullmatch(problem) for problem in problems)
+    return False
+
+
 def claim_rows(
     expected: list[tuple[ClaimRecord, ClaimDocument]], results: dict[str, recipe.InvoiceResult]
 ) -> list[dict[str, Any]]:
@@ -255,8 +290,10 @@ def claim_rows(
 
     A claim that isn't open is `not_checked`: the workflow declines to check it, and that
     refusal is not a failed check against the shop, whatever check name it is filed under. A
-    page that wasn't read (an SIE call failed, too little text) is `not_checked` too. `finding`
-    needs a check that failed on an open claim; `clear` needs the status checks_passed.
+    page that wasn't read (an SIE call failed, too little text) is `not_checked` too, and so is
+    an invoice whose only flagged checks say a field wasn't read: an unread field is not a
+    failed check. `finding` needs a check that failed on a value that was read, on an open
+    claim; `clear` needs the status checks_passed.
     """
     rows = []
     for claim, document in expected:
@@ -284,9 +321,12 @@ def claim_rows(
             row["reason"] = "; ".join(check.detail for check in unreadable(result))
         elif result.status == recipe.CHECKS_PASSED:
             row["outcome"] = CLEAR
+        elif all(only_unread(check) for check in result.flagged):
+            details = "; ".join(f"{c.check}: {c.detail}" for c in result.flagged)
+            row["reason"] = f"a field wasn't read ({details})"
         else:
             row["outcome"] = FINDING
-            row["cites"] = [check.check for check in result.flagged]
+            row["cites"] = [c.check for c in result.flagged if not only_unread(c)]
             row["reason"] = "; ".join(f"{c.check}: {c.detail}" for c in result.flagged)
         rows.append(row)
     return rows
@@ -327,7 +367,10 @@ def check_report(
     """What's wrong with the report, checked against the workflow's results, never against
     Claude's account of them. Empty when it passes."""
     problems: list[str] = []
-    by_claim = {claim_key(row["claim_number"]): row for row in rows}
+    # A claim can have more than one invoice on the list, so each claim keeps all its rows.
+    by_claim: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_claim.setdefault(claim_key(row["claim_number"]), []).append(row)
     for row in rows:
         if row["reason"] == NOT_RUN:
             problems.append(
@@ -358,7 +401,7 @@ def check_report(
             failed = [
                 claim
                 for claim in named
-                if by_claim.get(claim_key(claim), {}).get("outcome") == FINDING
+                if any(row["outcome"] == FINDING for row in by_claim.get(claim_key(claim), []))
             ]
             if not failed:
                 problems.append(
@@ -372,18 +415,24 @@ def evidence_problems(
     where: str,
     item: dict[str, Any],
     named: list[str],
-    by_claim: dict[str, dict[str, Any]],
+    by_claim: dict[str, list[dict[str, Any]]],
     results: dict[str, recipe.InvoiceResult],
 ) -> list[str]:
+    """A quote must be the whole value at that place in a check_invoice result for that claim
+    (any of its invoices on the list)."""
     claim, place, quote = (str(item.get(k, "")) for k in ("claim", "field_or_line", "quote"))
     if claim_key(claim) not in {claim_key(c) for c in named}:
         return [f"{where}: evidence from {claim}, which the pattern doesn't name"]
-    row = by_claim.get(claim_key(claim))
-    result = results.get(row["document"]) if row else None
-    if result is None:
+    checked = [
+        results[row["document"]]
+        for row in by_claim.get(claim_key(claim), [])
+        if row["document"] in results
+    ]
+    if not checked:
         return [f"{where}: no check_invoice result for {claim} in this job to quote from"]
-    values = values_at(result, place)
-    if values is None:
+    found = [values_at(result, place) for result in checked]
+    values = [value for at in found if at is not None for value in at]
+    if all(at is None for at in found):
         return [f"{where}: {claim} has no {place!r} in its check_invoice result"]
     if squash(quote) not in {squash(value) for value in values}:
         shown = " / ".join(repr(value) for value in values)
@@ -422,7 +471,26 @@ class AgentResult:
     cache_write_tokens: int = 0
     cache_read_tokens: int = 0
     output_tokens: int = 0
+    # Tokens by the model that actually answered (a server-side fallback can answer instead).
+    by_model: dict[str, dict[str, int]] = field(default_factory=dict)
     transcript: list[dict[str, Any]] = field(default_factory=list)
+
+    def count(self, response: Any, asked: str) -> None:
+        usage = response.usage
+        tokens = {
+            "input": usage.input_tokens,
+            "cache_write": usage.cache_creation_input_tokens or 0,
+            "cache_read": usage.cache_read_input_tokens or 0,
+            "output": usage.output_tokens,
+        }
+        self.input_tokens += tokens["input"]
+        self.cache_write_tokens += tokens["cache_write"]
+        self.cache_read_tokens += tokens["cache_read"]
+        self.output_tokens += tokens["output"]
+        model = str(getattr(response, "model", None) or asked)
+        bucket = self.by_model.setdefault(model, dict.fromkeys(tokens, 0))
+        for kind, count in tokens.items():
+            bucket[kind] += count
 
 
 def make_claude() -> anthropic.Anthropic:
@@ -510,11 +578,30 @@ def one_submission(
     return True
 
 
+# HTTP statuses from the Claude API that may pass on a retry: timeout, conflict, rate limit.
+TRANSIENT_STATUSES = (408, 409, 429)
+
+
 def transient_claude_errors() -> tuple[type[Exception], ...]:
-    """Claude API errors that may pass: the job ends without a report, with the reason."""
+    """Claude API errors that may pass: the job ends without a report, with the reason. An
+    APIStatusError counts only with a status in TRANSIENT_STATUSES or 500 and up (is_transient);
+    any other error stops the run in main()."""
     import anthropic
 
-    return (anthropic.RateLimitError, anthropic.InternalServerError, anthropic.APIConnectionError)
+    return (
+        anthropic.APIConnectionError,
+        anthropic.APITimeoutError,
+        anthropic.RateLimitError,
+        anthropic.InternalServerError,
+        anthropic.APIStatusError,
+    )
+
+
+def is_transient(error: Exception) -> bool:
+    """A caught Claude API error that may pass: no HTTP status (a connection error or timeout),
+    or a status in TRANSIENT_STATUSES or 500 and up."""
+    status = getattr(error, "status_code", None)
+    return not isinstance(status, int) or status in TRANSIENT_STATUSES or status >= 500
 
 
 def run_agent(
@@ -534,13 +621,11 @@ def run_agent(
         try:
             response = ask_claude(claude, messages, box.rules)
         except transient as error:
+            if not is_transient(error):
+                raise
             result.stopped = f"the Claude API failed: {type(error).__name__}"
             return result
-        usage = response.usage
-        result.input_tokens += usage.input_tokens
-        result.cache_write_tokens += usage.cache_creation_input_tokens or 0
-        result.cache_read_tokens += usage.cache_read_input_tokens or 0
-        result.output_tokens += usage.output_tokens
+        result.count(response, settings["model"])
         if response.stop_reason == "refusal":
             result.stopped = "Claude declined the request"
             return result
@@ -580,18 +665,37 @@ def run_agent(
 # --- Output -----------------------------------------------------------------------------------
 
 
-def claude_usd(result: AgentResult, prices: dict[str, float]) -> float:
-    return (
-        result.input_tokens * prices["input"]
-        + result.cache_write_tokens * prices["cache_write"]
-        + result.cache_read_tokens * prices["cache_read"]
-        + result.output_tokens * prices["output"]
-    ) / 1_000_000
+def claude_usd(
+    result: AgentResult, prices: dict[str, dict[str, float]], asked: str
+) -> tuple[float, list[str]]:
+    """Dollars for the job, each response priced on the model that answered it, and the
+    answering models rules.yaml has no price for (priced as the asked model, so check them)."""
+    usd, unpriced = 0.0, []
+    for model, tokens in result.by_model.items():
+        if model not in prices:
+            unpriced.append(model)
+        rate = prices.get(model, prices[asked])
+        usd += sum(tokens[kind] * rate[kind] for kind in tokens) / 1_000_000
+    return usd, unpriced
 
 
-def cell(value: Any) -> str:
-    """A value for a Markdown table cell: one line, no column break."""
-    return re.sub(r"\s+", " ", str(value)).replace("|", "\\|")
+MD_SPECIAL = re.compile(r"([\\`*_\[\]()<>|!#])")
+
+
+def md_safe(value: Any) -> str:
+    """Text from a document, a tool or Claude, made inert for Markdown: one line, with every
+    character that could start a link, an image, HTML, emphasis, code, a heading or a table
+    column escaped."""
+    return MD_SPECIAL.sub(r"\\\1", re.sub(r"\s+", " ", str(value)).strip())
+
+
+def fenced(text: Any) -> list[str]:
+    """Free text (a summary, a note, the request) as a fenced block whose fence is longer than
+    any run of backticks inside it, so nothing in it renders or closes the block."""
+    body = str(text)
+    longest = max((len(run) for run in re.findall(r"`+", body)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return [fence + "text", *body.splitlines(), fence]
 
 
 def report_markdown(
@@ -602,21 +706,21 @@ def report_markdown(
     completeness: str,
     rules: dict[str, Any],
 ) -> str:
-    lines = [f"# SIU look-back: {job.vendor}, {job.year}", ""]
+    lines = [f"# SIU look-back: {md_safe(job.vendor)}, {job.year}", ""]
     lines.append(f"**Status:** `{status}`: {rules['agent']['statuses'][status]}")
-    lines += ["", f"**Asked by:** {job.asked_by}. {cell(job.text)}", ""]
+    lines += ["", f"**Asked by:** {md_safe(job.asked_by)}.", "", *fenced(job.text), ""]
     lines += ["## What the code checked", ""]
     if result.report is None:
-        lines.append(f"- No report: {result.stopped or 'Claude stopped'}.")
+        lines.append(f"- No report: {md_safe(result.stopped or 'Claude stopped')}.")
     elif result.problems:
         lines.append("- These checks still fail, so read the patterns below with care:")
-        lines += [f"  - {problem}" for problem in result.problems]
+        lines += [f"  - {md_safe(problem)}" for problem in result.problems]
     else:
         lines.append(
             "- Every claim on the list was checked or has a claim status that explains why not; "
             "every quote is a value the workflow returned; every finding has a failed check."
         )
-    lines += [f"- {completeness}", f"- {rules['agent']['cannot_check']}", ""]
+    lines += [f"- {md_safe(completeness)}", f"- {rules['agent']['cannot_check']}", ""]
     lines += ["## Per-claim results (built by code from the workflow's results)", ""]
     lines += [
         "| Document | Claim | Insured | Claim status | Workflow status | Outcome | Why |",
@@ -626,7 +730,7 @@ def report_markdown(
         lines.append(
             "| "
             + " | ".join(
-                cell(row[key]) or "-"
+                md_safe(row[key]) or "-"
                 for key in (
                     "document",
                     "claim_number",
@@ -640,19 +744,20 @@ def report_markdown(
             + " |"
         )
     if result.report is not None:
-        lines += ["", "## Summary", "", str(result.report.get("summary", ""))]
+        lines += ["", "## Summary", "", *fenced(result.report.get("summary", ""))]
         for kind, title in (("finding", "Findings"), ("question", "Questions for a person")):
             picked = [p for p in result.report.get("patterns", []) if p.get("kind") == kind]
             lines += ["", f"## {title}", ""]
             if not picked:
                 lines.append("None.")
             for number, pattern in enumerate(picked, start=1):
-                claims = ", ".join(pattern.get("claims", []))
-                lines += [f"{number}. **{claims}**: {pattern.get('note', '')}"]
+                claims = ", ".join(md_safe(claim) for claim in pattern.get("claims", []))
+                lines += [f"### {kind.capitalize()} {number}: {claims}", ""]
+                lines += [*fenced(pattern.get("note", "")), ""]
                 for item in pattern.get("evidence", []):
                     lines.append(
-                        f"   - {item.get('claim')} {item.get('field_or_line')}: "
-                        f'"{item.get("quote")}"'
+                        f"- {md_safe(item.get('claim'))} {md_safe(item.get('field_or_line'))}: "
+                        f'"{md_safe(item.get("quote"))}"'
                     )
     lines += ["", "The SIU analyst decides what happens next. Nothing here was sent to the shop."]
     return "\n".join(lines) + "\n"
@@ -677,13 +782,13 @@ def run(args: argparse.Namespace) -> None:
     calls = recipe.Calls()
     started = time.monotonic()
     with recipe.make_client() as client:
-        box = Toolbox(client, calls, claims, rules, data_dir)
+        box = Toolbox(client, calls, claims, rules, data_dir, job)
         result = run_agent(claude, box, expected, job_prompt(job), transient_claude_errors())
         calls.check_all_failed()  # every SIE call failed: stop, no outputs
     seconds = round(time.monotonic() - started)
     rows = claim_rows(expected, box.results)
     status = job_status(result.report, result.problems, rows)
-    usd = claude_usd(result, settings["prices"][settings["model"]])
+    usd, unpriced = claude_usd(result, settings["prices"], settings["model"])
     output = (args.output or RUNS_DIR / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")) / "agent"
     output.mkdir(parents=True, exist_ok=True)
     record = {
@@ -702,6 +807,8 @@ def run(args: argparse.Namespace) -> None:
     }
     cost = {
         "model": settings["model"],
+        "answered_by": result.by_model,
+        "unpriced_models": unpriced,
         "input_tokens": result.input_tokens,
         "cache_write_tokens": result.cache_write_tokens,
         "cache_read_tokens": result.cache_read_tokens,
@@ -746,19 +853,25 @@ def main() -> None:
     args = parser.parse_args()
     import anthropic
 
+    hints: dict[type[Exception], str] = {
+        anthropic.AuthenticationError: "Check ANTHROPIC_API_KEY.",
+        anthropic.PermissionDeniedError: "Check ANTHROPIC_API_KEY and its access to the model.",
+        anthropic.NotFoundError: "Check the model name under agent: in rules.yaml.",
+        anthropic.BadRequestError: (
+            "Check the request settings under agent: in rules.yaml (model, effort, max_tokens, "
+            "fallbacks)."
+        ),
+    }
     try:
         run(args)
     except recipe.SIEStopped as error:
         raise SystemExit(f"Stopped: {error}") from None
-    except (
-        anthropic.AuthenticationError,
-        anthropic.PermissionDeniedError,
-        anthropic.NotFoundError,
-        anthropic.BadRequestError,
-    ) as error:
+    except anthropic.APIError as error:
+        # Transient errors end the job inside run_agent; anything that gets here stops the run.
+        hint = next((h for kind, h in hints.items() if isinstance(error, kind)), "")
         raise SystemExit(
-            f"Stopped: the Claude API refused the request, {type(error).__name__}: {error}. Check "
-            "ANTHROPIC_API_KEY and the model name in rules.yaml. No outputs were written."
+            f"Stopped: {error} (the Claude API, {type(error).__name__}). {hint} No outputs were "
+            "written."
         ) from None
 
 
