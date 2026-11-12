@@ -159,60 +159,65 @@ answer and, for the RLM, every turn's code and what it printed.
 
 On 12 Nov 2026 (UTC) we ran all three runs once using SIE Local: one SIE server on an RTX PRO 6000
 serving `Qwen/Qwen3.8-27B-FP8` with the `rtx-pro-6000-32k-thinking-bounded-rlm-no-spec` profile. It took
-28 SIE calls and about 20 minutes, with no failed call. SIE Local charges no credits.
+23 SIE calls and about 18 minutes, with no failed call. SIE Local charges no credits.
 
 ### The three examples
 
 **short-handoff** was read whole, in one call of 6,042 tokens. The answer was step 11 and the
-coordinator: "The instruction wrongly told the coder to base interest on "invoice.total" and the cap on
-"10% of invoice.total", not the unpaid balance. That directly produced the failing check for INV-2042,
-where using the total gave 30.00 instead of 12.00." It blamed the instruction, not the coder who carried it
-out.
+coordinator: "The coordinator's instruction misstated the requirement, telling the coder to charge and cap
+based on "invoice.total" instead of the invoice's unpaid balance. That error was faithfully implemented and
+later caused the acceptance check to fail for the partially paid invoice." It blamed the instruction, not
+the coder who carried it out.
 
 - **Verdict:** Pass.
 
-**medium-off-by-one** is about 36,000 tokens, so it went to the RLM: 9 turns in 5.0 minutes, with no
-prompt over 8,484 tokens. Qwen read the failing check, cleared the coordinator's instruction ("correct (1% per
-STARTED month, a day late counts as one month)") and blamed the coder's code at step 30, after running
-the month count in the sandbox: it "counts only full calendar months ..., yielding 0 months for a 10-day
-delay".
+**medium-off-by-one** is about 36,000 tokens, so it went to the RLM: 11 turns in 5.1 minutes, with no
+prompt over 9,480 tokens. Qwen cleared the coordinator's instruction and blamed the coder's code: "Step 30
+(coder) implemented months_overdue counting only COMPLETE months ... instead of STARTED months, departing
+from the correct instruction in step 5 ('one day late is one month'). This yields 0 months for a 10-day-late
+invoice".
 
 - **Verdict:** Pass.
 
-**long-swallowed-error** is about 420,000 tokens: 18 RLM turns in 14.2 minutes, with no prompt over
-15,420 tokens. Qwen searched the run in Python (`grep`, `show`, `steps_by`) and never needed `scan` or
-`ask`: the failing check names `due_text`, and that led it to step 22. Its answer: "The coder wrapped
-due_date() in try/except ValueError and returned Decimal('0.00') for unparseable due_text, directly
-violating the task's explicit requirement that an unreadable due date must raise an error". It also named
-the failing test at step 9 that prompted the change.
+**long-swallowed-error** is about 420,000 tokens: 11 RLM turns in 12.7 minutes, with no prompt over 9,804
+tokens. Qwen found both places the interest code was written: step 6, the first version, which reads only
+DD/MM/YYYY, and step 22, the rewrite that returns 0.00 when a due date doesn't parse. It noted that step 22
+breaks the task's rule, then blamed step 6 anyway: the date "is never parsed by the coder's initial
+late_interest implementation at step 6, which only strpimes '%d/%m/%Y'". The task says a due date that
+can't be read must raise an error, which step 6 does; step 22 turned that error into a silent 0.00. An
+earlier run of this recipe, with a 4,096-token limit on helper answers, named step 22.
 
-- **Verdict:** Pass.
+- **Verdict:** Miss.
 
 ### Results
 
-3 of 3 runs came out as expected, from one live run.
+2 of 3 runs came out as expected, from one live run.
 
 | Run | Read | Answer | Calls | Largest prompt | Minutes |
 | --- | --- | --- | ---: | ---: | ---: |
-| short-handoff | whole | step 11, coordinator | 1 | 6,042 | 0.3 |
-| medium-off-by-one | RLM | step 30, coder | 9 | 8,484 | 5.0 |
-| long-swallowed-error | RLM | step 22, coder | 18 | 15,420 | 14.2 |
+| short-handoff | whole | step 11, coordinator | 1 | 6,042 | 0.4 |
+| medium-off-by-one | RLM | step 30, coder | 11 | 9,480 | 5.1 |
+| long-swallowed-error | RLM | step 6, coder (expected step 22) | 11 | 9,804 | 12.7 |
 
-**Where it works:** the RLM read a 420,000-token run without any prompt over 15,500 tokens, so a model with
-a 32K window can work through a run of any length. And it looked back from the failure: in the short run it
-blamed the instruction, and in the medium run it cleared the instruction and blamed the code.
+**Where it works:** the RLM read a 420,000-token run without any prompt over 10,000 tokens, so a model with
+a 32K window can work through a run of any length. It looked back from the failure: in the short run it
+blamed the instruction, in the medium run it cleared the instruction and blamed the code, and in the long
+run it found both steps that wrote the interest code.
 
 **Where it fails:**
 
+- **It can find the right step and still pick another.** In the long run it had step 22 in front of it,
+  with the task's rule, and chose the earlier step. Two RLM runs on the same trace often name different
+  steps: the run before this one named step 22. In our tests on public agent-trace benchmarks, reading the
+  whole trace did as well as the RLM or better whenever the trace fit the window. Read its answer as a lead
+  to check, not a verdict.
 - **These runs are easier than real ones.** Each failing check names what went wrong, so a search finds
-  the root, and that is how the RLM solved the long run. In our tests on public agent-trace benchmarks,
-  reading the whole trace did as well as the RLM or better whenever the trace fit the window, and two RLM
-  runs on the same trace often named different steps. Read its answer as a lead to check, not a verdict.
+  the candidate steps quickly.
 - **It follows the run's own contradictions.** In an earlier version of the long run, the task said due
   dates were DD/MM/YYYY while the failing check used another format. One run then named the task itself,
   step 0, as the root: a fair reading of that run, but not the planted answer. We made the task's rule
   explicit; a real run with that kind of contradiction has more than one defensible answer.
-- **It's slow on long runs.** Turns go one after another: 14 minutes for the long run.
+- **It's slow on long runs.** Turns go one after another: 13 minutes for the long run.
 - **It doesn't run using SIE Serverless today**, whose Qwen window is 8,192 tokens.
 
 ### What you do next
