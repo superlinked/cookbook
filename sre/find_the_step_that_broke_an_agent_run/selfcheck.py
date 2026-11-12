@@ -66,6 +66,20 @@ def check_helpers() -> None:
     assert all(run.events[s]["agent"] == "reviewer" for s in reviews)
 
 
+class CutReader(recipe.Reader):
+    """Answers every call as a reply that ran into the output limit."""
+
+    def chat(self, messages: Any, max_tokens: int, response_format: Any = None) -> dict[str, Any]:
+        message = {"role": "assistant", "content": "The step that"}
+        return {"choices": [{"index": 0, "finish_reason": "length", "message": message}]}
+
+
+def check_cut_answer() -> None:
+    reader = CutReader(client=None, calls=Calls(), usage=recipe.Usage(), rules=RULES)
+    ask = recipe.make_helpers(reader, RUNS[LONG])[4]
+    assert ask("Which step?", [0]).endswith("[unfinished: the answer reached the output limit]")
+
+
 def check_answers() -> None:
     reply = (
         'Done.\n```json\n{"root_step": 11, "responsible_agent": "coordinator", "reason": "x"}\n```'
@@ -121,7 +135,15 @@ def check_engine() -> None:
     assert reader.usage.input_tokens == 7
 
 
-CHECKS = (check_data, check_routing, check_pieces, check_helpers, check_answers, check_engine)
+CHECKS = (
+    check_data,
+    check_routing,
+    check_pieces,
+    check_helpers,
+    check_cut_answer,
+    check_answers,
+    check_engine,
+)
 
 
 def main() -> None:

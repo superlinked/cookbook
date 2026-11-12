@@ -350,11 +350,15 @@ def make_helpers(reader: Reader, run: Run) -> list[Any]:
                 return "ERROR: the helper call budget is used up; decide from what you have."
             used[0] += 1
         try:
-            text = text_of(
-                reader.chat([{"role": "user", "content": prompt}], rlm["helper_completion_tokens"])
+            reply = reader.chat(
+                [{"role": "user", "content": prompt}], rlm["helper_completion_tokens"]
             )
         except CallFailed as error:
             return f"ERROR: {error}"
+        text = text_of(reply)
+        if reply["choices"][0].get("finish_reason") == "length":
+            # Thinking counts against the cap, so a long think can leave the answer unfinished.
+            text += " [unfinished: the answer reached the output limit]"
         limit = rlm["answer_chars"]
         return (
             text

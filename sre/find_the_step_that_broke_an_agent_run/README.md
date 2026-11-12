@@ -34,7 +34,7 @@ flowchart LR
 
 ## The problem
 
-Reading a whole trace in one model call is the best option when it fits: the model sees every step
+Reading a whole trace in one model call is the simplest option when it fits: the model sees every step
 next to every other one. Two things get in the way:
 
 - **Many traces don't fit.** An hour-long coding session can be hundreds of thousands of tokens, and a
@@ -206,7 +206,7 @@ blamed the instruction, and in the medium run it cleared the instruction and bla
 
 - **These runs are easier than real ones.** Each failing check names what went wrong, so a search finds
   the root, and that is how the RLM solved the long run. In our tests on public agent-trace benchmarks,
-  reading the whole trace was more accurate than the RLM whenever the trace fit the window, and two RLM
+  reading the whole trace did as well as the RLM or better whenever the trace fit the window, and two RLM
   runs on the same trace often named different steps. Read its answer as a lead to check, not a verdict.
 - **It follows the run's own contradictions.** In an earlier version of the long run, the task said due
   dates were DD/MM/YYYY while the failing check used another format. One run then named the task itself,
@@ -235,7 +235,7 @@ blamed the instruction, and in the medium run it cleared the instruction and bla
 - **A thinking budget per call.** The helpers' short answers need far less thinking than the driver's
   turns; today one limit covers both.
 - **Read whole up to the window you have.** With a 256K-window deployment, raise `whole_read.max_tokens`
-  to about 240,000: reading a run whole is the better option whenever it fits.
+  to about 240,000: in our tests reading a run whole did as well as the RLM or better whenever it fit.
 
 ## Try another model
 

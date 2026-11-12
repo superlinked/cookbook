@@ -20,7 +20,7 @@ rlm:
   output_chars: 2000            # how much of each turn's printout the driver sees
   answer_chars: 1200            # how much of each helper answer the driver sees
   driver_completion_tokens: 6144
-  helper_completion_tokens: 4096
+  helper_completion_tokens: 6144  # thinking counts against this: the profile's 4,096 plus room to answer
 
 sampling:
   temperature: 1.0
