@@ -125,14 +125,14 @@ one example per label for few-shot.
 ### The three examples
 
 1. *"My card got lost."*: zero-shot picked **wrong amount of cash from ATM** (score 0.99). The instruct model got
-   it right zero-shot, but with six examples in the request it picked **transfer not received by recipient**.
-   Fine-tuned picked **card lost or stolen** (1.00).
+   it right zero-shot and again with six examples in the request (0.87). Fine-tuned picked **card lost or stolen**
+   (1.00).
 
 - **Verdict:** Pass.
 
 2. The garbled delivery note: zero-shot picked **text not in English** (0.95), which is a fair guess at that mess
-   of symbols, and would have sent it to translation. Few-shot picked **document cut off mid-sentence**. Fine-tuned
-   picked **garbled OCR characters** (1.00).
+   of symbols, and would have sent it to translation. Few-shot picked **clean readable text** (1.00), which would have
+   sent it to extraction. Fine-tuned picked **garbled OCR characters** (1.00).
 
 - **Verdict:** Pass.
 
@@ -147,8 +147,8 @@ one example per label for few-shot.
 
 | | Zero-shot (edge) | Zero-shot (instruct) | Few-shot (instruct, 6 examples) | Fine-tuned (edge, 102 rows) |
 | --- | --- | --- | --- | --- |
-| Banking77, public (150 test messages) | 67.3% (101) | 63.3% (95) | 26.0% (39) | **93.3% (140)** |
-| Parsed-document quality, private (60 test rows) | 30.0% (18) | 20.0% (12) | 15.0% (9) | **86.7% (52)** |
+| Banking77, public (150 test messages) | 67.3% (101) | 63.3% (95) | 57.3% (86) | **93.3% (140)** |
+| Parsed-document quality, private (60 test rows) | 30.0% (18) | 20.0% (12) | 16.7% (10) | **86.7% (52)** |
 
 Fine-tuning took about 5 s for each dataset on the laptop, and scoring took 2 to 4 ms a row. 140 of 150 test messages
 and 52 of 60 parsed pages came out as expected after fine-tuning.
@@ -181,12 +181,18 @@ and cut-off text swapped for each other (5 one way, 3 the other), because our sy
 mid-thought sometimes. On Banking77, 7 of the 10 misses are "card has not arrived" and "card lost or stolen" swapped,
 which people mix up too.
 
-Few-shot made things worse on both datasets. With examples in the request, the instruct model piled onto one or
-two labels: on Banking77, 148 of 150 messages got "transfer not received by recipient" or "wrong amount of cash
-from ATM". It wasn't the prompt (without it, few-shot did worse), and more examples didn't help: with two and three
-per label on Banking77 it scored 20% and then 17%, every message the same label. SIE's own GLiClass adapter, on a
-different gliclass and transformers version, gave the same numbers. And the window caps it anyway: examples share
-the model's 1,024 tokens with the row, and on the parser set two examples per label already don't fit.
+Few-shot scored below zero-shot on both datasets, for these models on this decision. Your mileage may vary. On the
+parser set the instruct model gave all 60 rows the same label. On Banking77 it leaned on one label (70 of 150
+messages got "transfer not received by recipient"), and the order of the six examples moved it a lot: the same
+examples reversed scored 53.3%, shuffled 39.3%. It wasn't the prompt (without it, few-shot scored 36.7%), and more
+examples didn't help: two per label scored 55.3% and three per label 28.7%. The window caps it anyway: examples
+share the model's 1,024 tokens with the row, and on the parser set two examples per label already don't fit.
+
+These few-shot numbers need a fix to gliclass. Its `_create_segment_ids` (`gliclass/model.py`, 0.1.22) finds the
+first example token with `argmin` instead of `argmax`, so with examples in the request it tags every token, the
+labels and the row included, as an example. The instruct models read those tags; the edge model doesn't, so
+zero-shot and fine-tuning aren't affected. `recipe.py` replaces that one function (`segment_ids()`). Without the fix
+few-shot scored 26.0% and 15.0%.
 
 Two cautions. The private set is synthetic and made by templates, so it is easier to learn than your parser's real
 output: treat 86.7% as what 100 rows can do on a clear-cut decision, not as a promise. And the test sets are small
@@ -291,12 +297,14 @@ SIE_BASE_URL=http://localhost:8080 uv run serve.py
 ```
 
 We ran it on 14 November 2026 against the container above, on an Apple M-series laptop. The image is built for
-x86, so Docker emulated it, and it used 1.1 GB of memory with all four models loaded. All 840 decisions matched
-the ones `recipe.py` made in its own process, row for row, and every score was within 0.0001:
+x86, so Docker emulated it, and it used 1.1 GB of memory with all four models loaded. All 630 zero-shot and
+fine-tuned decisions matched the ones `recipe.py` made in its own process, row for row, and every score was within
+0.0001. Few-shot didn't match: SIE's GLiClass adapter copies gliclass's segment tags as they are, bug included, so
+through SIE few-shot scores what it scored before the fix:
 
 | | Zero-shot (edge) | Zero-shot (instruct) | Few-shot (instruct) | Fine-tuned |
 | --- | --- | --- | --- | --- |
-| Banking77, public (150) | 67.3%, 38 s | 63.3%, 33 s | 26.0%, 31 s | 93.3%, 12 s |
+| Banking77, public (150) | 67.3%, 33 s | 63.3%, 23 s | 26.0%, 31 s | 93.3%, 12 s |
 | Parsed-document quality, private (60) | 30.0%, 7 s | 20.0%, 7 s | 15.0%, 39 s | 86.7%, 12 s |
 
 The times include loading each model on its first call. With SIE Serverless, `uv run serve.py --catalog-only`
@@ -318,7 +326,7 @@ else changes. We ran the edge model for this README.
 
 For few-shot we swapped in `knowledgator/gliclass-instruct-edge-v1.0` (`few_shot.model`), the same size as the
 edge model and trained to read examples. Zero-shot it scored a little below the edge model (63.3% and 20.0%
-against 67.3% and 30.0%), and examples in the request lowered it further (26.0% and 15.0%). We first tried
+against 67.3% and 30.0%), and examples in the request lowered it further (57.3% and 16.7%). We first tried
 few-shot on the edge model itself: it gave every test row the same label, at a score of 0.999.
 
 ## Run it using SIE Cluster or SIE Local
