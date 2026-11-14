@@ -1,6 +1,6 @@
-"""Fine-tune a GLiClass decision model on about 100 rows and compare it with the zero-shot model.
+"""Fine-tune a GLiClass decision model on about 100 rows; compare it with zero-shot and few-shot.
 
-    uv run recipe.py                 # both datasets: zero-shot, fine-tune, fine-tuned
+    uv run recipe.py                 # both datasets: zero-shot, few-shot, fine-tuned
     uv run recipe.py --only private  # one dataset
 
 Writes runs/<timestamp>/results.json, the fine-tuned weights under
@@ -22,6 +22,7 @@ import torch
 import yaml
 from gliclass import GLiClassModel, ZeroShotClassificationPipeline
 from gliclass.data_processing import AugmentationConfig, DataCollatorWithPadding, GLiClassDataset
+from gliclass.pipeline import format_examples_prompt
 from gliclass.training import Trainer, TrainingArguments
 from transformers import AutoTokenizer
 
@@ -57,6 +58,35 @@ def load_rows(path: Path, labels: list[str]) -> list[dict[str, Any]]:
         if len(row["true_labels"]) != 1 or row["true_labels"][0] not in labels:
             raise ValueError(f"{path}:{n}: needs exactly one true label from rules.yaml")
     return rows
+
+
+def few_shot_examples(
+    rows: list[dict[str, Any]], labels: list[str], per_label: int
+) -> list[dict[str, Any]]:
+    """The first `per_label` training rows of each label, as GLiClass few-shot examples."""
+    examples = []
+    for label in labels:
+        mine = [r for r in rows if r["true_labels"][0] == label][:per_label]
+        examples += [{"text": r["text"], "labels": [label]} for r in mine]
+    return examples
+
+
+def check_fits(
+    tokenizer: Any,
+    examples: list[dict[str, Any]],
+    labels: list[str],
+    rows: list[dict[str, Any]],
+    window: int,
+) -> None:
+    """Stop if the examples leave too little room: the model would cut the row short silently."""
+    used = len(tokenizer(format_examples_prompt(examples))["input_ids"])
+    used += len(tokenizer(" ".join(labels))["input_ids"]) + 2 * len(labels)
+    longest = max(len(tokenizer(r["text"])["input_ids"]) for r in rows)
+    if used + longest > window:
+        raise ValueError(
+            f"few-shot examples ({used} tokens) and the longest row ({longest}) exceed the "
+            f"{window}-token window; lower few_shot.per_label in rules.yaml"
+        )
 
 
 def top_pick(scores: list[dict[str, Any]], where: str) -> dict[str, Any]:
@@ -97,6 +127,7 @@ def decide(
     labels: list[str],
     prompt: str,
     cfg: dict[str, Any],
+    examples: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     pipe = ZeroShotClassificationPipeline(
         model,
@@ -112,6 +143,7 @@ def decide(
         prompt=prompt,
         threshold=cfg["threshold"],
         batch_size=cfg["batch_size"],
+        examples=examples,
     )
     seconds = time.perf_counter() - start
     picks = [top_pick(out, f"row {n}") for n, out in enumerate(outputs, 1)]
@@ -181,6 +213,22 @@ def run_dataset(
     tok = AutoTokenizer.from_pretrained(name, **hub)
     zero = decide(base, tok, test, labels, spec["prompt"], cfg)
     print(f"   zero-shot   {zero['accuracy']:.1%}  ({zero['correct']}/{zero['rows']})")
+    fs = rules["few_shot"]
+    fs_name, fs_hub = resolve(fs["model"], fs["model_revision"])
+    fs_model = GLiClassModel.from_pretrained(fs_name, **fs_hub).to(device())
+    fs_tok = AutoTokenizer.from_pretrained(fs_name, **fs_hub)
+    examples = few_shot_examples(train, labels, fs["per_label"])
+    check_fits(fs_tok, examples, labels, test, cfg["window"])
+    instruct = decide(fs_model, fs_tok, test, labels, spec["prompt"], cfg)
+    few = decide(fs_model, fs_tok, test, labels, spec["prompt"], cfg, examples)
+    print(
+        f"   instruct    {instruct['accuracy']:.1%}  ({instruct['correct']}/{instruct['rows']}), "
+        f"{fs['model']} zero-shot"
+    )
+    print(
+        f"   few-shot    {few['accuracy']:.1%}  ({few['correct']}/{few['rows']}), "
+        f"the same model with {len(examples)} examples in the request"
+    )
     start = time.perf_counter()
     tuned_model, tuned_tok = fine_tune(
         name, hub, train, run_dir / key, rules["train"], cfg["max_length"]
@@ -196,6 +244,8 @@ def run_dataset(
         "train_rows": len(train),
         "test_rows": len(test),
         "zero_shot": zero,
+        "instruct_zero_shot": {"model": fs["model"], **instruct},
+        "few_shot": {"model": fs["model"], "examples": len(examples), **few},
         "fine_tuned": tuned,
         "train_seconds": train_s,
         "device": device(),
@@ -219,14 +269,14 @@ def main() -> None:
         (run_dir / "results.json").write_text(
             json.dumps(results, indent=2, ensure_ascii=False) + "\n"
         )
-    print("\n| Dataset | Zero-shot | Fine-tuned on about 100 rows |")
-    print("| --- | --- | --- |")
+    print("\n| Dataset | Zero-shot | Few-shot | Fine-tuned on about 100 rows |")
+    print("| --- | --- | --- | --- |")
     for key in rules["datasets"]:
         if key in results:
             r = results[key]
             print(
                 f"| {r['title']} | {r['zero_shot']['accuracy']:.1%} "
-                f"| {r['fine_tuned']['accuracy']:.1%} |"
+                f"| {r['few_shot']['accuracy']:.1%} | {r['fine_tuned']['accuracy']:.1%} |"
             )
     print(f"\nwrote {run_dir / 'results.json'}")
 
