@@ -362,7 +362,7 @@ See [MODELS.md](../../MODELS.md) for every model these recipes use.
 The same code runs on your machine and uses SIE Cluster or SIE Local ([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE
 Local can serve). Set `SIE_BASE_URL` in `.env`; an SIE key is then optional. Claude still goes through the Anthropic API, so
 `ANTHROPIC_API_KEY` stays, and the masked ticket, the device records and the policy sections still leave your network. The
-table gives the SIE v0.10.1 image each model runs on, from SIE's
+table gives the SIE v0.11.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
 | `rules.yaml` key | Model | Image | Tested on |

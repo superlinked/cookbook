@@ -376,7 +376,7 @@ self-host.
 
 The same code runs on your machine and uses SIE Cluster or SIE Local
 ([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
-is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
+is then optional. The table gives the SIE v0.11.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
 | `rules.yaml` key | Model | Image | Tested on |
@@ -387,7 +387,7 @@ One container serves it:
 
 ```bash
 docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
-  ghcr.io/superlinked/sie-server:v0.10.1-cuda12-transformers5
+  ghcr.io/superlinked/sie-server:v0.11.1-cuda12-transformers5
 # then set SIE_BASE_URL=http://localhost:8080 in .env and run: uv run recipe.py
 ```
 

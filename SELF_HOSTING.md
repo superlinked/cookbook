@@ -13,14 +13,16 @@ SIE_BASE_URL=http://localhost:8080
 
 [SIE](https://github.com/superlinked/sie) is open source (Apache 2.0). The model names in each
 `rules.yaml` are SIE model ids, the same on SIE Serverless, SIE Cluster and SIE Local. The image tags below
-are from SIE v0.10.1. SIE's
+are from SIE v0.11.1. SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md) is the
-source for which image serves which model and on which GPU it was smoke-tested.
+source for which image serves which model and on which GPU it was smoke-tested. Its latest edition
+covers v0.10.1: v0.11.1 serves every model here from the same image, except that Qwen3-Embedding-4B
+now has an image of its own (see below), and SIE hasn't published smoke tests of the v0.11.1 images yet.
 
 ## SIE Local
 
 SIE Local runs the models on your own machine, with no Docker or cluster. It needs Python 3.12,
-and it installs the latest SIE, while the image tags below are from v0.10.1.
+and it installs the latest SIE, while the image tags below are from v0.11.1.
 
 ```bash
 pip install "sie-server[local]" && sie-server serve                # Apple Silicon
@@ -59,13 +61,18 @@ for every model it calls. Grouped:
 | `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda13-sglang-cu130` | [check_contracts_for_required_clauses](legal/check_contracts_for_required_clauses), [check_shelf_from_photo](retail/check_shelf_from_photo) |
 | `cuda12-default` + `cuda12-sglang-vision-extract` + `cuda12-transformers5` + `cuda13-sglang-cu130` | [keep_facts_current_from_notes](personal/keep_facts_current_from_notes) |
 
-Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB), except where a
-note below says otherwise.
+Every model these recipes use passed SIE's smoke test on an NVIDIA L4 (24 GB) in v0.10.1, except
+where a note below says otherwise.
 
-- **`Qwen/Qwen3-Embedding-4B` has no published image in v0.10.1.** Its default profile needs the
-  `sglang-embedding` bundle, which SIE does not publish. Where a recipe uses it, set
+- **`Qwen/Qwen3-Embedding-4B` needs its own image.** Its default profile needs the
+  `sglang-embedding` bundle. SIE first published it in v0.11.1, as `v0.11.1-cuda12-sglang-embedding`,
+  and hasn't smoke-tested it yet. The table above leaves it out. To stay on one image, set
   `Qwen/Qwen3-Embedding-8B` in `rules.yaml` instead; it runs on `cuda12-default`. The two models
   have different vectors, so similarity thresholds may need a new check.
+- **`fastino/gliner2-large-v1` runs on gliner2 2.0 in v0.11.1** (1.3.2 in v0.10.1). SIE notes that
+  2.0 returns every distinct mention with its offsets and leaves optional structured fields out
+  instead of returning them empty. The recipes' results were measured using SIE Serverless; if a
+  recipe's extracted fields differ when you host v0.11.1 yourself, check this first.
 - **`Qwen/Qwen3.8-27B-FP8` needs a big GPU.** SIE smoke-tested it on an H100 80GB, an H200 and an
   RTX PRO 6000. The `cuda13` image also needs NVIDIA driver 580 or newer.
 
@@ -77,7 +84,7 @@ NVIDIA Container Toolkit and a GPU that runs your models (see above).
 ```bash
 docker run --gpus all -p 8080:8080 \
   -v sie-hf-cache:/app/.cache/huggingface \
-  ghcr.io/superlinked/sie-server:v0.10.1-cuda12-default
+  ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
 
 # in a second terminal
 curl http://localhost:8080/readyz      # expect: ok
@@ -88,7 +95,7 @@ uv run recipe.py                       # with SIE_BASE_URL=http://localhost:8080
 The server downloads each model from Hugging Face the first time a recipe calls it and keeps it
 in the `sie-hf-cache` volume, so the first run is slow and later runs are not.
 
-The `cuda12-default` lane also has a CPU image, `v0.10.1-cpu-default`. SIE declares the same models
+The `cuda12-default` lane also has a CPU image, `v0.11.1-cpu-default`. SIE declares the same models
 for it but has not smoke-tested them there. It works for trying a small recipe on a laptop, but it
 is slow.
 
@@ -119,7 +126,7 @@ workers:
 ```
 
 ```bash
-helm install sie-cluster oci://ghcr.io/superlinked/charts/sie-cluster --version 0.10.1 \
+helm install sie-cluster oci://ghcr.io/superlinked/charts/sie-cluster --version 0.11.1 \
   --namespace sie --create-namespace -f values-cookbook.yaml
 ```
 

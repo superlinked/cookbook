@@ -175,6 +175,15 @@ checks the agent.
 | [Send each coding task to the cheapest model that passes its tests](agentic/route_coding_tasks_to_open_models_first) | Steps unknown, result checked: the tests | Claude Opus 5.5 (Anthropic API), GLiNER2.5-Decide, Qwen3.8-27B-FP8 | 78 | 398 s |
 | [Screen job applicants blind, with an MCP server that masks who they are](agentic/screen_applicants_through_mcp_server) | Really a workflow (the first pass is the same every time) with Claude deciding; it's here to show masking enforced in an MCP server | Claude Opus 5.5 (Anthropic API), LightOnOCR-3-4B, pii-redact, Qwen3-Reranker-4B | 30 | 117 s |
 
+### Fine-tuning
+
+These recipes train a small model on your own labelled rows, on your machine, then compare it with the
+model it started from. Serve the result with SIE Local or SIE Cluster.
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Fine-tune your own decision model on 100 rows, and keep the data on your servers](fine_tuning/fine_tune_a_decision_model) | GLiClass edge v3.0 (zero-shot and fine-tuned) | 0 to train and compare; 28 to score through SIE (`serve.py`) | about 1 min after the first download; `serve.py` 68 s on CPU |
+
 ### Personal agents
 
 | Recipe | Models | SIE calls | Run time |

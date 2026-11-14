@@ -20,6 +20,7 @@ INDUSTRIES = (
     "agentic",
     "ecommerce",
     "finance",
+    "fine_tuning",
     "healthcare",
     "insurance",
     "legal",

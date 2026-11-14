@@ -488,13 +488,13 @@ See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
 The same code runs on your machine and uses SIE Cluster or SIE Local
 ([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
-is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
+is then optional. The table gives the SIE v0.11.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
 | `rules.yaml` key | Model | Image | Tested on |
 | --- | --- | --- | --- |
 | `image` | `google/siglip-so400m-patch14-384` | `cuda12-default` | L4 |
-| `text` | `Qwen/Qwen3-Embedding-4B` has no published image in v0.10.1: set `Qwen/Qwen3-Embedding-8B` instead | `cuda12-default` | L4 |
+| `text` | `Qwen/Qwen3-Embedding-4B` runs on `cuda12-sglang-embedding`, new in v0.11.1 and not yet smoke-tested by SIE; or set `Qwen/Qwen3-Embedding-8B` instead | `cuda12-default` | L4 |
 | `judge` | `Qwen/Qwen3.8-27B-FP8` | `cuda13-sglang-cu130` | H100 80GB |
 
 One SIE server runs one image, so these 2 images need SIE Cluster: the

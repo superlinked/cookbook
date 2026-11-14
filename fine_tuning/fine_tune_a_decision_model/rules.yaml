@@ -1,0 +1,45 @@
+# The decision model and how it is trained. Change these, not the code.
+model: knowledgator/gliclass-edge-v3.0
+# The Hugging Face commit recipe.py downloads: the same one SIE's catalog serves.
+model_revision: df03993a2ed98e5e4a0d2dd7efbbd105abe874cf
+# How both scripts score. multi-label gives each label its own 0-1 score (a sigmoid), so a
+# low top score means the model isn't sure; sie_models/*.yaml load the model the same way.
+score:
+  classification_type: multi-label
+  threshold: 0.0     # return every label, so the top one is always there
+  batch_size: 16     # rows per pipeline batch, and per SIE extract call
+  max_length: 512    # tokens per training row
+# serve.py waits this long for SIE to load a model on its first call.
+wait_s: 900
+train:
+  epochs: 8
+  learning_rate: 2.0e-5
+  batch_size: 8
+  seed: 20261114
+
+# Each dataset is one decision: pick exactly one label per text.
+# `action` is what your pipeline does with the decision; the model only sees the labels.
+datasets:
+  public:
+    title: Banking77 support messages (public)
+    # The sie_id in sie_models/public.yaml: how serve.py asks SIE for the fine-tuned model.
+    served_model: my-team/banking77-router
+    prompt: "Which team should handle this customer message?"
+    labels:
+      card has not arrived: {action: cards team}
+      card lost or stolen: {action: fraud team, block the card}
+      exchange rate question: {action: FX team}
+      transfer not received by recipient: {action: payments team}
+      top-up failed: {action: payments team}
+      wrong amount of cash from ATM: {action: disputes team}
+  private:
+    title: Parsed-document quality checks (private, synthetic)
+    served_model: my-team/parsed-page-check
+    prompt: "What is wrong with this text a document parser produced?"
+    labels:
+      clean readable text: {action: accept, send to extraction}
+      garbled OCR characters: {action: re-run OCR with a stronger model}
+      table flattened into run-on numbers: {action: re-parse with a layout-aware parser}
+      document cut off mid-sentence: {action: fetch the missing pages}
+      handwriting left untranscribed: {action: send to a human}
+      text not in English: {action: translate, then extract}

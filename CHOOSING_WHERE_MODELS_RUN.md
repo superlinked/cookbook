@@ -16,7 +16,7 @@ SIE packages its models into images. Each image serves a set of model families w
 
 The groups overlap: most recipes that use the large LLM also need a second image. If you're in GitHub Codespaces, there's no GPU, so it's SIE Serverless.
 
-One exception: `Qwen/Qwen3-Embedding-4B` runs using SIE Serverless but has no published image in v0.10.1. Seven recipes use it, two of them in the one-image row above (categorize_products_into_taxonomy and flag_unusual_logs_and_investigate). To run those yourself, set `Qwen/Qwen3-Embedding-8B` in `rules.yaml` and check the similarity thresholds again, since the two models give different vectors ([SELF_HOSTING.md](SELF_HOSTING.md#which-images-a-recipe-needs) has the details).
+One exception: `Qwen/Qwen3-Embedding-4B` needs its own image, `cuda12-sglang-embedding`, which SIE first published in v0.11.1 and hasn't smoke-tested yet. Seven recipes use it, two of them in the one-image row above (categorize_products_into_taxonomy and flag_unusual_logs_and_investigate). To run those yourself on one image, set `Qwen/Qwen3-Embedding-8B` in `rules.yaml` and check the similarity thresholds again, since the two models give different vectors ([SELF_HOSTING.md](SELF_HOSTING.md#which-images-a-recipe-needs) has the details).
 
 ## Moving between them is one line
 

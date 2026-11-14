@@ -404,12 +404,12 @@ See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
 The same code runs on your machine and uses SIE Cluster or SIE Local ([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE
 Local can serve). Set `SIE_BASE_URL` in `.env`; an SIE key is then optional. Claude still goes through the Anthropic API, so
-`ANTHROPIC_API_KEY` stays, and the masked cases and log examples still leave your network. The table gives the SIE v0.10.1
+`ANTHROPIC_API_KEY` stays, and the masked cases and log examples still leave your network. The table gives the SIE v0.11.1
 image each model runs on, from SIE's [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
 | `rules.yaml` key | Model | Image | Tested on |
 | --- | --- | --- | --- |
-| `embed` | `Qwen/Qwen3-Embedding-4B` has no published image in v0.10.1: set `Qwen/Qwen3-Embedding-8B` instead, and check the similarity threshold again | `cuda12-default` | L4 |
+| `embed` | `Qwen/Qwen3-Embedding-4B` runs on `cuda12-sglang-embedding`, new in v0.11.1 and not yet smoke-tested by SIE; or set `Qwen/Qwen3-Embedding-8B` instead, and check the similarity threshold again | `cuda12-default` | L4 |
 | `rerank` | `Qwen/Qwen3-Reranker-4B` | `cuda12-default` | L4 |
 | `pii` | `superlinked/pii-redact` | `cuda12-default` | L4 |
 

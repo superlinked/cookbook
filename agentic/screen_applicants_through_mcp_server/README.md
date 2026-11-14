@@ -272,7 +272,7 @@ applicant and the leak column in `decisions.csv`, and read a few masked resumes 
 The same code runs on your machine and uses SIE Cluster or SIE Local ([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE
 Local can serve). Set `SIE_BASE_URL` in `.env`; an SIE key is then optional. Claude still goes through the Anthropic API,
 so `ANTHROPIC_API_KEY` stays, and the masked resumes still leave your network; the raw ones don't. The table gives the
-SIE v0.10.1 image each model runs on, from SIE's
+SIE v0.11.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
 | `rules.yaml` key | Model | Image |

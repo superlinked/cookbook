@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
-    "sie-sdk>=0.10.1",
+    "sie-sdk>=0.11.1",
 ]
 
 [tool.uv]
