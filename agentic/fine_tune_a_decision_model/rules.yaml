@@ -1,0 +1,31 @@
+# The decision model and how it is trained. Change these, not the code.
+model: knowledgator/gliclass-edge-v3.0
+train:
+  epochs: 8
+  learning_rate: 2.0e-5
+  batch_size: 8
+  seed: 20261114
+
+# Each dataset is one decision: pick exactly one label per text.
+# `action` is what your pipeline does with the decision; the model only sees the labels.
+datasets:
+  public:
+    title: Banking77 support messages (public)
+    prompt: "Which team should handle this customer message?"
+    labels:
+      card has not arrived: {action: cards team}
+      card lost or stolen: {action: fraud team, block the card}
+      exchange rate question: {action: FX team}
+      transfer not received by recipient: {action: payments team}
+      top-up failed: {action: payments team}
+      wrong amount of cash from ATM: {action: disputes team}
+  private:
+    title: Parsed-document quality checks (private, synthetic)
+    prompt: "What is wrong with this text a document parser produced?"
+    labels:
+      clean readable text: {action: accept, send to extraction}
+      garbled OCR characters: {action: re-run OCR with a stronger model}
+      table flattened into run-on numbers: {action: re-parse with a layout-aware parser}
+      document cut off mid-sentence: {action: fetch the missing pages}
+      handwriting left untranscribed: {action: send to a human}
+      text not in English: {action: translate, then extract}
