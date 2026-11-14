@@ -107,7 +107,7 @@ def main() -> None:
             runs["fine_tuned"] = (spec["served_model"], None)
         for kind, (model, shots) in runs.items():
             r = decide(client, model, test, labels, spec["prompt"], rules["score"], shots)
-            results[key][kind] = {"model": model, **r}
+            results[key][kind] = {"model": model, "examples": len(shots or []), **r}
             print(
                 f"   {kind:<18}  {r['accuracy']:.1%}  ({r['correct']}/{r['rows']})  "
                 f"{model}, {r['seconds']} s"

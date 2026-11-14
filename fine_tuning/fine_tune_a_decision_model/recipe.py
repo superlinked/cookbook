@@ -22,7 +22,6 @@ import torch
 import yaml
 from gliclass import GLiClassModel, ZeroShotClassificationPipeline
 from gliclass.data_processing import AugmentationConfig, DataCollatorWithPadding, GLiClassDataset
-from gliclass.pipeline import format_examples_prompt
 from gliclass.training import Trainer, TrainingArguments
 from transformers import AutoTokenizer
 
@@ -72,20 +71,33 @@ def few_shot_examples(
 
 
 def check_fits(
+    model: Any,
     tokenizer: Any,
     examples: list[dict[str, Any]],
     labels: list[str],
     rows: list[dict[str, Any]],
+    prompt: str,
     window: int,
 ) -> None:
-    """Stop if the examples leave too little room: the model would cut the row short silently."""
-    used = len(tokenizer(format_examples_prompt(examples))["input_ids"])
-    used += len(tokenizer(" ".join(labels))["input_ids"]) + 2 * len(labels)
-    longest = max(len(tokenizer(r["text"])["input_ids"]) for r in rows)
-    if used + longest > window:
+    """Stop if any row's input doesn't fit the window with the examples.
+
+    GLiClass builds each input as labels, prompt, the row, then the examples, and cuts what
+    doesn't fit from the end: the examples would be cut off, silently. So measure the input
+    exactly as the pipeline builds it.
+    """
+    # The wrapper picks an inner pipeline by architecture; the uni-encoder one builds the input.
+    build = ZeroShotClassificationPipeline(
+        model, tokenizer, device=device(), progress_bar=False
+    ).pipe
+    longest = max(
+        len(tokenizer(build.prepare_input(r["text"], labels, examples, prompt))["input_ids"])
+        for r in rows
+    )
+    if longest > window:
         raise ValueError(
-            f"few-shot examples ({used} tokens) and the longest row ({longest}) exceed the "
-            f"{window}-token window; lower few_shot.per_label in rules.yaml"
+            f"with {len(examples)} few-shot examples the longest input is {longest} tokens, over "
+            f"the {window}-token window, so the examples would be cut off; lower "
+            "few_shot.per_label in rules.yaml"
         )
 
 
@@ -135,6 +147,7 @@ def decide(
         classification_type=cfg["classification_type"],
         device=device(),
         progress_bar=False,
+        max_length=cfg["window"],
     )
     start = time.perf_counter()
     outputs = pipe(
@@ -218,7 +231,7 @@ def run_dataset(
     fs_model = GLiClassModel.from_pretrained(fs_name, **fs_hub).to(device())
     fs_tok = AutoTokenizer.from_pretrained(fs_name, **fs_hub)
     examples = few_shot_examples(train, labels, fs["per_label"])
-    check_fits(fs_tok, examples, labels, test, cfg["window"])
+    check_fits(fs_model, fs_tok, examples, labels, test, spec["prompt"], cfg["window"])
     instruct = decide(fs_model, fs_tok, test, labels, spec["prompt"], cfg)
     few = decide(fs_model, fs_tok, test, labels, spec["prompt"], cfg, examples)
     print(

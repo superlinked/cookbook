@@ -93,7 +93,7 @@ fine-tuned GLiClass weights the same way (see below).
 | Labels, prompts, model, training and scoring settings | `rules.yaml` | The decision and what your pipeline does with each answer |
 | Build the data | `make_data.py` | `build_public()`, `build_private()` |
 | Score | `recipe.py` | `load_rows()` checks each row against `rules.yaml`; `decide()` and `score()`: one decision per row, accuracy overall and per label |
-| Few-shot | `recipe.py` | `few_shot_examples()` picks the first training row of each label; `check_fits()` stops if the examples would push the row out of the model's 1,024-token window |
+| Few-shot | `recipe.py` | `few_shot_examples()` picks the first training row of each label; `check_fits()` measures each input as GLiClass builds it (labels, prompt, the row, then the examples) and stops if it's over the 1,024-token window, because the model would silently cut off the examples |
 | Fine-tune | `recipe.py` | `fine_tune()`: GLiClass `Trainer`, no augmentation, fixed seed |
 | Serve | `sie_models/*.yaml` | One SIE model config per fine-tuned model, pointing `weights_path` at the saved weights |
 | Score through SIE | `serve.py` | `decide()`: one `extract` call per 16 rows for zero-shot, few-shot (`options.examples`) and fine-tuned, scored by `recipe.py`'s `score()` |

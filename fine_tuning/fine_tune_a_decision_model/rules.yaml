@@ -9,7 +9,7 @@ score:
   threshold: 0.0     # return every label, so the top one is always there
   batch_size: 16     # rows per pipeline batch, and per SIE extract call
   max_length: 512    # tokens per training row
-  window: 1024       # tokens the model reads at once: labels, examples and the row
+  window: 1024       # tokens the model reads at once: labels, prompt, the row and the examples
 # Few-shot: labelled examples in the request and no training. gliclass-edge-v3.0 isn't trained
 # to read examples (with them it gives every row the same label), so few-shot uses the instruct
 # edge model, the same size, which is. Examples share the window with the row; one per label
