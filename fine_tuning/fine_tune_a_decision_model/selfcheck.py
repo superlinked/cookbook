@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from recipe import load_rows, score, top_pick
+from recipe import few_shot_examples, load_rows, score, top_pick
 
 HERE = Path(__file__).parent
 
@@ -78,10 +78,22 @@ def check_top_pick_and_score() -> None:
     assert result["per_label"] == {"a": 0.5, "b": 1.0, "c": None}, result["per_label"]
 
 
+def check_few_shot_examples() -> None:
+    rows = [
+        {"text": "a1", "true_labels": ["a"]},
+        {"text": "b1", "true_labels": ["b"]},
+        {"text": "a2", "true_labels": ["a"]},
+    ]
+    got = few_shot_examples(rows, ["a", "b", "c"], 1)
+    assert got == [{"text": "a1", "labels": ["a"]}, {"text": "b1", "labels": ["b"]}], got
+    assert len(few_shot_examples(rows, ["a", "b"], 2)) == 3
+
+
 def main() -> None:
     check_data_and_configs()
     check_load_rows_refuses_drift()
     check_top_pick_and_score()
+    check_few_shot_examples()
     print("selfcheck passed")
 
 

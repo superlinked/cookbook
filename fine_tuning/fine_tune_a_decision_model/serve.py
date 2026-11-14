@@ -1,8 +1,8 @@
-"""Score the test rows through SIE: the zero-shot model and the model recipe.py fine-tuned.
+"""Score the test rows through SIE: zero-shot, few-shot, and the model recipe.py fine-tuned.
 
     uv run serve.py                    # both datasets
     uv run serve.py --only private     # one dataset
-    uv run serve.py --zero-shot-only   # SIE Serverless: it serves only catalog models
+    uv run serve.py --catalog-only     # SIE Serverless: zero-shot and few-shot, no fine-tuned model
 
 Run recipe.py first, then start SIE Local or SIE Cluster with the configs in sie_models/
 and the saved weights mounted (see the README). Set SIE_BASE_URL in .env. Writes
@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 from sie_sdk import SIEClient
 from sie_sdk.types import Item
 
-from recipe import load_rows, score, top_pick
+from recipe import few_shot_examples, load_rows, score, top_pick
 
 HERE = Path(__file__).parent
 
@@ -48,8 +48,12 @@ def decide(
     labels: list[str],
     prompt: str,
     cfg: dict[str, Any],
+    examples: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """One SIE extract call per batch of rows; the top label is the decision."""
+    options: dict[str, Any] = {"classification_type": cfg["classification_type"]}
+    if examples:
+        options["examples"] = examples
     picks: list[dict[str, Any]] = []
     start = time.perf_counter()
     size = cfg["batch_size"]
@@ -62,7 +66,7 @@ def decide(
             [Item(text=r["text"]) for r in batch],
             labels=labels,
             instruction=prompt,
-            options={"classification_type": cfg["classification_type"]},
+            options=options,
         )
         picks += [
             top_pick(list(r.get("classifications") or []), f"{model}, row {i + n}")
@@ -77,7 +81,7 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--only", choices=["public", "private"])
-    parser.add_argument("--zero-shot-only", action="store_true")
+    parser.add_argument("--catalog-only", action="store_true")
     args = parser.parse_args()
     rules = yaml.safe_load((HERE / "rules.yaml").read_text())
     client = make_client(rules["wait_s"])
@@ -88,17 +92,24 @@ def main() -> None:
         if args.only and key != args.only:
             continue
         labels = list(spec["labels"])
+        train = load_rows(HERE / f"data/{key}/train.jsonl", labels)
         test = load_rows(HERE / f"data/{key}/test.jsonl", labels)
         print(f"\n== {spec['title']}: {len(test)} test rows")
         results[key] = {"title": spec["title"]}
-        models = {"zero_shot": rules["model"]}
-        if not args.zero_shot_only:
-            models["fine_tuned"] = spec["served_model"]
-        for kind, model in models.items():
-            r = decide(client, model, test, labels, spec["prompt"], rules["score"])
-            results[key][kind] = {"model": model, **r}
+        fs = rules["few_shot"]
+        examples = few_shot_examples(train, labels, fs["per_label"])
+        runs: dict[str, tuple[str, list[dict[str, Any]] | None]] = {
+            "zero_shot": (rules["model"], None),
+            "instruct_zero_shot": (fs["model"], None),
+            "few_shot": (fs["model"], examples),
+        }
+        if not args.catalog_only:
+            runs["fine_tuned"] = (spec["served_model"], None)
+        for kind, (model, shots) in runs.items():
+            r = decide(client, model, test, labels, spec["prompt"], rules["score"], shots)
+            results[key][kind] = {"model": model, "examples": len(shots or []), **r}
             print(
-                f"   {kind:<10}  {r['accuracy']:.1%}  ({r['correct']}/{r['rows']})  "
+                f"   {kind:<18}  {r['accuracy']:.1%}  ({r['correct']}/{r['rows']})  "
                 f"{model}, {r['seconds']} s"
             )
             (run_dir / "results.json").write_text(

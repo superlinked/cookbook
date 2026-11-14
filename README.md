@@ -182,7 +182,7 @@ model it started from. Serve the result with SIE Local or SIE Cluster.
 
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
-| [Fine-tune your own decision model on 100 rows, and keep the data on your servers](fine_tuning/fine_tune_a_decision_model) | GLiClass edge v3.0 (zero-shot and fine-tuned) | 0 to train and compare; 28 to score through SIE (`serve.py`) | about 1 min after the first download; `serve.py` 68 s on CPU |
+| [Fine-tune your own decision model on 100 rows, and keep the data on your servers](fine_tuning/fine_tune_a_decision_model) | GLiClass edge v3.0 (zero-shot and fine-tuned), GLiClass instruct edge v1.0 (few-shot) | 0 to train and compare; 56 to score through SIE (`serve.py`) | about 1 min after the first download; `serve.py` 180 s on CPU |
 
 ### Personal agents
 

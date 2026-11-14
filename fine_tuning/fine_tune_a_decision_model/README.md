@@ -6,8 +6,9 @@
 > it to a person.
 >
 > **How it works:** a small GLiClass decision model (`knowledgator/gliclass-edge-v3.0`, 131 MB) answers each
-> decision zero-shot from the label names. Then the recipe fine-tunes it on about 100 labelled rows on your own
-> machine and scores both on rows it never saw.
+> decision zero-shot from the label names. A same-size instruct model answers it again with labelled examples in
+> the request (few-shot). Then the recipe fine-tunes the first model on about 100 labelled rows on your own
+> machine and scores all of them on rows they never saw.
 >
 > **Use the same pattern for:** any yes/no or pick-one decision you make on text before spending money on it:
 > routing to a model, a team or a queue, quality gates, triage, spam, intent.
@@ -32,14 +33,17 @@ flattened into run-on numbers" means something specific in your pipeline, and th
 parser's output. So the questions are:
 
 - How far does zero-shot get on a public dataset, and on a private one?
+- Does putting a few labelled examples in the request (few-shot) close the gap, with no training at all?
 - How much does fine-tuning on about 100 rows help each?
 - How long does that take, and on what hardware?
 
 ### Examples
 
 `data/public/` is a slice of [Banking77](https://huggingface.co/datasets/PolyAI/banking77) (PolyAI, CC-BY-4.0; its
-Parquet export at revision `5724874e`): six intents, 17 training and 25 test messages each. `data/private/` is synthetic, written by `make_data.py` for
-this recipe under this repo's Apache 2.0 license: six kinds of parser output, 17 training and 10 test rows each.
+Parquet export at revision `5724874e`): six intents, 17 training messages each from its train split and 25 test
+messages each from its test split. `data/private/` is synthetic, written by `make_data.py` for this recipe under
+this repo's Apache 2.0 license: six kinds of parser output, 17 training and 10 test rows each. No test row appears
+in training.
 
 1. *"My card got lost."* (public): should be **card lost or stolen**, so the fraud team blocks the card.
 2. *"De|ivery N0te frorn Gr`an1t~3 ¦1¬iisurance. P|3a$e quote r3f3r3n(3 B59874on @ll (orr3§$poiideiice..."*
@@ -53,16 +57,23 @@ this recipe under this repo's Apache 2.0 license: six kinds of parser output, 17
 1. `make_data.py` builds both datasets (Banking77 from Hugging Face; the private set from templates with a fixed
    seed).
 2. `recipe.py` scores the zero-shot model on each test set: the label with the highest score wins.
-3. It fine-tunes the same model on the ~100 training rows with GLiClass's own trainer.
-4. It scores the fine-tuned model on the same test set and prints a 2 x 2 table.
+3. It scores few-shot: `knowledgator/gliclass-instruct-edge-v1.0`, the same size and trained to read examples,
+   with one training row per label in the request (six examples), and without them for comparison.
+   `gliclass-edge-v3.0` isn't trained to read examples: given them, it gave every row the same label.
+4. It fine-tunes the edge model on the ~100 training rows with GLiClass's own trainer.
+5. It scores the fine-tuned model on the same test set and prints a table with one row per dataset.
 
 ```mermaid
 flowchart LR
     A["~100 labelled rows<br/>(public or private)"] --> B["Fine-tune GLiClass<br/>on your machine"]
+    A --> G["One example per label<br/>in the request"]
     C["Test rows"] --> D["Zero-shot GLiClass"]
+    C --> G2["Few-shot GLiClass instruct"]
+    G --> G2
     C --> E["Fine-tuned GLiClass"]
     B --> E
     D --> F["Accuracy, per label"]
+    G2 --> F
     E --> F
     classDef recipe fill:#e8f0fe,stroke:#1a73e8
     class B,E recipe;
@@ -82,9 +93,10 @@ fine-tuned GLiClass weights the same way (see below).
 | Labels, prompts, model, training and scoring settings | `rules.yaml` | The decision and what your pipeline does with each answer |
 | Build the data | `make_data.py` | `build_public()`, `build_private()` |
 | Score | `recipe.py` | `load_rows()` checks each row against `rules.yaml`; `decide()` and `score()`: one decision per row, accuracy overall and per label |
+| Few-shot | `recipe.py` | `few_shot_examples()` picks the first training row of each label; `check_fits()` measures each input as GLiClass builds it (labels, prompt, the row, then the examples) and stops if it's over the 1,024-token window, because the model would silently cut off the examples |
 | Fine-tune | `recipe.py` | `fine_tune()`: GLiClass `Trainer`, no augmentation, fixed seed |
 | Serve | `sie_models/*.yaml` | One SIE model config per fine-tuned model, pointing `weights_path` at the saved weights |
-| Score through SIE | `serve.py` | `decide()`: one `extract` call per 16 rows, zero-shot and fine-tuned, scored by `recipe.py`'s `score()` |
+| Score through SIE | `serve.py` | `decide()`: one `extract` call per 16 rows for zero-shot, few-shot (`options.examples`) and fine-tuned, scored by `recipe.py`'s `score()` |
 | Offline checks | `selfcheck.py` | Data and SIE configs agree with `rules.yaml`; scoring counts right on stand-in replies |
 
 ## Run it
@@ -95,34 +107,37 @@ Training and the comparison run on your machine (CUDA, Apple MPS or CPU) and nee
 
 ```sh
 uv run --group data make_data.py   # rebuild data/ (downloads Banking77)
-uv run recipe.py                   # zero-shot vs fine-tuned, both datasets
+uv run recipe.py                   # zero-shot, few-shot and fine-tuned, both datasets
 uv run recipe.py --only private    # one dataset
 uv run serve.py                    # the same test rows through SIE (start SIE first, see below)
 uv run selfcheck.py                # offline checks, no model and no SIE
 ```
 
-The first run downloads the model (131 MB). Each run writes `runs/<timestamp>/results.json` with every decision,
+The first run downloads the two models (131 MB each). Each run writes `runs/<timestamp>/results.json` with every decision,
 and the fine-tuned weights under `runs/<timestamp>/<dataset>/model/`.
 
 ## What came out
 
 We ran the recipe on 14 November 2026 on an Apple M-series laptop (MPS), with `knowledgator/gliclass-edge-v3.0`,
-8 epochs, learning rate 2e-5, batch size 8, seed 20261114.
+8 epochs, learning rate 2e-5, batch size 8, seed 20261114, and `knowledgator/gliclass-instruct-edge-v1.0` with
+one example per label for few-shot.
 
 ### The three examples
 
-1. *"My card got lost."*: zero-shot picked **wrong amount of cash from ATM** (score 0.99). Fine-tuned picked
-   **card lost or stolen** (1.00).
+1. *"My card got lost."*: zero-shot picked **wrong amount of cash from ATM** (score 0.99). The instruct model got
+   it right zero-shot, but with six examples in the request it picked **transfer not received by recipient**.
+   Fine-tuned picked **card lost or stolen** (1.00).
 
 - **Verdict:** Pass.
 
 2. The garbled delivery note: zero-shot picked **text not in English** (0.95), which is a fair guess at that mess
-   of symbols, and would have sent it to translation. Fine-tuned picked **garbled OCR characters** (1.00).
+   of symbols, and would have sent it to translation. Few-shot picked **document cut off mid-sentence**. Fine-tuned
+   picked **garbled OCR characters** (1.00).
 
 - **Verdict:** Pass.
 
-3. The purchase order: zero-shot got it right (**clean readable text**, 0.98). Fine-tuned picked **document cut
-   off mid-sentence**, with a top score of only 0.09.
+3. The purchase order: zero-shot and few-shot got it right (**clean readable text**, 0.98 and 1.00). Fine-tuned
+   picked **document cut off mid-sentence**, with a top score of only 0.09.
 
 - **Verdict:** Miss. A useful one: the model wasn't sure, and a score that low is your cue to send the row to a
   person instead of acting on it.
@@ -130,17 +145,17 @@ We ran the recipe on 14 November 2026 on an Apple M-series laptop (MPS), with `k
 
 ### Results
 
-| | Zero-shot | Fine-tuned on 102 rows |
-| --- | --- | --- |
-| Banking77, public (150 test messages) | 67.3% (101) | **93.3% (140)** |
-| Parsed-document quality, private (60 test rows) | 30.0% (18) | **86.7% (52)** |
+| | Zero-shot (edge) | Zero-shot (instruct) | Few-shot (instruct, 6 examples) | Fine-tuned (edge, 102 rows) |
+| --- | --- | --- | --- | --- |
+| Banking77, public (150 test messages) | 67.3% (101) | 63.3% (95) | 26.0% (39) | **93.3% (140)** |
+| Parsed-document quality, private (60 test rows) | 30.0% (18) | 20.0% (12) | 15.0% (9) | **86.7% (52)** |
 
 Fine-tuning took about 5 s for each dataset on the laptop, and scoring took 2 to 4 ms a row. 140 of 150 test messages
 and 52 of 60 parsed pages came out as expected after fine-tuning.
 
 Per label:
 
-| Label | Zero-shot | Fine-tuned |
+| Label | Zero-shot (edge) | Fine-tuned |
 | --- | --- | --- |
 | card has not arrived | 8% | 80% |
 | card lost or stolen | 44% | 88% |
@@ -165,6 +180,13 @@ arrived", which zero-shot almost never picked (8% to 80%).
 and cut-off text swapped for each other (5 one way, 3 the other), because our synthetic clean documents also end
 mid-thought sometimes. On Banking77, 7 of the 10 misses are "card has not arrived" and "card lost or stolen" swapped,
 which people mix up too.
+
+Few-shot made things worse on both datasets. With examples in the request, the instruct model piled onto one or
+two labels: on Banking77, 148 of 150 messages got "transfer not received by recipient" or "wrong amount of cash
+from ATM". It wasn't the prompt (without it, few-shot did worse), and more examples didn't help: with two and three
+per label on Banking77 it scored 20% and then 17%, every message the same label. SIE's own GLiClass adapter, on a
+different gliclass and transformers version, gave the same numbers. And the window caps it anyway: examples share
+the model's 1,024 tokens with the row, and on the parser set two examples per label already don't fit.
 
 Two cautions. The private set is synthetic and made by templates, so it is easier to learn than your parser's real
 output: treat 86.7% as what 100 rows can do on a clear-cut decision, not as a promise. And the test sets are small
@@ -261,24 +283,25 @@ print(best)  # {'label': 'table flattened into run-on numbers', 'score': 0.977..
 
 ### Check SIE gives the same answers
 
-`serve.py` sends every test row to SIE, for the zero-shot model and your fine-tuned one, and writes
-`runs/<timestamp>-served/results.json`:
+`serve.py` sends every test row to SIE for each approach (zero-shot, few-shot with the examples in
+`options.examples`, and your fine-tuned model), and writes `runs/<timestamp>-served/results.json`:
 
 ```sh
 SIE_BASE_URL=http://localhost:8080 uv run serve.py
 ```
 
 We ran it on 14 November 2026 against the container above, on an Apple M-series laptop. The image is built for
-x86, so Docker emulated it, and it still used under 1 GB of memory with all three models loaded. All 420 decisions
-matched the ones `recipe.py` made in its own process, row for row, and every score was within 0.0001:
+x86, so Docker emulated it, and it used 1.1 GB of memory with all four models loaded. All 840 decisions matched
+the ones `recipe.py` made in its own process, row for row, and every score was within 0.0001:
 
-| | Zero-shot | Fine-tuned |
-| --- | --- | --- |
-| Banking77, public | 67.3% (101 of 150), 28 s | 93.3% (140 of 150), 18 s |
-| Parsed-document quality, private | 30.0% (18 of 60), 10 s | 86.7% (52 of 60), 12 s |
+| | Zero-shot (edge) | Zero-shot (instruct) | Few-shot (instruct) | Fine-tuned |
+| --- | --- | --- | --- | --- |
+| Banking77, public (150) | 67.3%, 38 s | 63.3%, 33 s | 26.0%, 31 s | 93.3%, 12 s |
+| Parsed-document quality, private (60) | 30.0%, 7 s | 20.0%, 7 s | 15.0%, 39 s | 86.7%, 12 s |
 
-The times include loading each model on its first call. With SIE Serverless, `uv run serve.py --zero-shot-only`
-scores the catalog model; your fine-tuned weights need SIE Local or SIE Cluster, where you control the configs.
+The times include loading each model on its first call. With SIE Serverless, `uv run serve.py --catalog-only`
+scores zero-shot and few-shot on the catalog models; your fine-tuned weights need SIE Local or SIE Cluster, where you
+control the configs.
 
 ## Potential improvements
 
@@ -293,6 +316,11 @@ scores the catalog model; your fine-tuned weights need SIE Local or SIE Cluster,
 `knowledgator/gliclass-base-v3.0` (746 MB) is a larger GLiClass model. Change `model:` in `rules.yaml`; nothing
 else changes. We ran the edge model for this README.
 
+For few-shot we swapped in `knowledgator/gliclass-instruct-edge-v1.0` (`few_shot.model`), the same size as the
+edge model and trained to read examples. Zero-shot it scored a little below the edge model (63.3% and 20.0%
+against 67.3% and 30.0%), and examples in the request lowered it further (26.0% and 15.0%). We first tried
+few-shot on the edge model itself: it gave every test row the same label, at a score of 0.999.
+
 ## Run it using SIE Cluster or SIE Local
 
 `recipe.py` trains and scores in its own process. `serve.py` sends the same rows to SIE: set `SIE_BASE_URL` in
@@ -303,4 +331,5 @@ else changes. We ran the edge model for this README.
 | --- | --- | --- | --- |
 | `model` | `knowledgator/gliclass-edge-v3.0` | `cuda12-default` (`cpu-default` on CPU) | `v0.11.1-cpu-default` in Docker on an Apple M-series laptop |
 | `datasets.public.served_model` | `my-team/banking77-router` (your weights, `sie_models/public.yaml`) | same | same |
+| `few_shot.model` | `knowledgator/gliclass-instruct-edge-v1.0` | same | same |
 | `datasets.private.served_model` | `my-team/parsed-page-check` (your weights, `sie_models/private.yaml`) | same | same |

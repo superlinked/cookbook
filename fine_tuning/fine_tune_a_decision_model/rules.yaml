@@ -9,6 +9,15 @@ score:
   threshold: 0.0     # return every label, so the top one is always there
   batch_size: 16     # rows per pipeline batch, and per SIE extract call
   max_length: 512    # tokens per training row
+  window: 1024       # tokens the model reads at once: labels, prompt, the row and the examples
+# Few-shot: labelled examples in the request and no training. gliclass-edge-v3.0 isn't trained
+# to read examples (with them it gives every row the same label), so few-shot uses the instruct
+# edge model, the same size, which is. Examples share the window with the row; one per label
+# is what fits the private set.
+few_shot:
+  model: knowledgator/gliclass-instruct-edge-v1.0
+  model_revision: 727be8a417f6a7718e591b025e07054c146d8139
+  per_label: 1
 # serve.py waits this long for SIE to load a model on its first call.
 wait_s: 900
 train:
