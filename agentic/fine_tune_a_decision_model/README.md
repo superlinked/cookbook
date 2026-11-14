@@ -197,8 +197,9 @@ result = client.extract(
 ```
 
 To serve your fine-tuned weights, run SIE Local or SIE Cluster with a model config that points at them: copy the
-catalog's `knowledgator__gliclass-edge-v3.0.yaml`, give it a new `sie_id`, and set its weights to the saved
-`runs/<timestamp>/<dataset>/model/` folder (or a private Hugging Face repo you push it to). Your data and your
+catalog's `knowledgator__gliclass-edge-v3.0.yaml`, give it a new `sie_id`, and replace `hf_id` and `hf_revision`
+with `weights_path:` pointing at the saved `runs/<timestamp>/<dataset>/model/` folder (or keep `hf_id` and point it at
+a private Hugging Face repo you push the weights to). Your data and your
 model then stay on your servers, and the call above works unchanged with the new model id.
 
 ## Potential improvements
