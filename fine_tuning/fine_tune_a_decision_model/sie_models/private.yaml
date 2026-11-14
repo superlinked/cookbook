@@ -1,0 +1,26 @@
+# Serve the model recipe.py fine-tuned on data/private/ with SIE Local or SIE Cluster.
+# Copied from SIE's catalog entry for knowledgator/gliclass-edge-v3.0, with hf_id and
+# hf_revision replaced by weights_path: the folder recipe.py saved, as the server sees it.
+sie_id: my-team/parsed-page-check
+description: GLiClass edge v3.0 fine-tuned on 102 synthetic parsed-document quality rows
+weights_path: /weights/private
+inputs:
+  text: true
+  image: false
+  audio: false
+  video: false
+tasks:
+  encode: null
+  score: null
+  extract: {}
+max_sequence_length: 1024
+profiles:
+  default:
+    max_batch_tokens: 16384
+    compute_precision: null
+    adapter_path: sie_server.adapters.gliclass:GLiClassAdapter
+    adapter_options:
+      loadtime:
+        classification_type: single-label
+      runtime:
+        threshold: 0.0

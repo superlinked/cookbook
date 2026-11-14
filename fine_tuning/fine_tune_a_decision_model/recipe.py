@@ -57,7 +57,9 @@ def decide(
     seconds = time.perf_counter() - start
     picks = []
     for out in outputs:
-        best = max(out, key=lambda o: o["score"]) if out else {"label": None, "score": 0.0}
+        best: dict[str, Any] = (
+            max(out, key=lambda o: o["score"]) if out else {"label": None, "score": 0.0}
+        )
         picks.append({"label": best["label"], "score": round(float(best["score"]), 4)})
     correct = sum(p["label"] == r["true_labels"][0] for p, r in zip(picks, rows, strict=True))
     per_label = {}

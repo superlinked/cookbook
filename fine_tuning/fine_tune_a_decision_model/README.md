@@ -83,10 +83,12 @@ fine-tuned GLiClass weights the same way (see below).
 | Build the data | `make_data.py` | `build_public()`, `build_private()` |
 | Score | `recipe.py` | `decide()`: one decision per row, accuracy overall and per label |
 | Fine-tune | `recipe.py` | `fine_tune()`: GLiClass `Trainer`, no augmentation, fixed seed |
+| Serve | `sie_models/*.yaml` | One SIE model config per fine-tuned model, pointing `weights_path` at the saved weights |
+| Score through SIE | `serve.py` | `decide()`: one `extract` call per 16 rows, zero-shot and fine-tuned |
 
 ## Run it
 
-**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-fine-tune-a-decision-model), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-fine-tune-a-decision-model) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-fine-tune-a-decision-model).** The code runs on your machine either way. With SIE Serverless you pay for what each call uses and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-fine-tune-a-decision-model) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=agentic-fine-tune-a-decision-model). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
+**Run this recipe using [SIE Serverless](https://superlinked.com/serverless?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=fine-tuning-fine-tune-a-decision-model), [SIE Cluster](https://superlinked.com/docs/deployment?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=fine-tuning-fine-tune-a-decision-model) or [SIE Local](https://superlinked.com/docs/quickstart?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=fine-tuning-fine-tune-a-decision-model).** The code runs on your machine either way. With SIE Serverless you pay for what each call uses and there are no GPUs to manage yourself: get an [SIE API key](https://console.superlinked.com/console/keys?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=fine-tuning-fine-tune-a-decision-model) and read the [API docs](https://superlinked.com/docs/reference/api?utm_source=github&utm_medium=docs&utm_campaign=sie-cookbook&utm_content=fine-tuning-fine-tune-a-decision-model). To run the models yourself, start from the [SIE repo](https://github.com/superlinked/sie).
 
 Training and the comparison run on your machine (CUDA, Apple MPS or CPU) and need no key:
 
@@ -94,6 +96,7 @@ Training and the comparison run on your machine (CUDA, Apple MPS or CPU) and nee
 uv run --group data make_data.py   # rebuild data/ (downloads Banking77)
 uv run recipe.py                   # zero-shot vs fine-tuned, both datasets
 uv run recipe.py --only private    # one dataset
+uv run serve.py                    # the same test rows through SIE (start SIE first, see below)
 ```
 
 The first run downloads the model (131 MB). Each run writes `runs/<timestamp>/results.json` with every decision,
@@ -169,38 +172,109 @@ output: treat 86.7% as what 100 rows can do on a clear-cut decision, not as a pr
 
 Label about 100 rows of your own decision, put them in `data/private/train.jsonl` in the same format, change the
 labels in `rules.yaml`, and run the recipe. Look at the per-label table before the overall number, and add rows
-where a label is weak. Then serve the fine-tuned model next to your pipeline (below).
+where a label is weak. Then serve the fine-tuned model next to your pipeline with SIE (below).
 
-## Serve the decision model with SIE
+## Serve your fine-tuned model with SIE
 
-The zero-shot model is one call:
+SIE serves any model it has a config for. A config is a small YAML file: SIE's catalog has one per model, and
+`sie_models/` here has one for each model `recipe.py` trains. Each is a copy of the catalog's
+`knowledgator__gliclass-edge-v3.0.yaml` with two changes: a new `sie_id` (`my-team/parsed-page-check`), and
+`weights_path: /weights/private` in place of `hf_id` and `hf_revision`, so SIE loads your weights from a folder
+instead of Hugging Face. The weights never leave your machine.
+
+### Start SIE Local in Docker
+
+Mount the two configs into the image's models folder and the weights `recipe.py` saved where the configs say.
+Use your own run folder in place of the timestamp:
+
+```sh
+RUN=runs/20261114T171002Z
+docker run -d --name sie-decision -p 8080:8080 \
+  -v sie-hf-cache:/app/.cache/huggingface \
+  -v "$PWD/sie_models/public.yaml:/app/models/my-team__banking77-router.yaml:ro" \
+  -v "$PWD/sie_models/private.yaml:/app/models/my-team__parsed-page-check.yaml:ro" \
+  -v "$PWD/$RUN/public/model:/weights/public:ro" \
+  -v "$PWD/$RUN/private/model:/weights/private:ro" \
+  ghcr.io/superlinked/sie-server:v0.11.1-cpu-default
+
+curl http://localhost:8080/readyz   # expect: ok
+```
+
+`curl http://localhost:8080/v1/models` now lists `my-team/banking77-router` and `my-team/parsed-page-check`
+next to the catalog models. On a machine with an NVIDIA GPU, use `v0.11.1-cuda12-default` and add `--gpus all`.
+On SIE Cluster, put the config in the cluster's models folder and the weights on a path or bucket its workers can
+read.
+
+### Ask it for a decision
+
+```sh
+curl -s http://localhost:8080/v1/extract/my-team/parsed-page-check \
+  -H 'content-type: application/json' -H 'accept: application/json' \
+  -d '{"items": [{"text": "Item Qty Unit price Total Freight 12 418.07 5016.84 Pallets 3 92.10 276.30 Subtotal 5293.14"}],
+       "params": {"instruction": "What is wrong with this text a document parser produced?",
+                  "labels": ["clean readable text", "garbled OCR characters", "table flattened into run-on numbers",
+                             "document cut off mid-sentence", "handwriting left untranscribed", "text not in English"]}}'
+```
+
+The first call answers `MODEL_LOADING` while SIE loads the weights (9 s here); call again. Then each label comes
+back with a score, highest first:
+
+```json
+"classifications": [
+  {"label": "table flattened into run-on numbers", "score": 0.971},
+  {"label": "document cut off mid-sentence", "score": 0.029},
+  {"label": "text not in English", "score": 0.0001},
+  ...
+]
+```
+
+From Python it's the same call the zero-shot model takes, with your model id (the SDK waits through the load):
 
 ```python
 from sie_sdk import SIEClient
 from sie_sdk.types import Item
 
-client = SIEClient(
-    "https://api.superlinked.com", api_key="..."
-)  # or your SIE Local / SIE Cluster URL
+LABELS = [
+    "clean readable text",
+    "garbled OCR characters",
+    "table flattened into run-on numbers",
+    "document cut off mid-sentence",
+    "handwriting left untranscribed",
+    "text not in English",
+]
+page = "Item Qty Unit price Total Freight 12 418.07 5016.84 Pallets 3 92.10 276.30 Subtotal 5293.14"
+
+client = SIEClient(base_url="http://localhost:8080")
 result = client.extract(
-    "knowledgator/gliclass-edge-v3.0",
-    Item(text="Item Qty Unit price Total Freight 12 418.07"),
-    labels=[
-        "clean readable text",
-        "garbled OCR characters",
-        "table flattened into run-on numbers",
-        "document cut off mid-sentence",
-        "handwriting left untranscribed",
-        "text not in English",
-    ],
+    "my-team/parsed-page-check",
+    Item(text=page),
+    labels=LABELS,
+    instruction="What is wrong with this text a document parser produced?",
 )
+best = result["classifications"][0]
+print(best)  # {'label': 'table flattened into run-on numbers', 'score': 0.971...}
 ```
 
-To serve your fine-tuned weights, run SIE Local or SIE Cluster with a model config that points at them: copy the
-catalog's `knowledgator__gliclass-edge-v3.0.yaml`, give it a new `sie_id`, and replace `hf_id` and `hf_revision`
-with `weights_path:` pointing at the saved `runs/<timestamp>/<dataset>/model/` folder (or keep `hf_id` and point it at
-a private Hugging Face repo you push the weights to). Your data and your
-model then stay on your servers, and the call above works unchanged with the new model id.
+### Check SIE gives the same answers
+
+`serve.py` sends every test row to SIE, for the zero-shot model and your fine-tuned one, and writes
+`runs/<timestamp>-served/results.json`:
+
+```sh
+SIE_BASE_URL=http://localhost:8080 uv run serve.py
+```
+
+We ran it on 14 November 2026 against the container above, on an Apple M-series laptop. The image is built for
+x86, so Docker emulated it, and it still used under 1 GB of memory with all three models loaded. All 420 decisions
+matched the ones `recipe.py` made in its own process, row for row:
+
+| | Zero-shot | Fine-tuned |
+| --- | --- | --- |
+| Banking77, public | 67.3% (101 of 150), 22 s | 93.3% (140 of 150), 12 s |
+| Parsed-document quality, private | 30.0% (18 of 60), 7 s | 86.7% (52 of 60), 7 s |
+
+The times include loading each model on its first call. With SIE Serverless, `uv run serve.py --zero-shot-only`
+scores the catalog model; your fine-tuned weights need SIE Local or SIE Cluster, where you control the configs.
 
 ## Potential improvements
 
@@ -217,9 +291,12 @@ else changes. We ran the edge model for this README.
 
 ## Run it using SIE Cluster or SIE Local
 
-The recipe itself trains and scores locally. To serve the decision models with SIE, set `SIE_BASE_URL` in `.env`
-to your SIE Cluster or SIE Local; an SIE key is then optional.
+`recipe.py` trains and scores in its own process. `serve.py` sends the same rows to SIE: set `SIE_BASE_URL` in
+`.env` to your SIE Cluster or SIE Local (an SIE key is then optional), and start it with the configs in
+`sie_models/` as shown in "Serve your fine-tuned model with SIE".
 
 | `rules.yaml` key | Model | Image | Tested on |
 | --- | --- | --- | --- |
-| `model` | `knowledgator/gliclass-edge-v3.0` | `cuda12-default` | Apple M-series laptop (MPS), training and scoring |
+| `model` | `knowledgator/gliclass-edge-v3.0` | `cuda12-default` (`cpu-default` on CPU) | `v0.11.1-cpu-default` in Docker on an Apple M-series laptop |
+| `datasets.public.served_model` | `my-team/banking77-router` (your weights, `sie_models/public.yaml`) | same | same |
+| `datasets.private.served_model` | `my-team/parsed-page-check` (your weights, `sie_models/private.yaml`) | same | same |

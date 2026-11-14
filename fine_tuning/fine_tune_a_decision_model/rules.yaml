@@ -1,5 +1,7 @@
 # The decision model and how it is trained. Change these, not the code.
 model: knowledgator/gliclass-edge-v3.0
+# serve.py waits this long for SIE to load a model on its first call.
+wait_s: 900
 train:
   epochs: 8
   learning_rate: 2.0e-5
@@ -11,6 +13,8 @@ train:
 datasets:
   public:
     title: Banking77 support messages (public)
+    # The sie_id in sie_models/public.yaml: how serve.py asks SIE for the fine-tuned model.
+    served_model: my-team/banking77-router
     prompt: "Which team should handle this customer message?"
     labels:
       card has not arrived: {action: cards team}
@@ -21,6 +25,7 @@ datasets:
       wrong amount of cash from ATM: {action: disputes team}
   private:
     title: Parsed-document quality checks (private, synthetic)
+    served_model: my-team/parsed-page-check
     prompt: "What is wrong with this text a document parser produced?"
     labels:
       clean readable text: {action: accept, send to extraction}
