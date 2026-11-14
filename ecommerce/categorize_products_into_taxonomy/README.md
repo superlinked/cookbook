@@ -456,12 +456,12 @@ See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
 The same code runs on your machine and uses SIE Cluster or SIE Local
 ([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
-is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
+is then optional. The table gives the SIE v0.11.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
 | `rules.yaml` key | Model | Image | Tested on |
 | --- | --- | --- | --- |
-| `embed` | `Qwen/Qwen3-Embedding-4B` has no published image in v0.10.1: set `Qwen/Qwen3-Embedding-8B` instead | `cuda12-default` | L4 |
+| `embed` | `Qwen/Qwen3-Embedding-4B` runs on `cuda12-sglang-embedding`, new in v0.11.1 and not yet smoke-tested by SIE; or set `Qwen/Qwen3-Embedding-8B` instead | `cuda12-default` | L4 |
 | `rerank` | `Qwen/Qwen3-Reranker-4B` | `cuda12-default` | L4 |
 | `extract` | `fastino/gliner2-large-v1` | `cuda12-default` | L4 |
 
@@ -469,7 +469,7 @@ One container serves them all:
 
 ```bash
 docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
-  ghcr.io/superlinked/sie-server:v0.10.1-cuda12-default
+  ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
 # then set SIE_BASE_URL=http://localhost:8080 in .env and run: uv run recipe.py
 ```
 

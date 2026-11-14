@@ -443,7 +443,7 @@ See [MODELS.md](../../MODELS.md) for every model these recipes use.
 
 The same code runs on your machine and uses SIE Cluster or SIE Local
 ([SELF_HOSTING.md](../../SELF_HOSTING.md) says what SIE Local can serve). Set `SIE_BASE_URL` in `.env`; an API key
-is then optional. The table gives the SIE v0.10.1 image each model runs on, from SIE's
+is then optional. The table gives the SIE v0.11.1 image each model runs on, from SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md).
 
 | `rules.yaml` key | Model | Image | Tested on |
