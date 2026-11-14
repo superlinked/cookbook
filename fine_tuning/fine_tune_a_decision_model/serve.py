@@ -6,7 +6,8 @@
 
 Run recipe.py first, then start SIE Local or SIE Cluster with the configs in sie_models/
 and the saved weights mounted (see the README). Set SIE_BASE_URL in .env. Writes
-runs/<timestamp>-served/results.json and prints a table to compare with recipe.py's.
+runs/<timestamp>-served/results.json in the same shape as recipe.py's, and prints one line
+per model.
 """
 
 from __future__ import annotations
@@ -24,8 +25,9 @@ from dotenv import load_dotenv
 from sie_sdk import SIEClient
 from sie_sdk.types import Item
 
+from recipe import load_rows, score, top_pick
+
 HERE = Path(__file__).parent
-BATCH = 16
 
 
 def make_client(wait_s: float) -> SIEClient:
@@ -39,45 +41,35 @@ def make_client(wait_s: float) -> SIEClient:
     return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=wait_s)
 
 
-def load_rows(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-
-
-def top_label(result: dict[str, Any]) -> dict[str, Any]:
-    """The highest-scoring label in one extract result."""
-    found = result.get("classifications") or []
-    if not found:
-        return {"label": None, "score": 0.0}
-    best = max(found, key=lambda c: c["score"])
-    return {"label": best["label"], "score": round(float(best["score"]), 4)}
-
-
-def accuracy(picks: list[dict[str, Any]], rows: list[dict[str, Any]]) -> dict[str, Any]:
-    correct = sum(p["label"] == r["true_labels"][0] for p, r in zip(picks, rows, strict=True))
-    return {"accuracy": round(correct / len(rows), 3), "correct": correct, "rows": len(rows)}
-
-
 def decide(
-    client: SIEClient, model: str, rows: list[dict[str, Any]], labels: list[str], prompt: str
+    client: SIEClient,
+    model: str,
+    rows: list[dict[str, Any]],
+    labels: list[str],
+    prompt: str,
+    cfg: dict[str, Any],
 ) -> dict[str, Any]:
     """One SIE extract call per batch of rows; the top label is the decision."""
     picks: list[dict[str, Any]] = []
     start = time.perf_counter()
-    for i in range(0, len(rows), BATCH):
-        batch = rows[i : i + BATCH]
+    size = cfg["batch_size"]
+    for i in range(0, len(rows), size):
+        batch = rows[i : i + size]
+        # Each result is an sie_sdk ExtractResult; GLiClass fills `classifications`
+        # with {"label", "score"} for every label.
         results = client.extract(
-            model, [Item(text=r["text"]) for r in batch], labels=labels, instruction=prompt
+            model,
+            [Item(text=r["text"]) for r in batch],
+            labels=labels,
+            instruction=prompt,
+            options={"classification_type": cfg["classification_type"]},
         )
-        picks += [top_label(dict(r)) for r in results]
+        picks += [
+            top_pick(list(r.get("classifications") or []), f"{model}, row {i + n}")
+            for n, r in enumerate(results, 1)
+        ]
     seconds = time.perf_counter() - start
-    return {
-        **accuracy(picks, rows),
-        "seconds": round(seconds, 1),
-        "picks": [
-            {"text": r["text"][:160], "expected": r["true_labels"][0], **p}
-            for p, r in zip(picks, rows, strict=True)
-        ],
-    }
+    return {"seconds": round(seconds, 1), **score(picks, rows, labels)}
 
 
 def main() -> None:
@@ -91,28 +83,27 @@ def main() -> None:
     client = make_client(rules["wait_s"])
     run_dir = HERE / "runs" / (datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-served")
     run_dir.mkdir(parents=True)
-    results: dict[str, Any] = {"model": rules["model"]}
+    results: dict[str, Any] = {"model": rules["model"], "score": rules["score"]}
     for key, spec in rules["datasets"].items():
         if args.only and key != args.only:
             continue
         labels = list(spec["labels"])
-        test = load_rows(HERE / f"data/{key}/test.jsonl")
+        test = load_rows(HERE / f"data/{key}/test.jsonl", labels)
         print(f"\n== {spec['title']}: {len(test)} test rows")
-        entry: dict[str, Any] = {"title": spec["title"]}
+        results[key] = {"title": spec["title"]}
         models = {"zero_shot": rules["model"]}
         if not args.zero_shot_only:
             models["fine_tuned"] = spec["served_model"]
         for kind, model in models.items():
-            entry[kind] = {"model": model, **decide(client, model, test, labels, spec["prompt"])}
-            r = entry[kind]
+            r = decide(client, model, test, labels, spec["prompt"], rules["score"])
+            results[key][kind] = {"model": model, **r}
             print(
                 f"   {kind:<10}  {r['accuracy']:.1%}  ({r['correct']}/{r['rows']})  "
                 f"{model}, {r['seconds']} s"
             )
-        results[key] = entry
-        (run_dir / "results.json").write_text(
-            json.dumps(results, indent=2, ensure_ascii=False) + "\n"
-        )
+            (run_dir / "results.json").write_text(
+                json.dumps(results, indent=2, ensure_ascii=False) + "\n"
+            )
     print(f"\nwrote {run_dir / 'results.json'}")
 
 

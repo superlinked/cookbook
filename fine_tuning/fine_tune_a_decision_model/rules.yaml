@@ -1,5 +1,14 @@
 # The decision model and how it is trained. Change these, not the code.
 model: knowledgator/gliclass-edge-v3.0
+# The Hugging Face commit recipe.py downloads: the same one SIE's catalog serves.
+model_revision: df03993a2ed98e5e4a0d2dd7efbbd105abe874cf
+# How both scripts score. multi-label gives each label its own 0-1 score (a sigmoid), so a
+# low top score means the model isn't sure; sie_models/*.yaml load the model the same way.
+score:
+  classification_type: multi-label
+  threshold: 0.0     # return every label, so the top one is always there
+  batch_size: 16     # rows per pipeline batch, and per SIE extract call
+  max_length: 512    # tokens per training row
 # serve.py waits this long for SIE to load a model on its first call.
 wait_s: 900
 train:

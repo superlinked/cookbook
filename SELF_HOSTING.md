@@ -16,8 +16,8 @@ SIE_BASE_URL=http://localhost:8080
 are from SIE v0.11.1. SIE's
 [compatibility matrix](https://github.com/superlinked/sie/blob/main/docs/compatibility.md) is the
 source for which image serves which model and on which GPU it was smoke-tested. Its latest edition
-covers v0.10.1: v0.11.1 serves every model here from the same image, but SIE hasn't published smoke
-tests of the v0.11.1 images yet.
+covers v0.10.1: v0.11.1 serves every model here from the same image, except that Qwen3-Embedding-4B
+now has an image of its own (see below), and SIE hasn't published smoke tests of the v0.11.1 images yet.
 
 ## SIE Local
 

@@ -17,7 +17,8 @@ HERE = Path(__file__).parent
 TRAIN_PER_LABEL = 17
 PUBLIC_TEST_PER_LABEL = 25
 PRIVATE_TEST_PER_LABEL = 10
-BANKING77_REVISION = "refs/convert/parquet"
+# The Parquet export of PolyAI/banking77 (its refs/convert/parquet branch) at this commit.
+BANKING77_REVISION = "5724874eb34f7571b611868e14cba91202b9b2a9"
 BANKING77_INTENTS = {
     "card_arrival": "card has not arrived",
     "lost_or_stolen_card": "card lost or stolen",

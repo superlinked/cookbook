@@ -1,6 +1,11 @@
 # Serve the model recipe.py fine-tuned on data/private/ with SIE Local or SIE Cluster.
-# Copied from SIE's catalog entry for knowledgator/gliclass-edge-v3.0, with hf_id and
-# hf_revision replaced by weights_path: the folder recipe.py saved, as the server sees it.
+# Copied from SIE's catalog entry for knowledgator/gliclass-edge-v3.0, with four changes:
+# - a new sie_id and a description;
+# - weights_path in place of hf_id and hf_revision: the folder recipe.py saved, as the
+#   server sees it;
+# - multi-label scoring by default, as recipe.py trains and scores, so each label gets its
+#   own 0-1 score and a low top score means the model isn't sure;
+# - one profile: the catalog's multi-label profile is now the default.
 sie_id: my-team/parsed-page-check
 description: GLiClass edge v3.0 fine-tuned on 102 synthetic parsed-document quality rows
 weights_path: /weights/private
@@ -21,6 +26,6 @@ profiles:
     adapter_path: sie_server.adapters.gliclass:GLiClassAdapter
     adapter_options:
       loadtime:
-        classification_type: single-label
+        classification_type: multi-label
       runtime:
         threshold: 0.0

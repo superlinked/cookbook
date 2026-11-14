@@ -37,8 +37,8 @@ parser's output. So the questions are:
 
 ### Examples
 
-`data/public/` is a slice of [Banking77](https://huggingface.co/datasets/PolyAI/banking77) (PolyAI, CC-BY-4.0):
-six intents, 17 training and 25 test messages each. `data/private/` is synthetic, written by `make_data.py` for
+`data/public/` is a slice of [Banking77](https://huggingface.co/datasets/PolyAI/banking77) (PolyAI, CC-BY-4.0; its
+Parquet export at revision `5724874e`): six intents, 17 training and 25 test messages each. `data/private/` is synthetic, written by `make_data.py` for
 this recipe under this repo's Apache 2.0 license: six kinds of parser output, 17 training and 10 test rows each.
 
 1. *"My card got lost."* (public): should be **card lost or stolen**, so the fraud team blocks the card.
@@ -79,12 +79,13 @@ fine-tuned GLiClass weights the same way (see below).
 
 | Step | Where | What |
 | --- | --- | --- |
-| Labels, prompts, model, training settings | `rules.yaml` | The decision and what your pipeline does with each answer |
+| Labels, prompts, model, training and scoring settings | `rules.yaml` | The decision and what your pipeline does with each answer |
 | Build the data | `make_data.py` | `build_public()`, `build_private()` |
-| Score | `recipe.py` | `decide()`: one decision per row, accuracy overall and per label |
+| Score | `recipe.py` | `load_rows()` checks each row against `rules.yaml`; `decide()` and `score()`: one decision per row, accuracy overall and per label |
 | Fine-tune | `recipe.py` | `fine_tune()`: GLiClass `Trainer`, no augmentation, fixed seed |
 | Serve | `sie_models/*.yaml` | One SIE model config per fine-tuned model, pointing `weights_path` at the saved weights |
-| Score through SIE | `serve.py` | `decide()`: one `extract` call per 16 rows, zero-shot and fine-tuned |
+| Score through SIE | `serve.py` | `decide()`: one `extract` call per 16 rows, zero-shot and fine-tuned, scored by `recipe.py`'s `score()` |
+| Offline checks | `selfcheck.py` | Data and SIE configs agree with `rules.yaml`; scoring counts right on stand-in replies |
 
 ## Run it
 
@@ -97,6 +98,7 @@ uv run --group data make_data.py   # rebuild data/ (downloads Banking77)
 uv run recipe.py                   # zero-shot vs fine-tuned, both datasets
 uv run recipe.py --only private    # one dataset
 uv run serve.py                    # the same test rows through SIE (start SIE first, see below)
+uv run selfcheck.py                # offline checks, no model and no SIE
 ```
 
 The first run downloads the model (131 MB). Each run writes `runs/<timestamp>/results.json` with every decision,
@@ -133,7 +135,7 @@ We ran the recipe on 14 November 2026 on an Apple M-series laptop (MPS), with `k
 | Banking77, public (150 test messages) | 67.3% (101) | **93.3% (140)** |
 | Parsed-document quality, private (60 test rows) | 30.0% (18) | **86.7% (52)** |
 
-Fine-tuning took 5.5 s for each dataset on the laptop, and scoring took 2 to 3 ms a row. 140 of 150 test messages
+Fine-tuning took about 5 s for each dataset on the laptop, and scoring took 2 to 4 ms a row. 140 of 150 test messages
 and 52 of 60 parsed pages came out as expected after fine-tuning.
 
 Per label:
@@ -178,9 +180,11 @@ where a label is weak. Then serve the fine-tuned model next to your pipeline wit
 
 SIE serves any model it has a config for. A config is a small YAML file: SIE's catalog has one per model, and
 `sie_models/` here has one for each model `recipe.py` trains. Each is a copy of the catalog's
-`knowledgator__gliclass-edge-v3.0.yaml` with two changes: a new `sie_id` (`my-team/parsed-page-check`), and
-`weights_path: /weights/private` in place of `hf_id` and `hf_revision`, so SIE loads your weights from a folder
-instead of Hugging Face. The weights never leave your machine.
+`knowledgator__gliclass-edge-v3.0.yaml` with a new `sie_id` (`my-team/banking77-router` and
+`my-team/parsed-page-check`), and `weights_path: /weights/public` or `/weights/private` in place of `hf_id` and
+`hf_revision`, so SIE loads your weights from a folder instead of Hugging Face. They also score multi-label, as
+`recipe.py` does, so each label gets its own score from 0 to 1 and a low top score means the same thing in both.
+The weights never leave your machine.
 
 ### Start SIE Local in Docker
 
@@ -217,13 +221,13 @@ curl -s http://localhost:8080/v1/extract/my-team/parsed-page-check \
 ```
 
 The first call answers `MODEL_LOADING` while SIE loads the weights (9 s here); call again. Then each label comes
-back with a score, highest first:
+back with its own score, highest first (the scores don't add up to 1):
 
 ```json
 "classifications": [
-  {"label": "table flattened into run-on numbers", "score": 0.971},
-  {"label": "document cut off mid-sentence", "score": 0.029},
-  {"label": "text not in English", "score": 0.0001},
+  {"label": "table flattened into run-on numbers", "score": 0.977},
+  {"label": "document cut off mid-sentence", "score": 0.559},
+  {"label": "text not in English", "score": 0.004},
   ...
 ]
 ```
@@ -251,8 +255,8 @@ result = client.extract(
     labels=LABELS,
     instruction="What is wrong with this text a document parser produced?",
 )
-best = result["classifications"][0]
-print(best)  # {'label': 'table flattened into run-on numbers', 'score': 0.971...}
+best = max(result["classifications"], key=lambda c: c["score"])
+print(best)  # {'label': 'table flattened into run-on numbers', 'score': 0.977...}
 ```
 
 ### Check SIE gives the same answers
@@ -266,12 +270,12 @@ SIE_BASE_URL=http://localhost:8080 uv run serve.py
 
 We ran it on 14 November 2026 against the container above, on an Apple M-series laptop. The image is built for
 x86, so Docker emulated it, and it still used under 1 GB of memory with all three models loaded. All 420 decisions
-matched the ones `recipe.py` made in its own process, row for row:
+matched the ones `recipe.py` made in its own process, row for row, and every score was within 0.0001:
 
 | | Zero-shot | Fine-tuned |
 | --- | --- | --- |
-| Banking77, public | 67.3% (101 of 150), 22 s | 93.3% (140 of 150), 12 s |
-| Parsed-document quality, private | 30.0% (18 of 60), 7 s | 86.7% (52 of 60), 7 s |
+| Banking77, public | 67.3% (101 of 150), 28 s | 93.3% (140 of 150), 18 s |
+| Parsed-document quality, private | 30.0% (18 of 60), 10 s | 86.7% (52 of 60), 12 s |
 
 The times include loading each model on its first call. With SIE Serverless, `uv run serve.py --zero-shot-only`
 scores the catalog model; your fine-tuned weights need SIE Local or SIE Cluster, where you control the configs.
@@ -280,8 +284,8 @@ scores the catalog model; your fine-tuned weights need SIE Local or SIE Cluster,
 
 - **More rows for the labels that miss.** The per-label accuracy in `results.json` says where to spend labelling
   time.
-- **Train a LoRA adapter instead of the whole model.** SIE can load GLiClass LoRA adapters at request time, so one
-  base model can serve a different adapter per team or per pipeline.
+- **Train a LoRA adapter instead of the whole model.** SIE can load GLiClass LoRA adapters named in a model's
+  config and pick one per request, so one base model can serve a different adapter per team or per pipeline.
 - **Use the score, not only the top label.** A low top score is a good reason to send a row to a person.
 
 ## Try another model
