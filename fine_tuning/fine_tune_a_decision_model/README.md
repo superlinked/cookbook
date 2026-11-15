@@ -340,19 +340,20 @@ We also tried two newer decision models on 15 November 2026, on the same rows, l
 
 | Model | Banking77: zero-shot / few-shot / fine-tuned | Parser checks: zero-shot / few-shot / fine-tuned | Through SIE Local v0.11.1 |
 | --- | --- | --- | --- |
-| `knowledgator/gliclass-edge-v3.0` (this recipe) | 67.3% / 57.3%\* / 93.3% | 30.0% / 16.7%\* / 86.7% | Same decisions, scores within 0.0001 |
-| `knowledgator/gliclass-v4-edge` | 98.0% / 96.7% / 98.0% | 51.7% / 23.3% / 96.7% | Loads only after a tokenizer fix; same decisions, scores up to 0.26 apart |
+| `knowledgator/gliclass-edge-v3.0` (this recipe) | 67.3% / 57.3%\* / 93.3% | 30.0% / 16.7%\* / 86.7% | Zero-shot and fine-tuned: same decisions, scores within 0.0001 (few-shot doesn't match, see above) |
+| `knowledgator/gliclass-v4-edge` | 98.0% / 96.7% / 98.0% | 51.7% / 23.3% / 96.7% | Fine-tuned only: loads after a tokenizer fix; same decisions, scores up to 0.26 apart |
 | `convaiinnovations/laya-multilingual` | 82.0% / n/a / 94.7% | 36.7% / n/a / 85.0% | Same decisions, scores within 0.0001 |
 
 \* Few-shot runs on `gliclass-instruct-edge-v1.0`, as above.
 
 `knowledgator/gliclass-v4-edge` (Apache 2.0, 882 MB, revision `885af1af`) is the most accurate model we ran. Set
-`model:` and `model_revision:` in `rules.yaml` and run the recipe as it is; we kept the same training settings.
+`model:` and `model_revision:` in `rules.yaml` and run the recipe as it is; we kept the same training settings. For
+its few-shot number, set `few_shot.model` and `few_shot.model_revision` to the same model too.
 Zero-shot, it beat our fine-tuned edge model on Banking77 without seeing a single training row. Fine-tuned, it
 missed 2 of 60 parsed pages, the same clean-versus-cut-off pair as the edge model. Few-shot still hurt, even though
 v4-edge doesn't read the segment tags the gliclass bug breaks, so we can't blame the bug for everything: one example
 per label sent 56 of 60 parsed pages to "garbled OCR characters". It costs you size and speed. Fine-tuning took
-38 s and 61 s on the laptop, and scoring took 260 to 650 ms a row instead of 2 to 4 ms.
+38 s and 61 s on the laptop, and scoring took 230 to 650 ms a row instead of 2 to 4 ms.
 
 SIE's catalog doesn't have v4-edge yet, and SIE v0.11.1 can't load it as shipped. Its `tokenizer_config.json`
 stores `extra_special_tokens` as a list, and the transformers in the image (4.57.6) expects a dict. With that key
@@ -369,7 +370,7 @@ epochs, batch size and seed. Fine-tuned, it landed close to our edge model in ab
 92 rows instead of 102, because it holds 10 back to fit its calibration, and it warned that 10 rows is too few for
 that fit. It was the fastest of the three on the laptop, at 15 to 20 ms a row. It was also the easiest to serve:
 SIE Local loaded the fine-tuned weights from a copy of the catalog's `convaiinnovations__laya-multilingual.yaml`
-with `weights_path` in place of `hf_id`, and all 420 decisions matched, every score within 0.0001.
+with `weights_path` in place of `hf_id` and `hf_revision`, and all 420 decisions matched, every score within 0.0001.
 
 ## Run it using SIE Cluster or SIE Local
 
