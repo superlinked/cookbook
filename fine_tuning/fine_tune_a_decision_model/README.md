@@ -184,7 +184,9 @@ which people mix up too.
 Few-shot scored below zero-shot on both datasets, for these models on this decision. Your mileage may vary. On the
 parser set the instruct model gave all 60 rows the same label. On Banking77 it leaned on one label (70 of 150
 messages got "transfer not received by recipient"), and the order of the six examples moved it a lot: the same
-examples reversed scored 53.3%, shuffled 39.3%. It wasn't the prompt (without it, few-shot scored 36.7%), and more
+examples reversed scored 53.3%, and ten shuffles (`random.Random(seed).shuffle` with seeds 0 to 9) scored anywhere
+from 20.0% to 69.3%. The best order edged past zero-shot (67.3%), but nothing tells you in advance which order
+that is. It wasn't the prompt (without it, few-shot scored 36.7%), and more
 examples didn't help: two per label scored 55.3% and three per label 28.7%. The window caps it anyway: examples
 share the model's 1,024 tokens with the row, and on the parser set two examples per label already don't fit.
 
