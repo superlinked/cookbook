@@ -181,11 +181,11 @@ and cut-off text swapped for each other (5 one way, 3 the other), because our sy
 mid-thought sometimes. On Banking77, 7 of the 10 misses are "card has not arrived" and "card lost or stolen" swapped,
 which people mix up too.
 
-Few-shot scored below zero-shot on both datasets, for these models on this decision. Your mileage may vary. On the
+Few-shot scored below zero-shot on both datasets, for these models on this decision. On the
 parser set the instruct model gave all 60 rows the same label. On Banking77 it leaned on one label (70 of 150
 messages got "transfer not received by recipient"), and the order of the six examples moved it a lot: the same
 examples reversed scored 53.3%, and ten shuffles (`random.Random(seed).shuffle` with seeds 0 to 9) scored anywhere
-from 20.0% to 69.3%. The best order edged past zero-shot (67.3%), but nothing tells you in advance which order
+from 20.0% to 69.3%. The best order edged past the edge model's zero-shot (67.3%), but nothing tells you in advance which order
 that is. It wasn't the prompt (without it, few-shot scored 36.7%), and more
 examples didn't help: two per label scored 55.3% and three per label 28.7%. The window caps it anyway: examples
 share the model's 1,024 tokens with the row, and on the parser set two examples per label already don't fit.
@@ -301,7 +301,7 @@ SIE_BASE_URL=http://localhost:8080 uv run serve.py
 We ran it on 14 November 2026 against the container above, on an Apple M-series laptop. The image is built for
 x86, so Docker emulated it, and it used 1.1 GB of memory with all four models loaded. All 630 zero-shot and
 fine-tuned decisions matched the ones `recipe.py` made in its own process, row for row, and every score was within
-0.0001. Few-shot didn't match: SIE's GLiClass adapter copies gliclass's segment tags as they are, bug included, so
+0.0001. Few-shot didn't match: SIE's GLiClass adapter copies gliclass's segment tags as they are, bug included ([`segment_ids()`](https://github.com/superlinked/sie/blob/dbfda27934f40f2e82b5a3cb827e8aeecda216a6/packages/sie_server/src/sie_server/adapters/gliclass/cuda_graphs.py#L791-L800) uses the same `argmin`), so
 through SIE few-shot scores what it scored before the fix:
 
 | | Zero-shot (edge) | Zero-shot (instruct) | Few-shot (instruct) | Fine-tuned |
