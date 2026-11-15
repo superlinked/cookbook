@@ -182,7 +182,10 @@ mid-thought sometimes. On Banking77, 7 of the 10 misses are "card has not arrive
 which people mix up too.
 
 Few-shot scored below zero-shot on both datasets, for these models on this decision. On the
-parser set the instruct model gave all 60 rows the same label. On Banking77 it leaned on one label (70 of 150
+parser set the instruct model gave all 60 rows the same label. That's the model, not the examples: with no
+examples at all it already gave 50 of the 60 rows "clean readable text", and the label it favors moves when you
+reorder the labels. Reversed, 54 of 60 rows got "document cut off mid-sentence"; with "clean readable text" renamed
+"no problem", the first label still won 59 of 60. On Banking77 it leaned on one label (70 of 150
 messages got "transfer not received by recipient"), and the order of the six examples moved it a lot: the same
 examples reversed scored 53.3%, and ten shuffles (`random.Random(seed).shuffle` with seeds 0 to 9) scored anywhere
 from 20.0% to 69.3%. The best order edged past the edge model's zero-shot (67.3%), but nothing tells you in advance which order
@@ -194,7 +197,9 @@ These few-shot numbers need a fix to gliclass. Its `_create_segment_ids` (`glicl
 first example token with `argmin` instead of `argmax`, so with examples in the request it tags every token, the
 labels and the row included, as an example. The instruct models read those tags; the edge model doesn't, so
 zero-shot and fine-tuning aren't affected. `recipe.py` replaces that one function (`segment_ids()`). Without the fix
-few-shot scored 26.0% and 15.0%.
+few-shot scored 26.0% and 15.0%. We checked that the fix matches how the model was trained, because gliclass
+changed these tags on 8 February 2026 and the instruct model came out nine days later. It does: with the older
+tags, the instruct model's zero-shot on Banking77 drops from 63.3% to 23.3%.
 
 Two cautions. The private set is synthetic and made by templates, so it is easier to learn than your parser's real
 output: treat 86.7% as what 100 rows can do on a clear-cut decision, not as a promise. And the test sets are small
@@ -330,6 +335,42 @@ For few-shot we swapped in `knowledgator/gliclass-instruct-edge-v1.0` (`few_shot
 edge model and trained to read examples. Zero-shot it scored a little below the edge model (63.3% and 20.0%
 against 67.3% and 30.0%), and examples in the request lowered it further (57.3% and 16.7%). We first tried
 few-shot on the edge model itself: it gave every test row the same label, at a score of 0.999.
+
+We also tried two newer decision models on 15 November 2026, on the same rows, labels and prompts:
+
+| Model | Banking77: zero-shot / few-shot / fine-tuned | Parser checks: zero-shot / few-shot / fine-tuned | Through SIE Local v0.11.1 |
+| --- | --- | --- | --- |
+| `knowledgator/gliclass-edge-v3.0` (this recipe) | 67.3% / 57.3%\* / 93.3% | 30.0% / 16.7%\* / 86.7% | Zero-shot and fine-tuned: same decisions, scores within 0.0001 (few-shot doesn't match, see above) |
+| `knowledgator/gliclass-v4-edge` | 98.0% / 96.7% / 98.0% | 51.7% / 23.3% / 96.7% | Fine-tuned only: loads after a tokenizer fix; same decisions, scores up to 0.26 apart |
+| `convaiinnovations/laya-multilingual` | 82.0% / n/a / 94.7% | 36.7% / n/a / 85.0% | Same decisions, scores within 0.0001 |
+
+\* Few-shot runs on `gliclass-instruct-edge-v1.0`, as above.
+
+`knowledgator/gliclass-v4-edge` (Apache 2.0, 882 MB, revision `885af1af`) is the most accurate model we ran. Set
+`model:` and `model_revision:` in `rules.yaml` and run the recipe as it is; we kept the same training settings. For
+its few-shot number, set `few_shot.model` and `few_shot.model_revision` to the same model too.
+Zero-shot, it beat our fine-tuned edge model on Banking77 without seeing a single training row. Fine-tuned, it
+missed 2 of 60 parsed pages, the same clean-versus-cut-off pair as the edge model. Few-shot still hurt, even though
+v4-edge doesn't read the segment tags the gliclass bug breaks, so we can't blame the bug for everything: one example
+per label sent 56 of 60 parsed pages to "garbled OCR characters". It costs you size and speed. Fine-tuning took
+38 s and 61 s on the laptop, and scoring took 230 to 650 ms a row instead of 2 to 4 ms.
+
+SIE's catalog doesn't have v4-edge yet, and SIE v0.11.1 can't load it as shipped. Its `tokenizer_config.json`
+stores `extra_special_tokens` as a list, and the transformers in the image (4.57.6) expects a dict. With that key
+deleted from the saved config (the token ids came out identical on all 210 test rows), SIE Local served our
+fine-tuned weights with the same top label on every row. The scores didn't match, though. v4 models ship a
+calibration step that gliclass added in 0.1.21, and the image's gliclass (0.1.17) skips it, so SIE's scores ran
+higher than the local ones, by 0.16 on a typical parsed page and up to 0.26. Your decisions carry over; a threshold
+you pick on local scores won't.
+
+`convaiinnovations/laya-multilingual` (Apache 2.0, 322M parameters, revision `82d57fc4`) is already in SIE's
+catalog. It doesn't read examples in the request, so it has no few-shot number. It also comes with its own package
+(`laya` 0.4.33) and its own trainer, `laya.train.finetune()`, so `recipe.py` can't run it; we gave it the same rows,
+epochs, batch size and seed. Fine-tuned, it landed close to our edge model in about 30 s per dataset. It trained on
+92 rows instead of 102, because it holds 10 back to fit its calibration, and it warned that 10 rows is too few for
+that fit. It was the fastest of the three on the laptop, at 15 to 20 ms a row. It was also the easiest to serve:
+SIE Local loaded the fine-tuned weights from a copy of the catalog's `convaiinnovations__laya-multilingual.yaml`
+with `weights_path` in place of `hf_id` and `hf_revision`, and all 420 decisions matched, every score within 0.0001.
 
 ## Run it using SIE Cluster or SIE Local
 
