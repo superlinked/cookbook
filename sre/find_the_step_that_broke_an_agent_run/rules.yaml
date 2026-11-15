@@ -1,0 +1,50 @@
+# Model, sizes and the task text. Sizes are starting points, not tuned values.
+
+models:
+  reader: Qwen/Qwen3.8-27B-FP8   # reads a run whole, drives the RLM and answers its helpers, on SIE
+
+# Qwen's tokenizer gives about 3 characters per token on English and code; Chinese text needs under 2.
+chars_per_token: 3.0
+
+whole_read:
+  max_tokens: 24000             # a run up to this size is read in one call; a longer one goes to the RLM.
+                                # Keep it under your deployment's window minus max_completion_tokens.
+  max_completion_tokens: 8192
+
+rlm:
+  max_turns: 20                 # driver turns: Qwen writes code, the sandbox runs it, Qwen sees the output
+  max_llm_query_calls: 16       # DSPy's own llm_query() calls from the sandbox
+  max_helper_calls: 120         # scan() and ask() calls together
+  piece_tokens: 24000           # the most any helper sends to Qwen in one call
+  scan_parallel: 8              # scan() calls in flight at once
+  output_chars: 2000            # how much of each turn's printout the driver sees
+  answer_chars: 1200            # how much of each helper answer the driver sees
+  driver_completion_tokens: 6144
+  helper_completion_tokens: 6144  # thinking counts against this: the profile's 4,096 plus room to answer
+
+sampling:
+  temperature: 1.0
+  top_p: 0.95
+
+task: |
+  This agent run failed. Find its root step: the earliest step whose content introduced the decisive
+  error that the run never repaired, and the agent that wrote that step.
+  - The root is where the error came in, not where it showed. A test failure, a review or a final check
+    that exposes or repeats the error is not the root.
+  - A step that only carries out an instruction already containing the error is not the root: the
+    instruction is, and its author is responsible. If the step departs from a correct instruction, the
+    step is the root.
+  - Judge only by what the run recorded. Ignore errors that a later step repaired.
+
+answer_format: |
+  Answer with one JSON object: {"root_step": <step number>, "responsible_agent": "<agent of that step>",
+  "reason": "<one or two sentences, quoting the step>"}.
+
+rlm_rules: |
+  - The run is in `run_events`; `request`, `outcome` and `overview` summarise it. Use code and the helpers to
+    find candidate steps, then read each candidate's own content before you submit.
+  - scan(question) asks Qwen the same question about every piece of the run, in parallel; use it early to map
+    where errors, decisions and repairs are. ask(question, steps) asks about specific steps. grep, show and
+    steps_by read the run directly and cost no model call.
+  - Before concluding that something is absent, check that your search handles case and formatting.
+  - responsible_agent is the agent recorded for root_step.

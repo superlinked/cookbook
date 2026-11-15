@@ -150,6 +150,7 @@ recipe's SIE requests (one request can carry many items).
 | [Match a burst of alerts to the runbooks that fix them](sre/match_alerts_to_runbooks) | Qwen3-Embedding-4B, Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 12 | 18 s |
 | [Route alerts to the team that owns them](sre/route_alerts_to_owners) | GLiNER2.5-Decide | 5 | 2 s |
 | [Draft a postmortem from the incident channel, alerts and deploys, with a source for every claim](sre/draft_postmortem_from_incident_data) | Qwen3.8-27B-FP8 | 7 | 40 s |
+| [Find the step and the agent that broke a failed agent run, however long the run](sre/find_the_step_that_broke_an_agent_run) | Qwen3.8-27B-FP8 | 23 | 1,092 s |
 | [Redact secrets and customer data from logs before you share them](sre/redact_logs_before_sharing) | pii-redact | 3 | 2 s |
 
 ### Security

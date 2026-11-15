@@ -1,0 +1,20 @@
+[
+  {
+    "run_id": "short-handoff",
+    "root_step": 11,
+    "responsible_agent": "coordinator",
+    "what_went_wrong": "The handoff told the coder to charge interest on invoice.total; the task says the unpaid balance. The coder and reviewer followed the handoff."
+  },
+  {
+    "run_id": "medium-off-by-one",
+    "root_step": 30,
+    "responsible_agent": "coder",
+    "what_went_wrong": "The coder counted full months (10 days late gives 0) instead of started months, although the handoff said one day late is one month."
+  },
+  {
+    "run_id": "long-swallowed-error",
+    "root_step": 22,
+    "responsible_agent": "coder",
+    "what_went_wrong": "To make a test pass, the coder made late_interest return 0 whenever due_text doesn't parse, so imported invoices with another date format silently owe nothing."
+  }
+]
