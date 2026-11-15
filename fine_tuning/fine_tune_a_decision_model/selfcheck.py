@@ -11,10 +11,12 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
+import torch
 import yaml
 
-from recipe import few_shot_examples, load_rows, score, top_pick
+from recipe import few_shot_examples, load_rows, score, segment_ids, top_pick
 
 HERE = Path(__file__).parent
 
@@ -89,11 +91,20 @@ def check_few_shot_examples() -> None:
     assert len(few_shot_examples(rows, ["a", "b"], 2)) == 3
 
 
+def check_segment_ids() -> None:
+    """Labels 0, the row from the text token on 1, examples from the first example token on 2."""
+    model = SimpleNamespace(config=SimpleNamespace(text_token_index=8, example_token_index=9))
+    ids = torch.tensor([[1, 5, 5, 8, 4, 4, 9, 4, 9, 4], [1, 5, 8, 4, 4, 4, 0, 0, 0, 0]])
+    got = segment_ids(model, ids).tolist()
+    assert got == [[0, 0, 0, 1, 1, 1, 2, 2, 2, 2], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1]], got
+
+
 def main() -> None:
     check_data_and_configs()
     check_load_rows_refuses_drift()
     check_top_pick_and_score()
     check_few_shot_examples()
+    check_segment_ids()
     print("selfcheck passed")
 
 

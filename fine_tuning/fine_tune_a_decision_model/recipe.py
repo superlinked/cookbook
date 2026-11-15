@@ -22,10 +22,32 @@ import torch
 import yaml
 from gliclass import GLiClassModel, ZeroShotClassificationPipeline
 from gliclass.data_processing import AugmentationConfig, DataCollatorWithPadding, GLiClassDataset
+from gliclass.model import GLiClassUniEncoder
 from gliclass.training import Trainer, TrainingArguments
 from transformers import AutoTokenizer
 
 HERE = Path(__file__).parent
+
+
+def segment_ids(self: Any, input_ids: torch.Tensor) -> torch.Tensor:
+    """Tag each token as label (0), text (1) or few-shot example (2).
+
+    Replaces gliclass's `_create_segment_ids` (model.py, 0.1.22), which finds the first
+    example token with `argmin` instead of `argmax`. That returns position 0, so with
+    examples in the request every token, the labels and the row included, is tagged as an
+    example. Only models with `use_segment_embeddings` read the tags (the instruct model
+    few-shot uses); gliclass-edge-v3.0 doesn't.
+    """
+    positions = torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0)
+    text_start = (input_ids == self.config.text_token_index).int().argmax(dim=-1, keepdim=True)
+    example_mask = input_ids == self.config.example_token_index
+    example_start = example_mask.int().argmax(dim=-1, keepdim=True)
+    tags = (positions >= text_start).long()
+    has_example = example_mask.any(dim=-1, keepdim=True)
+    return torch.where(has_example & (positions >= example_start), 2, tags)
+
+
+GLiClassUniEncoder._create_segment_ids = segment_ids
 
 
 def device() -> str:
