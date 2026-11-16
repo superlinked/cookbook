@@ -1,0 +1,48 @@
+# More small models than fit on one GPU, served by one SIE server, with one model pinned.
+
+image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
+port: 8080
+
+# SIE starts unloading the least recently used model when GPU memory passes this share of the card.
+# 50 is the lowest the server allows; on a 24 GB card it acts like a card half the size, so a few
+# small encoders are enough to overflow it.
+memory_pressure_percent: 50
+
+pinned:
+  model: BAAI/bge-m3
+  kind: encode
+  rate_per_s: 4               # steady traffic to the model that matters
+
+traffic:
+  rate_per_s: 6               # all the other models together, random arrivals
+  zipf_s: 1.1                 # popularity: the top model gets the most traffic
+  rotate_every_s: 150         # the ranking shifts by one model this often
+  timeout_s: 300
+  warmup_s: 60                # requests in the first minute aren't counted for the pinned model
+
+minutes: 15                   # per setup
+
+labels:
+  gliner: [person, email, phone number, address, organization]
+  zero_shot: [billing, technical support, account access, medical question, other]
+
+# The models that fit: ten small encoders, about 11 GB at their peak, under the unload point.
+fit:
+  - {model: intfloat/e5-large-v2, kind: encode}
+  - {model: mixedbread-ai/mxbai-embed-large-v1, kind: encode}
+  - {model: intfloat/multilingual-e5-large, kind: encode}
+  - {model: intfloat/multilingual-e5-large-instruct, kind: encode}
+  - {model: Snowflake/snowflake-arctic-embed-l-v2.0, kind: encode}
+  - {model: BAAI/bge-reranker-v2-m3, kind: score}
+  - {model: urchade/gliner_multi_pii-v1, kind: extract}
+  - {model: gliner-community/gliner_large-v2.5, kind: extract}
+  - {model: MoritzLaurer/deberta-v3-base-zeroshot-v2.0, kind: extract}
+
+# Six more, so the set no longer fits.
+overflow:
+  - {model: MoritzLaurer/deberta-v3-large-zeroshot-v2.0, kind: extract}
+  - {model: gliner-community/gliner_medium-v2.5, kind: extract}
+  - {model: urchade/gliner_multi-v2.1, kind: extract}
+  - {model: urchade/gliner_large-v2.1, kind: extract}
+  - {model: BAAI/bge-reranker-large, kind: score}
+  - {model: intfloat/e5-base-v2, kind: encode}
