@@ -191,6 +191,16 @@ model it started from. Serve the result with SIE Local or SIE Cluster.
 | [Turn messages into calendar holds, payments, replies and to-dos](personal/turn_messages_into_actions) | parakeet-tdt-0.6b-v3, LightOnOCR-3-4B, GLiNER2.5-Decide, gliner2-large-v1 | 30 | 11 s |
 | [Keep a fact sheet current from your notes, voice memos and scans](personal/keep_facts_current_from_notes) | parakeet-tdt-0.6b-v3, LightOnOCR-3-4B, Qwen3-Embedding-4B, Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 38 | 26 s |
 
+### Why SIE
+
+These recipes measure SIE itself. Each one does a serving job the way you'd build it by hand, then
+does the same job on SIE, and prints the numbers. [why_sie/](why_sie) says what each one found,
+including where SIE doesn't win.
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Measure what a request sees when its model is cold, and how a burst comes back](why_sie/measure_cold_starts_and_bursts) | Qwen3-VL-Reranker-2B, bge-m3 | 2,002 | 30 s warm; about 2 min with the reranker cold |
+
 ## Contributing a recipe
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). In short: a new folder under its industry with

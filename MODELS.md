@@ -28,6 +28,8 @@ it's called through the Anthropic API with your own key, not served by SIE, so i
 | [`IDEA-Research/grounding-dino-base`](https://huggingface.co/IDEA-Research/grounding-dino-base) | Draw boxes around objects named in text | `extract` | Apache 2.0 | `cuda12-default` | [check_shelf_from_photo](retail/check_shelf_from_photo) |
 | [`Qwen/Qwen3Guard-Gen-4B`](https://huggingface.co/Qwen/Qwen3Guard-Gen-4B) | Give a safety verdict and categories for a prompt | `chat_completions` | Apache 2.0 | `cuda12-sglang` | [screen_assistant_prompts](security/screen_assistant_prompts) |
 | [`knowledgator/gliner-relex-large-v1.0`](https://huggingface.co/knowledgator/gliner-relex-large-v1.0) | Find entities and the relations between them | `extract` | Apache 2.0 | `cuda12-default` | [find_detection_gaps](security/find_detection_gaps) |
+| [`BAAI/bge-m3`](https://huggingface.co/BAAI/bge-m3) | Embed text for search; the burst in the cold-start recipe | `encode` | MIT | `cuda12-default` | [measure_cold_starts_and_bursts](why_sie/measure_cold_starts_and_bursts) |
+| [`Qwen/Qwen3-VL-Reranker-2B`](https://huggingface.co/Qwen/Qwen3-VL-Reranker-2B) | Score passages against a query; the cold start in the cold-start recipe | `score` | Apache 2.0 | `cuda12-default` | [measure_cold_starts_and_bursts](why_sie/measure_cold_starts_and_bursts) |
 
 ## Swaps we ran
 
