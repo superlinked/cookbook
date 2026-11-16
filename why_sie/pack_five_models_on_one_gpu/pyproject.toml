@@ -1,0 +1,15 @@
+[project]
+name = "sie-pack-five-models-on-one-gpu"
+version = "0.1.0"
+description = "Serve an agent's five models one per GPU, on two GPUs and on one GPU with SIE, and compare whole-turn latency."
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.11.1",
+]
+
+[dependency-groups]
+data = ["pyarrow>=17"]
+
+[tool.uv]
+package = false
