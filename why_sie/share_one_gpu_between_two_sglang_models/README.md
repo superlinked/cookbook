@@ -114,7 +114,11 @@ changes that. Model weights download into `~/.cache/huggingface` on the first ru
 
 We ran it on 16 Nov 2026 at 01:22 UTC on one NVIDIA L4, with `--launcher process` inside a container
 built from SIE v0.11.1's SGLang image source (the same code and SGLang version as the published
-image). The Docker launcher runs the same commands in that image; we didn't use it for this run.
+image). In the published `v0.11.1-cuda12-sglang` image itself, the two
+plain-SGLang setups run, but SIE refuses the embedder, because that image only serves the `sglang`
+bundle and SGLang embedders are in `sglang-embedding`, which has no published image yet
+([superlinked/sie#969](https://github.com/superlinked/sie/issues/969)). Until that's fixed, run the
+SIE setup with `--launcher process` in an environment built from SIE's source.
 
 ### The three examples
 
