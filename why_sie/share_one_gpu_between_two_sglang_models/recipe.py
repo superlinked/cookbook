@@ -9,8 +9,8 @@ For by_hand and sie, each model runs alone, then both run at once, with the same
 flight, and the recipe reports the share of its alone throughput each model keeps.
 
 Run it on the machine with the GPU. `--launcher docker` (the default) starts every server from the
-SIE image; `--launcher process` starts the same commands as processes, for a machine that already
-has that image's Python environment.
+SIE image; `--launcher process` starts the same commands as processes with `--server-python`, the
+interpreter of an environment that has SGLang and SIE installed.
 """
 
 from __future__ import annotations
@@ -21,8 +21,11 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
+import sys
 import time
+import traceback
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
@@ -32,6 +35,12 @@ from typing import Any
 import httpx
 import yaml
 from sie_sdk import SIEAsyncClient, SIEClient
+from sie_sdk.client.errors import (
+    ModelLoadingError,
+    ProvisioningError,
+    ServerError,
+    SIEConnectionError,
+)
 from sie_sdk.types import Item
 
 HERE = Path(__file__).resolve().parent
@@ -65,17 +74,29 @@ class Server:
         return self.log.read_text(encoding="utf-8", errors="replace")
 
 
+def port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1.0)
+        return sock.connect_ex(("127.0.0.1", port)) != 0
+
+
 class Launcher:
     """Starts a `python ...` command in the SIE image, with Docker or as a local process."""
 
-    def __init__(self, kind: str, image: str, logs: Path, mounts: list[Path]) -> None:
+    def __init__(
+        self, kind: str, image: str, logs: Path, mounts: list[Path], python: str = "python"
+    ) -> None:
         self.kind = kind
         self.image = image
         self.logs = logs
         self.mounts = mounts
+        self.python = python
         self.servers: list[Server] = []
+        self.gpu_not_empty: list[dict[str, Any]] = []
 
-    def start(self, name: str, args: list[str]) -> Server:
+    def start(self, name: str, args: list[str], port: int) -> Server:
+        if not port_free(port):
+            raise RuntimeError(f"{name}: port {port} is already in use")
         log = self.logs / f"{name}.log"
         container = None
         if self.kind == "docker":
@@ -87,7 +108,7 @@ class Launcher:
                 cmd += ["-v", f"{mount}:{mount}"]
             cmd += ["--entrypoint", "python", self.image, *args]
         else:
-            cmd = ["python", *args]
+            cmd = [self.python, *args]
         with log.open("wb") as fh:
             process = subprocess.Popen(
                 cmd, stdout=fh, stderr=subprocess.STDOUT, start_new_session=True
@@ -99,37 +120,63 @@ class Launcher:
     def stop_all(self) -> None:
         for server in self.servers:
             if server.container:
-                subprocess.run(
+                done = subprocess.run(
                     ["docker", "rm", "-f", server.container],
                     capture_output=True,
+                    text=True,
                     check=False,
                 )
-            if server.running():
-                os.killpg(server.process.pid, signal.SIGTERM)
-                try:
-                    server.process.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    os.killpg(server.process.pid, signal.SIGKILL)
-                    server.process.wait(timeout=15)
+                if done.returncode != 0 and "no such container" not in done.stderr.lower():
+                    print(f"docker rm -f {server.container} failed: {done.stderr.strip()}")
+            stop_process(server)
         self.servers.clear()
-        wait_for_empty_gpu()
+        holders = wait_for_empty_gpu()
+        if holders is None or holders:
+            pids = "unknown" if holders is None else ", ".join(holders)
+            print(f"WARNING: the GPU is not known to be empty; processes holding memory: {pids}")
+            self.gpu_not_empty.append(
+                {"at": datetime.now().astimezone().isoformat(timespec="seconds"), "pids": holders}
+            )
 
 
-def wait_for_empty_gpu(timeout_s: float = 60.0) -> None:
-    """Wait until no process holds GPU memory, so the next setup starts on an empty card."""
-    if shutil.which("nvidia-smi") is None:
-        time.sleep(10)
-        return
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            check=False,
-        ).stdout
-        if not out.strip():
+def stop_process(server: Server) -> None:
+    for sig, wait_s in ((signal.SIGTERM, 30), (signal.SIGKILL, 15)):
+        if not server.running():
             return
+        try:
+            os.killpg(server.process.pid, sig)
+        except ProcessLookupError:
+            return
+        try:
+            server.process.wait(timeout=wait_s)
+            return
+        except subprocess.TimeoutExpired:
+            print(f"{server.name}: still running {wait_s}s after {sig.name}")
+
+
+def gpu_pids() -> list[str] | None:
+    """PIDs holding GPU memory, or None when nvidia-smi can't say."""
+    if shutil.which("nvidia-smi") is None:
+        return None
+    done = subprocess.run(
+        ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode != 0:
+        print(f"nvidia-smi failed: {(done.stderr or done.stdout).strip()[:200]}")
+        return None
+    return [line.strip() for line in done.stdout.splitlines() if line.strip()]
+
+
+def wait_for_empty_gpu(timeout_s: float = 60.0) -> list[str] | None:
+    """Wait until no process holds GPU memory; return the PIDs left, or None if unknown."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        pids = gpu_pids()
+        if pids == [] or time.monotonic() >= deadline:
+            return pids
         time.sleep(2)
 
 
@@ -183,12 +230,33 @@ def memory_lines(log: str) -> list[str]:
 # --- Load ------------------------------------------------------------------------------------
 
 
+class MissingUsage(Exception):
+    """A reply came back without the token count the recipe measures."""
+
+
+def field(obj: Any, key: str) -> Any:
+    return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+
+def token_count(usage: Any, key: str) -> int:
+    value = field(usage, key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise MissingUsage(f"the reply has no usage.{key}")
+    return value
+
+
 @dataclass
 class Count:
     requests: int = 0
     tokens: int = 0
     errors: int = 0
+    missing_usage: int = 0
     first_error: str | None = None
+
+    def error_share(self) -> float:
+        failed = self.errors + self.missing_usage
+        total = self.requests + failed
+        return round(failed / total, 4) if total else 0.0
 
 
 async def drive(
@@ -209,16 +277,22 @@ async def drive(
         while time.monotonic() < deadline:
             text = texts[i % len(texts)]
             i += 1
+            count = counts[name]
             try:
                 tokens = await calls[name](text)
+            except MissingUsage as exc:
                 if time.monotonic() - start >= warmup_s:
-                    counts[name].requests += 1
-                    counts[name].tokens += tokens
+                    count.missing_usage += 1
+                    count.first_error = count.first_error or f"MissingUsage: {exc}"[:200]
+                continue
             except Exception as exc:
-                counts[name].errors += 1
-                counts[name].first_error = (
-                    counts[name].first_error or f"{type(exc).__name__}: {exc}"[:200]
-                )
+                if time.monotonic() - start >= warmup_s:
+                    count.errors += 1
+                    count.first_error = count.first_error or f"{type(exc).__name__}: {exc}"[:200]
+                continue
+            if time.monotonic() - start >= warmup_s:
+                count.requests += 1
+                count.tokens += tokens
 
     await asyncio.gather(*(worker(n, k * 97) for n in calls for k in range(in_flight)))
     measured = seconds - warmup_s
@@ -226,7 +300,10 @@ async def drive(
         name: {
             "requests_per_s": round(c.requests / measured, 2),
             "tokens_per_s": round(c.tokens / measured, 1),
+            "requests": c.requests,
             "errors": c.errors,
+            "missing_usage": c.missing_usage,
+            "error_share": c.error_share(),
             "first_error": c.first_error,
         }
         for name, c in counts.items()
@@ -240,7 +317,7 @@ def sglang_calls(http: httpx.AsyncClient, rules: dict[str, Any]) -> dict[str, An
         url = f"http://127.0.0.1:{embedder['port']}/v1/embeddings"
         response = await http.post(url, json={"model": embedder["model"], "input": text})
         response.raise_for_status()
-        return int((response.json().get("usage") or {}).get("prompt_tokens") or 0)
+        return token_count(field(response.json(), "usage"), "prompt_tokens")
 
     async def check(prompt: str) -> int:
         url = f"http://127.0.0.1:{guard['port']}/v1/chat/completions"
@@ -252,18 +329,18 @@ def sglang_calls(http: httpx.AsyncClient, rules: dict[str, Any]) -> dict[str, An
         }
         response = await http.post(url, json=body)
         response.raise_for_status()
-        return int((response.json().get("usage") or {}).get("prompt_tokens") or 0)
+        return token_count(field(response.json(), "usage"), "prompt_tokens")
 
     return {"embedder": embed, "guard": check}
 
 
-def sie_calls(client: SIEAsyncClient, rules: dict[str, Any]) -> dict[str, Any]:
+def sie_calls(client: Any, rules: dict[str, Any]) -> dict[str, Any]:
+    """`client` is an SIEAsyncClient, or any object with the same two async methods."""
     embedder, guard = rules["embedder"], rules["guard"]
 
     async def embed(text: str) -> int:
         result = await client.encode(embedder["model"], Item(text=text))
-        usage = (result.get("request") or {}).get("usage") or {}
-        return int(usage.get("input_tokens") or 0)
+        return token_count(field(field(result, "request"), "usage"), "input_tokens")
 
     async def check(prompt: str) -> int:
         result = await client.chat_completions(
@@ -272,15 +349,21 @@ def sie_calls(client: SIEAsyncClient, rules: dict[str, Any]) -> dict[str, Any]:
             max_tokens=guard["max_tokens"],
             temperature=0.0,
         )
-        usage = result.get("usage") if isinstance(result, dict) else getattr(result, "usage", None)
-        if isinstance(usage, dict):
-            return int(usage.get("prompt_tokens") or 0)
-        return int(getattr(usage, "prompt_tokens", 0) or 0)
+        return token_count(field(result, "usage"), "prompt_tokens")
 
     return {"embedder": embed, "guard": check}
 
 
-def warm_sie(url: str, rules: dict[str, Any], names: list[str], timeout_s: float) -> None:
+def retryable(exc: Exception) -> bool:
+    """True for errors that mean the server is still loading: 503s and connection errors."""
+    if isinstance(exc, SIEConnectionError | ModelLoadingError | ProvisioningError):
+        return True
+    return isinstance(exc, ServerError) and exc.status_code == 503
+
+
+def warm_sie(
+    server: Server, url: str, rules: dict[str, Any], names: list[str], timeout_s: float
+) -> None:
     """Send one request per model, retrying while SIE loads it."""
     client = SIEClient(url, timeout_s=timeout_s)
     try:
@@ -296,9 +379,12 @@ def warm_sie(url: str, rules: dict[str, Any], names: list[str], timeout_s: float
                             model, [{"role": "user", "content": "hello"}], max_tokens=4
                         )
                     break
-                except Exception:
+                except Exception as exc:
+                    if not retryable(exc) or not server.running():
+                        raise
                     if time.monotonic() > deadline:
                         raise
+                    print(f"{name}: not ready yet, retrying in 10s ({type(exc).__name__}: {exc})")
                     time.sleep(10)
     finally:
         client.close()
@@ -316,12 +402,16 @@ def kept(alone: dict[str, Any], together: dict[str, Any], name: str) -> float | 
 def run_defaults(launcher: Launcher, rules: dict[str, Any]) -> dict[str, Any]:
     embedder, guard = rules["embedder"], rules["guard"]
     timeout = rules["load"]["start_timeout_s"]
-    first = launcher.start("defaults-embedder", sglang_args(embedder, None, embedding=True))
+    first = launcher.start(
+        "defaults-embedder", sglang_args(embedder, None, embedding=True), embedder["port"]
+    )
     first_up = wait_healthy(first, f"http://127.0.0.1:{embedder['port']}/health", timeout)
     second_up = False
     second_log = ""
     if first_up:
-        second = launcher.start("defaults-guard", sglang_args(guard, None, embedding=False))
+        second = launcher.start(
+            "defaults-guard", sglang_args(guard, None, embedding=False), guard["port"]
+        )
         second_up = wait_healthy(second, f"http://127.0.0.1:{guard['port']}/health", timeout)
         second_log = second.log_text()
     result = {
@@ -368,7 +458,9 @@ def run_by_hand(launcher: Launcher, rules: dict[str, Any], inputs: dict[str, lis
     def start(name: str) -> bool:
         model = rules[name]
         server = launcher.start(
-            f"by-hand-{name}", sglang_args(model, model["fraction_by_hand"], name == "embedder")
+            f"by-hand-{name}",
+            sglang_args(model, model["fraction_by_hand"], name == "embedder"),
+            model["port"],
         )
         return wait_healthy(server, f"http://127.0.0.1:{model['port']}/health", timeout)
 
@@ -409,11 +501,11 @@ def run_sie(
     def start(names: list[str], tag: str) -> bool:
         launcher.stop_all()
         models = [rules[n]["model"] for n in names]
-        server = launcher.start(f"sie-{tag}", sie_args(models_dir, models, port))
+        server = launcher.start(f"sie-{tag}", sie_args(models_dir, models, port), port)
         logs.append(server)
         if not wait_healthy(server, f"{url}/healthz", timeout):
             return False
-        warm_sie(url, rules, names, timeout)
+        warm_sie(server, url, rules, names, timeout)
         return True
 
     def calls(which: dict[str, list[str]], in_flight: int, seconds: float, warmup: float) -> Any:
@@ -441,31 +533,78 @@ def run_sie(
     return result
 
 
-def verdicts(summary: dict[str, Any], bar: float) -> list[dict[str, Any]]:
+PHASES = ("embedder_alone", "guard_alone", "together")
+
+
+def defaults_verdict(defaults: dict[str, Any]) -> dict[str, Any]:
+    reason = None
+    if "error" in defaults:
+        reason = f"not measured: {defaults['error']}"
+    elif not defaults["embedder_started"]:
+        reason = "the embedder did not start on its own"
+    elif defaults["guard_started_next_to_it"]:
+        reason = "the guard started next to the embedder"
+    elif not defaults["guard_ran_out_of_memory"]:
+        reason = "the guard failed without an out-of-memory error; read logs/defaults-guard.log"
+    verdict = {
+        "name": "defaults",
+        "expected": "the guard runs out of memory next to the embedder",
+        "passed": reason is None,
+    }
+    if reason:
+        verdict["reason"] = reason
+    return verdict
+
+
+def pair_verdict(
+    setup: str, result: dict[str, Any], bar: float, max_error_share: float
+) -> dict[str, Any]:
+    ratios = result.get("kept") or {}
+    error_shares = {
+        f"{phase}.{name}": stats["error_share"]
+        for phase in PHASES
+        for name, stats in (result.get(phase) or {}).items()
+    }
+    reason = None
+    if "error" in result:
+        reason = f"not measured: {result['error']}"
+    elif any(share > max_error_share for share in error_shares.values()):
+        worst = max(error_shares, key=lambda k: error_shares[k])
+        reason = f"too many failed requests: {worst} {error_shares[worst]:.1%}"
+    elif not ratios or any(r is None for r in ratios.values()):
+        missing = [n for n in ("embedder", "guard") if ratios.get(n) is None]
+        reason = f"not measured: no throughput alone for {', '.join(missing)}"
+    elif any(r < bar for r in ratios.values()):
+        reason = "a model kept less than the bar"
+    verdict = {
+        "name": setup,
+        "expected": (
+            f"both start; each keeps {bar:.0%} of its alone throughput; "
+            f"at most {max_error_share:.0%} of requests fail in any phase"
+        ),
+        "started": "error" not in result,
+        "kept": ratios if "error" not in result else "not measured",
+        "error_share": error_shares,
+        "passed": reason is None,
+    }
+    if reason:
+        verdict["reason"] = reason
+    return verdict
+
+
+def verdicts(summary: dict[str, Any], bar: float, max_error_share: float) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    defaults = summary.get("defaults")
-    if defaults:
-        out.append(
-            {
-                "name": "defaults",
-                "expected": "the guard fails to start next to the embedder",
-                "passed": defaults["embedder_started"] and not defaults["guard_started_next_to_it"],
-            }
-        )
+    if summary.get("defaults"):
+        out.append(defaults_verdict(summary["defaults"]))
     for setup in ("by_hand", "sie"):
-        result = summary.get(setup)
-        if result:
-            ratios = result.get("kept") or {}
-            out.append(
-                {
-                    "name": setup,
-                    "expected": f"both start; each keeps {bar:.0%} of its alone throughput",
-                    "started": "error" not in result,
-                    "kept": ratios,
-                    "passed": bool(ratios) and all((r or 0) >= bar for r in ratios.values()),
-                }
-            )
+        if summary.get(setup):
+            out.append(pair_verdict(setup, summary[setup], bar, max_error_share))
     return out
+
+
+def write_summary(out: Path, summary: dict[str, Any], rules: dict[str, Any]) -> None:
+    summary["verdicts"] = verdicts(summary, rules["keep_at_least"], rules["max_error_share"])
+    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> None:
@@ -474,6 +613,11 @@ def main() -> None:
     )
     parser.add_argument("--rules", type=Path, default=HERE / "rules.yaml")
     parser.add_argument("--launcher", choices=["docker", "process"], default="docker")
+    parser.add_argument(
+        "--server-python",
+        default="python",
+        help="with --launcher process: the Python of an environment with SGLang and SIE installed",
+    )
     parser.add_argument(
         "--setups", default="defaults,by_hand,sie", help="comma-separated: defaults,by_hand,sie"
     )
@@ -488,33 +632,49 @@ def main() -> None:
     out = (args.output or HERE / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S")).resolve()
     (out / "logs").mkdir(parents=True, exist_ok=True)
     models_dir = write_models_dir(rules, out / "models")
-    launcher = Launcher(args.launcher, rules["image"], out / "logs", [models_dir])
+    launcher = Launcher(
+        args.launcher, rules["image"], out / "logs", [models_dir], python=args.server_python
+    )
     setups = args.setups.split(",")
     summary: dict[str, Any] = {
         "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "launcher": args.launcher,
         "image": rules["image"],
     }
+    if args.launcher == "process":
+        summary["server_python"] = args.server_python
+    summary["gpu_not_empty"] = launcher.gpu_not_empty
+    steps = {
+        "defaults": "starting the embedder, then the guard next to it",
+        "by_hand": "each model alone, then both",
+        "sie": "each model alone, then both, in one SIE server",
+    }
     try:
         launcher.stop_all()
-        if "defaults" in setups:
-            print("defaults: starting the embedder, then the guard next to it")
-            summary["defaults"] = run_defaults(launcher, rules)
-            print(json.dumps(summary["defaults"], indent=2))
-        if "by_hand" in setups:
-            print("by_hand: each model alone, then both")
-            summary["by_hand"] = run_by_hand(launcher, rules, inputs)
-            print(json.dumps(summary["by_hand"].get("kept"), indent=2))
-        if "sie" in setups:
-            print("sie: each model alone, then both, in one SIE server")
-            summary["sie"] = run_sie(launcher, rules, inputs, models_dir)
-            print(json.dumps(summary["sie"].get("kept"), indent=2))
+        for setup, what in steps.items():
+            if setup not in setups:
+                continue
+            print(f"{setup}: {what}")
+            try:
+                if setup == "defaults":
+                    summary[setup] = run_defaults(launcher, rules)
+                elif setup == "by_hand":
+                    summary[setup] = run_by_hand(launcher, rules, inputs)
+                else:
+                    summary[setup] = run_sie(launcher, rules, inputs, models_dir)
+            except Exception as exc:
+                traceback.print_exc()
+                summary[setup] = {"error": f"{type(exc).__name__}: {exc}"[:500]}
+                launcher.stop_all()
+            print(json.dumps(summary[setup], indent=2))
+            write_summary(out, summary, rules)
     finally:
         launcher.stop_all()
-    summary["verdicts"] = verdicts(summary, rules["keep_at_least"])
-    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        write_summary(out, summary, rules)
     print(json.dumps(summary["verdicts"], indent=2))
     print(f"wrote {out}")
+    if not all(v["passed"] for v in summary["verdicts"]):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

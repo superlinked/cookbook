@@ -4,8 +4,8 @@
 > 24 GB L4, set up three ways: plain SGLang at its defaults, plain SGLang with memory set by hand, and
 > one SIE server.
 >
-> **How it works:** the recipe starts the servers from the SIE image (which has SGLang 0.5.10.post1 in
-> it), runs each model alone and then both at once with the same requests in flight, and reports what
+> **How it works:** the recipe starts the servers on SGLang 0.5.10.post1 (the version in the SIE
+> image), runs each model alone and then both at once with the same requests in flight, and reports what
 > share of its throughput alone each model keeps.
 >
 > **Use the same pattern for:** any pair of models you'd like on one card. Change the two models in
@@ -20,9 +20,10 @@ tries once the second model goes into production.
 
 ## The problem
 
-SGLang assumes it owns the GPU. At its defaults on an L4 it claims about 82% of the card's memory as
-soon as it starts, so a second SGLang server on the same card runs out of memory before it serves a
-request. You can set `--mem-fraction-static` by hand for each one, but a fraction says nothing about
+SGLang assumes it owns the GPU. At its defaults on an L4 it sets aside about 82% of the card's memory
+for weights and KV cache (its static fraction), and with the rest of what it allocates, the embedder
+used about 89% of the card as soon as it started (2.48 GB free of 22.06 GiB). A second SGLang server
+on the same card runs out of memory before it serves a request. You can set `--mem-fraction-static` by hand for each one, but a fraction says nothing about
 what the model needs: you work out the weights and the KV cache you want, turn both into a share of
 this particular card, start the server, and read its log to see whether you got it. Change the card
 or the model, and you do it again.
@@ -89,7 +90,7 @@ unchanged; the recipe writes a copy with the KV budgets from `rules.yaml` into t
 | Defaults | `run_defaults` | Starts the embedder, then the guard, and checks the guard's log for out-of-memory |
 | By hand, SIE | `run_by_hand`, `run_sie`, `measure_pair` | Each model alone, then both, through `drive` |
 | Load | `drive`, `sglang_calls`, `sie_calls` | 8 requests in flight per model; SGLang's OpenAI API or the SIE SDK |
-| Summary | `kept`, `verdicts` | Throughput together divided by alone, against `keep_at_least` |
+| Summary | `kept`, `verdicts`, `write_summary` | Throughput together divided by alone, against `keep_at_least`; a phase with more failed requests than `max_error_share` fails |
 
 ## Run it
 
@@ -100,15 +101,25 @@ GPU (we used an L4) with nothing else on it. Run it on that machine:
 
 ```bash
 docker pull ghcr.io/superlinked/sie-server:v0.11.1-cuda12-sglang
-uv run recipe.py                       # all three setups, about 40 minutes
+uv run recipe.py                       # all three setups, about 40 minutes (SIE: see below)
 uv run recipe.py --setups sie          # one setup
 uv run selfcheck.py                    # optional: offline checks, no GPU
 ```
 
-`--launcher process` starts the same commands without Docker, for a machine that already has the
-image's Python environment (SGLang and `sie-server` on the path). Each run writes
-`runs/<timestamp>/summary.json`, the server logs and the model configs it used; `--output DIR`
-changes that. Model weights download into `~/.cache/huggingface` on the first run.
+With the published image, the SIE setup fails: the `v0.11.1-cuda12-sglang` image refuses the
+embedder ([superlinked/sie#969](https://github.com/superlinked/sie/issues/969)), so the SIE setup
+needs an environment built from SIE's source and `--launcher process`:
+
+```bash
+uv run recipe.py --setups sie --launcher process --server-python /path/to/sie-env/bin/python
+```
+
+`--launcher process` starts the same commands without Docker. `--server-python` must be the
+interpreter of an environment with SGLang and SIE installed; the default, `python`, under `uv run`
+is this recipe's own environment, which has neither. Each run writes
+`runs/<timestamp>/summary.json` after every setup, with the server logs and the model configs it
+used; `--output DIR` changes that. The recipe exits with status 1 when any setup misses. Model
+weights download into `~/.cache/huggingface` on the first run.
 
 ## What came out
 
@@ -117,8 +128,7 @@ built from SIE v0.11.1's SGLang image source (the same code and SGLang version a
 image). In the published `v0.11.1-cuda12-sglang` image itself, the two
 plain-SGLang setups run, but SIE refuses the embedder, because that image only serves the `sglang`
 bundle and SGLang embedders are in `sglang-embedding`, which has no published image yet
-([superlinked/sie#969](https://github.com/superlinked/sie/issues/969)). Until that's fixed, run the
-SIE setup with `--launcher process` in an environment built from SIE's source.
+([superlinked/sie#969](https://github.com/superlinked/sie/issues/969)).
 
 ### The three examples
 
@@ -138,8 +148,9 @@ SIE setup with `--launcher process` in an environment built from SIE's source.
 
 **3. One SIE server.**
 - **Expected outcome:** both start on the first try, and each keeps at least 80%.
-- **What came back:** both started on the first try. SIE logged 12.06 GiB for the embedder and 6.27
-  GiB for the guard (fractions 0.460 and 0.372) and passed them to SGLang. Alone, 5,815 tokens a
+- **What came back:** both started on the first try. SIE reserved 12.06 GiB for the embedder and
+  6.27 GiB for the guard (each one's weights, KV cache and overhead), worked out the matching
+  `--mem-fraction-static` for each and passed it to SGLang. Alone, 5,815 tokens a
   second and 44.0 checks a second; together, 3,846 and 28.3: the embedder kept 66% and the guard 64%.
   No request failed.
 - **Verdict:** Miss.
@@ -158,7 +169,7 @@ is flattered by the guard's slower alone number (below).
 compute, so neither setup came close. And read the guard's numbers with care: alone, it answered 44
 checks a second through SIE against 63 on plain SGLang, so part of its better share under SIE comes
 from a slower start. Together, the two setups did about the same work: 28 vs 30 checks a second, and
-3,846 vs 3,761 tokens a second. SIE saves you the memory arithmetic, not compute.
+3,846 vs 3,761 tokens a second. SIE saves you the memory arithmetic; the two models still share one GPU's compute.
 
 ### What you do next
 
@@ -190,6 +201,10 @@ image each model runs on, from SIE's
 | `embedder` | `Qwen/Qwen3-Embedding-4B` | `cuda12-sglang` (how we ran it; the matrix lists this model under the `sglang-embedding` bundle, which has no published v0.11.1 image) | L4 |
 | `guard` | `Qwen/Qwen3Guard-Gen-0.6B` | `cuda12-sglang` | L4 |
 
+This image serves the guard, but it can't serve the embedder until
+[superlinked/sie#969](https://github.com/superlinked/sie/issues/969) is fixed; for the embedder, run
+SIE from an environment built from SIE's source, as in "Run it".
+
 ```bash
 docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
   ghcr.io/superlinked/sie-server:v0.11.1-cuda12-sglang
@@ -198,9 +213,9 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: starts the servers, drives the load and writes the summary
-- `selfcheck.py`: plain asserts on the server commands, the model configs and the verdicts, no GPU
-  (`uv run selfcheck.py`)
-- `rules.yaml`: image, models and revisions, fractions, KV budgets, load and the bar
+- `selfcheck.py`: plain asserts on the server commands, the model configs, the token counts read from
+  stand-in replies and the verdicts, no GPU (`uv run selfcheck.py`)
+- `rules.yaml`: image, models and revisions, fractions, KV budgets, load, the bar and the error limit
 - `models/`: SIE v0.11.1's configs for the two models, unchanged
 - `fetch_data.py`, `data/passages.json`, `data/prompts.json`: the inputs
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies

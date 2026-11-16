@@ -1,5 +1,7 @@
-# Two SGLang models on one 24 GB GPU, three ways. Every setup runs from the same SIE image, which has
-# SGLang 0.5.10.post1 in it, so the engine version is the same throughout.
+# Two SGLang models on one 24 GB GPU, three ways, all on SGLang 0.5.10.post1, the version in the SIE
+# image below. The two plain-SGLang setups run from that image. The SIE setup needs an environment
+# built from SIE's source (--launcher process) until superlinked/sie#969 is fixed: the published
+# cuda12-sglang image refuses the embedder.
 
 image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-sglang
 
@@ -29,3 +31,6 @@ load:
 
 # The bar: with both busy, each model keeps at least this share of its throughput alone.
 keep_at_least: 0.80
+
+# A phase fails when more than this share of its counted requests errors or comes back without usage.
+max_error_share: 0.01
