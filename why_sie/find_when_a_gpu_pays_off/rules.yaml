@@ -1,0 +1,26 @@
+# How much bge-m3 one GPU embeds, and when renting that GPU beats paying per call.
+
+image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
+model: BAAI/bge-m3
+port: 8080
+
+load:
+  texts_per_request: 8
+  mixes:                        # share of short queries in each mix; the rest are passages
+    short: 1.0
+    long: 0.0
+    mixed: 0.7
+  in_flight: [4, 8, 16, 32]     # requests in flight, one cell each
+  cell_s: 60                    # seconds per cell
+  warmup_s: 15                  # the first seconds of each cell are not counted
+  texts_per_mix: 4000
+  seed: 20261111
+  start_timeout_s: 900
+
+cost:
+  gpu: L4
+  gpu_price_per_hour: 0.80      # typical on-demand list price, October 2026
+  hours_per_month: 730
+  # SIE Serverless list price for BAAI/bge-m3, effective 13 October 2026.
+  per_call_price_per_million_tokens: 0.03765895876
+  break_even_mix: mixed         # the mix the headline break-even uses
