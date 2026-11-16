@@ -201,6 +201,9 @@ including where SIE doesn't win.
 | --- | --- | --- | --- |
 | [Measure what a request sees when its model is cold, and how a burst comes back](why_sie/measure_cold_starts_and_bursts) | Qwen3-VL-Reranker-2B, bge-m3 | 2,002 | 30 s warm; about 2 min with the reranker cold |
 | [Put two SGLang models on one GPU, by hand and with SIE](why_sie/share_one_gpu_between_two_sglang_models) | Qwen3-Embedding-4B, Qwen3Guard-Gen-0.6B | run on your own GPU, no SIE Serverless calls | about 40 min on one L4 |
+| [Pack an agent's five models onto fewer GPUs, and measure what a turn costs](why_sie/pack_five_models_on_one_gpu) | Qwen3Guard-Gen-0.6B, bge-m3, bge-reranker-v2-m3, deberta-v3-base-zeroshot-v2.0, gliner_multi_pii-v1 | run on your own GPUs, no SIE Serverless calls | about 45 min on four 24 GB GPUs |
+| [Serve more small models than fit on one GPU, and see what packing costs](why_sie/serve_more_models_than_fit) | 16 small encoders, rerankers and extractors (bge-m3 pinned) | run on your own GPU, no SIE Serverless calls | about 30 min on one 24 GB GPU |
+| [Find when renting a GPU beats paying per call](why_sie/find_when_a_gpu_pays_off) | bge-m3 | run on your own GPU, no SIE Serverless calls | about 15 min on one L4 |
 
 ## Contributing a recipe
 
