@@ -204,6 +204,7 @@ including where SIE doesn't win.
 | [Pack an agent's five models onto fewer GPUs, and measure what a turn costs](why_sie/pack_five_models_on_one_gpu) | Qwen3Guard-Gen-0.6B, bge-m3, bge-reranker-v2-m3, deberta-v3-base-zeroshot-v2.0, gliner_multi_pii-v1 | run on your own GPUs, no SIE Serverless calls | about 45 min on four 24 GB GPUs |
 | [Serve more small models than fit on one GPU, and see what packing costs](why_sie/serve_more_models_than_fit) | 16 small encoders, rerankers and extractors (bge-m3 pinned) | run on your own GPU, no SIE Serverless calls | about 30 min on one 24 GB GPU |
 | [Find when renting a GPU beats paying per call](why_sie/find_when_a_gpu_pays_off) | bge-m3 | run on your own GPU, no SIE Serverless calls | about 15 min on one L4 |
+| [Kill a GPU worker under load, behind SIE's queue and behind a round-robin](why_sie/kill_a_worker_under_load) | bge-m3, Qwen3Guard-Gen-0.6B | run on your own GPUs, no SIE Serverless calls | about 50 min on two 24 GB GPUs |
 
 ## Contributing a recipe
 
