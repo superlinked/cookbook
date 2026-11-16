@@ -1,0 +1,15 @@
+[project]
+name = "sie-kill-a-worker-under-load"
+version = "0.1.0"
+description = "Kill GPU workers under load behind SIE's queue and behind a round-robin, and count what each loses."
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0.3",
+    "sie-sdk>=0.11.1",
+]
+
+[dependency-groups]
+data = ["pyarrow>=17"]
+
+[tool.uv]
+package = false
