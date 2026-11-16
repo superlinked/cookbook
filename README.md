@@ -200,6 +200,7 @@ including where SIE doesn't win.
 | Recipe | Models | SIE calls | Run time |
 | --- | --- | --- | --- |
 | [Measure what a request sees when its model is cold, and how a burst comes back](why_sie/measure_cold_starts_and_bursts) | Qwen3-VL-Reranker-2B, bge-m3 | 2,002 | 30 s warm; about 2 min with the reranker cold |
+| [Put two SGLang models on one GPU, by hand and with SIE](why_sie/share_one_gpu_between_two_sglang_models) | Qwen3-Embedding-4B, Qwen3Guard-Gen-0.6B | run on your own GPU, no SIE Serverless calls | about 40 min on one L4 |
 
 ## Contributing a recipe
 

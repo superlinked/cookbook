@@ -1,0 +1,31 @@
+# Two SGLang models on one 24 GB GPU, three ways. Every setup runs from the same SIE image, which has
+# SGLang 0.5.10.post1 in it, so the engine version is the same throughout.
+
+image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-sglang
+
+embedder:
+  model: Qwen/Qwen3-Embedding-4B
+  revision: 5cf2132abc99cad020ac570b19d031efec650f2b
+  port: 30001
+  fraction_by_hand: 0.55      # --mem-fraction-static we found by hand for this pair on an L4
+  kv_budget_tokens: 8192      # what SIE is told the embedder needs
+
+guard:
+  model: Qwen/Qwen3Guard-Gen-0.6B
+  revision: fada3b2f655b89601929198343c94cd2f64d93cc
+  port: 30002
+  fraction_by_hand: 0.37
+  kv_budget_tokens: 16384
+  max_tokens: 32
+
+sie_port: 8080
+
+load:
+  in_flight: 8                # requests in flight per model
+  alone_s: 120                # each model alone
+  together_s: 240             # both at once
+  warmup_s: 30                # the first seconds of each phase are not counted
+  start_timeout_s: 900
+
+# The bar: with both busy, each model keeps at least this share of its throughput alone.
+keep_at_least: 0.80

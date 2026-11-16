@@ -1,0 +1,49 @@
+sie_id: Qwen/Qwen3-Embedding-4B
+hf_id: Qwen/Qwen3-Embedding-4B
+hf_revision: 5cf2132abc99cad020ac570b19d031efec650f2b
+inputs:
+  text: true
+  image: false
+  audio: false
+  video: false
+tasks:
+  encode:
+    dense:
+      dim: 2560
+    sparse: null
+    multivector: null
+  score: null
+  extract: null
+max_sequence_length: 32768
+profiles:
+  default:
+    max_batch_tokens: 16384
+    compute_precision: bfloat16
+    adapter_path: sie_server.adapters.sglang.embedding:SGLangEmbeddingAdapter
+    adapter_options:
+      loadtime:
+        # Up to four batches in flight to SGLang at once, so the GPU keeps working
+        # while a batch waits on its HTTP round trips: about 1.5x the documents per
+        # second at 8 and 32 in flight on an H100.
+        max_concurrent_dispatch: 4
+      runtime:
+        pooling: last_token
+        normalize: true
+        query_template: |-
+          Instruct: {instruction}
+          Query: {text}
+        default_instruction: Given a query, retrieve relevant passages that answer the query
+  flash:
+    extends: default
+    adapter_path: sie_server.adapters.qwen2_flash:Qwen2FlashAdapter
+    adapter_options:
+      loadtime:
+        causal: true
+        fused_kernels: true
+      runtime:
+        pooling: last
+        normalize: true
+        query_template: |-
+          Instruct: {instruction}
+          Query: {text}
+        default_instruction: Given a query, retrieve relevant passages that answer the query
