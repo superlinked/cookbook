@@ -33,6 +33,24 @@ def turn(
     }
 
 
+GPUS = {"one_per_model": 5, "two_gpus": 2, "one_gpu": 1}
+SETUPS = ["one_per_model", "two_gpus", "one_gpu"]
+
+
+def row(p95: float, turns: int = 100, failed: int = 0) -> dict[str, Any]:
+    return {"p50_ms": 1, "p95_ms": p95, "turns": turns, "failed": failed}
+
+
+def by_setup(
+    cells: dict[str, dict[int, dict[str, Any]]],
+    bar: float,
+    max_failed_share: float,
+    skipped: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    rows = table(cells, GPUS, 584)
+    return {v["setup"]: v for v in verdicts(rows, SETUPS, bar, max_failed_share, skipped)}
+
+
 def main() -> None:
     rules = load_rules(HERE / "rules.yaml")
     assert set(rules["steps"]) == set(rules["models"])
@@ -59,6 +77,9 @@ def main() -> None:
     assert [c["step"] for c in composed[0]["calls"]] == ["guard", "pii"]
     failed = compose_baseline([turn(30, 100)], [turn(30, 50, ok=False)], seed=1)
     assert not failed[0]["ok"]
+    four_failed = compose_baseline([turn(30, 100, ok=False)], [turn(30, 50, steps=("pii",))], 1)
+    assert not four_failed[0]["ok"]
+    assert compose_baseline([turn(30, 100)], [], seed=1) == []
 
     c = cell([turn(5, 999), turn(30, 100), turn(31, 200), turn(32, 300, ok=False)], 20)
     assert c["turns"] == 3
@@ -70,10 +91,35 @@ def main() -> None:
         "two_gpus": {50: {"p50_ms": 1, "p95_ms": 600.0, "turns": 1, "failed": 0}},
         "one_gpu": {50: {"p50_ms": 1, "p95_ms": 1000.0, "turns": 1, "failed": 0}},
     }
-    rows = table(cells, {"one_per_model": 5, "two_gpus": 2, "one_gpu": 1}, 584)
-    by = {v["setup"]: v for v in verdicts(rows, 1.25)}
+    rows = table(cells, GPUS, 584)
+    by = {v["setup"]: v for v in verdicts(rows, SETUPS, 1.25, 0.01, {})}
+    assert by["one_per_model"]["passed"]
     assert by["two_gpus"]["passed"]
     assert not by["one_gpu"]["passed"]
+
+    many_failed = {**cells, "one_gpu": {50: row(500.0, turns=100, failed=5)}}
+    v = by_setup(many_failed, 1.25, 0.01, {})["one_gpu"]
+    assert not v["passed"]
+    assert v["failed"] == 5
+    assert "5 of 100 turns failed" in v["reason"]
+
+    no_base = {k: c for k, c in cells.items() if k != "one_per_model"}
+    v = by_setup(no_base, 1.25, 0.01, {"one_per_model": "a server did not start"})["two_gpus"]
+    assert not v["passed"]
+    assert v["reason"].startswith("not measured:")
+    no_base_50 = {**no_base, "one_per_model": {25: row(500.0)}}
+    v = by_setup(no_base_50, 1.25, 0.01, {})["two_gpus"]
+    assert v["reason"].startswith("not measured:")
+
+    v = by_setup(no_base, 1.25, 0.01, {"one_gpu": "needs different SIE images"})["one_gpu"]
+    assert not v["passed"]
+    assert v["reason"] == "not measured: needs different SIE images"
+
+    boundary = {"one_per_model": {50: row(1000.0)}, "two_gpus": {50: row(1254.0)}}
+    rows = table(boundary, GPUS, 584)
+    assert rows[1]["p95_vs_one_per_model"] == 1.25
+    v = {x["setup"]: x for x in verdicts(rows, ["two_gpus"], 1.25, 0.01, {})}["two_gpus"]
+    assert not v["passed"]
     print("selfcheck: ok")
 
 

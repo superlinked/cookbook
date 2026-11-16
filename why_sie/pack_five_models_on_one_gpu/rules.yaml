@@ -48,3 +48,5 @@ load:
 
 # The bar: at 50% load, a packed setup's p95 turn stays within this multiple of one server per model.
 p95_ratio_at_50pct: 1.25
+# A setup also fails when more than this share of its turns fail at 50% load.
+max_failed_share: 0.01

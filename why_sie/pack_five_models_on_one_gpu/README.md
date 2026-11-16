@@ -34,22 +34,31 @@ the first 500 documents of NFCorpus (BeIR/nfcorpus, CC BY-SA 4.0, revision `b502
 passage for personal details as a stand-in for the reply.
 
 1. **One SIE server per model, each on its own GPU.** The baseline: five GPUs, nothing shared.
+   It has no latency bar, but at 50% load no more than 1% of its turns may fail.
 2. **SIE on two GPUs:** the guard model alone on one, the four small encoders sharing the other. At
-   50% load, the p95 of a whole turn should stay within 1.25 times the baseline's.
+   50% load, the p95 of a whole turn should stay within 1.25 times the baseline's, with no more than
+   1% of turns failed.
 3. **SIE on one GPU:** all five models on one card. The same bar.
 
 ## How we'll solve it
 
 The recipe starts the servers for a setup, sends 30 seconds of untimed turns, then sends turns as a
-Poisson process (random arrivals at a fixed average rate) for 2 minutes at each load, and counts what
-finishes after the first 20 seconds. The loads are shares of the baseline's capacity, found first by
+Poisson process (random arrivals at a fixed average rate) for 2 minutes at each load, and counts the
+turns sent after the first 20 seconds. The loads are shares of the baseline's capacity, found first by
 keeping 32 turns in flight for a minute.
 
 With four GPUs instead of five, the baseline runs in two passes: the guard, embedder, reranker and
 classifier on four GPUs, then the PII model alone. Each baseline turn is a four-model turn plus a PII
 call drawn at random from the second pass at the same load. In a real five-GPU setup the PII server
 shares nothing with the other four, so its latency doesn't depend on theirs, which is what the random
-pairing assumes. The capacity is the lower of the two passes.
+pairing assumes. The capacity is the lower of the two passes' rates. That's an upper bound: with 32
+turns in flight, a real five-call turn takes longer than either pass's turn, so a five-GPU baseline
+could take somewhat fewer turns a second, and each load would then be a slightly larger share of its
+real capacity.
+
+A setup that can't start or can't run on this machine gets a "not measured" verdict with the reason,
+and is listed under `skipped` in `summary.json`. The recipe exits with an error when any verdict
+fails, and rewrites `summary.json` after each setup, so a crash keeps what was measured.
 
 ## Picking the models
 
@@ -86,7 +95,7 @@ loads and the bar.
 | Capacity | `Runner.capacity`, `closed_loop` | 32 turns in flight for a minute on the baseline |
 | Loads | `poisson` | Turns at random intervals at each rate |
 | Baseline on four GPUs | `Runner.passes`, `compose_baseline` | Two passes and the random pairing |
-| Summary | `cell`, `table`, `verdicts` | p50, p95, failures, per-call p95, GPUs and cost |
+| Summary | `cell`, `table`, `verdicts` | p50, p95, failures, per-call p95, GPUs and cost; the bar and the failure limit |
 
 ## Run it
 
@@ -97,15 +106,23 @@ You need [uv](https://docs.astral.sh/uv/), Docker with the NVIDIA container tool
 
 ```bash
 uv run recipe.py --gpus 4                       # all three setups, about 45 minutes
-uv run recipe.py --gpus 4 --setups two_gpus     # one setup (the baseline always runs first)
+uv run recipe.py --gpus 4 --setups one_per_model,two_gpus  # one setup against the baseline
 uv run selfcheck.py                             # optional: offline checks, no GPU
 ```
+
+The baseline's capacity is always measured first, since it sets the loads. To get the comparison
+for a setup, list `one_per_model` in `--setups` too; without it, the setup's verdict is "not
+measured".
 
 With Docker, each server runs from the published SIE image its models need: `cuda12-sglang` for the
 guard and `cuda12-default` for the other four. The one-GPU setup puts the guard and the encoders in
 one server, which no published image serves (each serves one bundle of models), so with Docker it's
-skipped. Run it with `--launcher process` in an environment built from SIE's source, with
-`--models-dir` pointing at SIE's model configs; that's how we ran all three setups for this README.
+skipped. Run it with `--launcher process` and `--server-python` set to the Python of an environment
+with SIE and SGLang installed (built from SIE's source, for example
+`--server-python ~/sie/.venv/bin/python`), with `--models-dir` pointing at SIE's model configs;
+that's how we ran all three setups for this README. The default `--server-python` is `python`, which
+under `uv run` is this recipe's own environment, and that has neither SIE nor SGLang. The recipe stops
+with an error if one of the ports from `first_port` in `rules.yaml` is already taken.
 Each run writes `runs/<timestamp>/summary.json`, `turns.jsonl` (every turn with its five calls) and
 the server logs; `--output DIR` changes that.
 
@@ -114,9 +131,10 @@ the server logs; `--output DIR` changes that.
 We ran it on 16 Nov 2026 at 03:41 UTC on four NVIDIA A10 GPUs (24 GB each), with `--launcher process`
 in an environment built from SIE v0.11.1's source. The baseline's capacity was 9.6 turns a second, so
 the loads were 2.4, 4.8 and 7.2 turns a second. One run, 2 minutes a load, the first 20 seconds of
-each not counted. Monthly cost is the number of GPUs at $584 each (an L4 at $0.80 an hour).
+each not counted. Monthly cost is the number of GPUs at $584 each. That's an L4-equivalent price
+(an L4 at $0.80 an hour, 730 hours), used to compare layouts; we ran on A10s, whose bill would differ.
 
-| Setup | GPUs | Monthly | Load | p50 turn | p95 turn | p95 vs one per model | Failed turns |
+| Setup | GPUs | Monthly (L4 price) | Load | p50 turn | p95 turn | p95 vs one per model | Failed turns |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | One server per model | 5 | $2,920 | 25% | 226 ms | 330 ms | 1.00 | 0 of 221 |
 | | | | 50% | 239 ms | 482 ms | 1.00 | 0 of 486 |
@@ -141,9 +159,10 @@ p95 of each call at 50% load:
 ### The three examples
 
 **1. One server per model.**
-- **Expected outcome:** the baseline; every turn answered.
-- **What came back:** p95 turn of 330 ms, 482 ms and 1.09 s at the three loads, no failed turns. The
-  reranker is the slowest call by far (366 ms at p95 at 50% load).
+- **Expected outcome:** the baseline, with no latency bar of its own; at 50% load, no more than 1% of
+  turns failed.
+- **What came back:** p95 turn of 330 ms, 482 ms and 1.09 s at the three loads, no failed turns (0 of
+  486 at 50%). The reranker is the slowest call by far (366 ms at p95 at 50% load).
 - **Verdict:** Pass.
 
 **2. SIE on two GPUs.**
@@ -156,12 +175,12 @@ p95 of each call at 50% load:
 **3. SIE on one GPU.**
 - **Expected outcome:** the same bar.
 - **What came back:** 3.17 times at 50% load. At 75% the reranker fell far behind and the p95 turn
-  took 56 seconds, though no turn failed within the 120-second timeout.
+  took 56 seconds, though no call hit the 120-second timeout each call has, so no turn failed.
 - **Verdict:** Miss.
 
 ### Results
 
-1 of 3 setups came out as expected.
+1 of 3 setups came out as expected: the baseline, which has no latency bar.
 
 **Where it works:** light traffic. At 25% load, two GPUs kept the p95 turn under half a second for
 40% of the GPU bill, and the p50 barely moved (239 ms against 226 ms).
@@ -199,11 +218,11 @@ image each model runs on, from SIE's
 
 | `rules.yaml` key | Model | Image | Tested on |
 | --- | --- | --- | --- |
-| `guard` | `Qwen/Qwen3Guard-Gen-0.6B` | `cuda12-sglang` | L4 |
-| `embed` | `BAAI/bge-m3` | `cuda12-default` | L4 |
-| `rerank` | `BAAI/bge-reranker-v2-m3` | `cuda12-default` | L4 |
-| `classify` | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `cuda12-default` | L4 |
-| `pii` | `urchade/gliner_multi_pii-v1` | `cuda12-default` | L4 |
+| `guard` | `Qwen/Qwen3Guard-Gen-0.6B` | `cuda12-sglang` | A10 |
+| `embed` | `BAAI/bge-m3` | `cuda12-default` | A10 |
+| `rerank` | `BAAI/bge-reranker-v2-m3` | `cuda12-default` | A10 |
+| `classify` | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `cuda12-default` | A10 |
+| `pii` | `urchade/gliner_multi_pii-v1` | `cuda12-default` | A10 |
 
 ```bash
 docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
@@ -213,7 +232,8 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: starts the servers, sends the turns and writes the summary
-- `selfcheck.py`: plain asserts on the passes, the baseline pairing, the percentiles and the verdicts,
+- `selfcheck.py`: plain asserts on the passes, the baseline pairing, the percentiles and the verdicts
+  (the bar, the failure limit and not-measured setups),
   no GPU (`uv run selfcheck.py`)
 - `rules.yaml`: models and images, the turn's order, the server layouts, the loads and the bar
 - `fetch_data.py`, `data/passages.json`, `data/messages.json`: the inputs
