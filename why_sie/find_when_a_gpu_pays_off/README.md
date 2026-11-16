@@ -32,19 +32,24 @@ The queries and passages come from NFCorpus (BeIR/nfcorpus, CC BY-SA 4.0, revisi
 3,237 queries and the first 1,000 passages, in `data/`; `fetch_data.py` rebuilds them. Each mix is a
 fixed list of 4,000 texts drawn from them with a fixed seed.
 
-1. **Short queries only.** Search-box traffic, a few words each. Throughput should be well below the
-   long mix, because each request carries little work.
-2. **Long passages only.** Indexing traffic. The GPU should be nearly saturated.
+1. **Short queries only.** Search-box traffic, a few words each. Throughput should be under half of
+   the long mix's, because each request carries little work.
+2. **Long passages only.** Indexing traffic. The GPU should be nearly saturated: every level of
+   requests in flight within 10% of the best one.
 3. **70% queries, 30% passages.** A search system that indexes and answers at the same time. This is
    the mix the break-even uses. Our earlier estimate of 37,000 to 49,000 tokens a second put the
    break-even at 12 to 16% busy.
+
+These three expectations are in `rules.yaml` under `expect`, and each run prints Pass or Miss for
+each one and writes them to `summary.json`.
 
 ## How we'll solve it
 
 For each mix and each number of requests in flight, the recipe sends `encode` calls of 8 texts for
 60 seconds, ignores the first 15, and adds up the input tokens SIE reports in each response's usage.
-It samples the GPU's busy share once a second with `nvidia-smi`. The best cell per mix is that mix's
-throughput.
+It samples the GPU's busy share once a second with `nvidia-smi`. It counts errors and responses
+without a usage block in the same window; a cell where they add up to more than 1% of its requests
+(`max_bad_share`) is left out. The best of the other cells per mix is that mix's throughput.
 
 The break-even is arithmetic. $584 a month buys 15.5 billion bge-m3 tokens at SIE Serverless's list
 price ($0.0377 per million input tokens, effective 13 October 2026). Spread over a month, that's about
@@ -75,8 +80,10 @@ All of it is Python and `rules.yaml`: the image, the model, the mixes, the load 
 | --- | --- | --- |
 | Build the inputs | `build_mix` | A fixed, shuffled list of queries and passages per mix |
 | Start SIE | `start_server`, `wait_ready` | `docker run` of the SIE image (or the same command as a process), then one call to load the model |
-| Measure | `measure_cell` | Keeps the requests in flight, counts tokens, requests, errors, p50 and GPU busy share |
-| Break-even | `break_even`, `best` | Monthly GPU price over per-call price, as a share of the measured throughput |
+| Measure | `measure_cell`, `input_tokens` | Keeps the requests in flight and records each one's tokens, latency or error |
+| Sum up a cell | `summarize_cell` | Tokens a second, p50, errors, responses without usage and GPU busy share after the warm-up |
+| Break-even | `break_even`, `best` | Monthly GPU price over per-call price, as a share of the best cell's throughput |
+| Verdicts | `verdicts` | Pass or Miss for each expectation under `expect` in `rules.yaml` |
 
 ## Run it
 
@@ -91,10 +98,14 @@ uv run recipe.py            # about 15 minutes
 uv run selfcheck.py         # optional: offline checks, no GPU
 ```
 
-`--launcher process` starts the same server command without Docker, for a machine that already has
-SIE's Python environment (pass `--models-dir` if your models directory isn't the default), and
-`--launcher none --url URL` measures a server that's already running. Each run writes
-`runs/<timestamp>/summary.json` and the server log; `--output DIR` changes that. Change
+`--launcher process` starts the same server command without Docker. It needs the interpreter of an
+environment with SIE installed, passed as `--server-python /path/to/sie-env/bin/python`, because
+`uv run` puts this recipe's own environment first and that one has only the SDK. Pass
+`--models-dir` if your models directory isn't the default. `--launcher none --url URL` measures a
+server that's already running. The recipe gives the server only the GPU at `gpu_index` in
+`rules.yaml` and samples that GPU; with `--launcher none`, start your server on that GPU. Each run
+writes `runs/<timestamp>/summary.json`, and with `docker` or `process` also the server log
+(`--launcher none` writes no server log); `--output DIR` changes the folder. Change
 `gpu_price_per_hour` in `rules.yaml` to your own price.
 
 ## What came out
@@ -105,13 +116,13 @@ built from SIE v0.11.1's source (the same code as the published `cuda12-default`
 ### The three examples
 
 **1. Short queries only.**
-- **Expected outcome:** well below the long mix.
+- **Expected outcome:** under half of the long mix's best.
 - **What came back:** at most 17,915 tokens a second (16 in flight), with the GPU only 26 to 29% busy
   past 4 in flight. At these prices the L4 pays off above 33% busy.
 - **Verdict:** Pass.
 
 **2. Long passages only.**
-- **Expected outcome:** the GPU nearly saturated.
+- **Expected outcome:** the GPU nearly saturated, every level within 10% of the best.
 - **What came back:** 52,286 to 53,754 tokens a second at every level, with the GPU 87 to 89% busy.
   Four requests in flight already fill it.
 - **Verdict:** Pass.
@@ -120,7 +131,7 @@ built from SIE v0.11.1's source (the same code as the published `cuda12-default`
 - **Expected outcome:** the L4 pays off somewhere around 12 to 16% busy.
 - **What came back:** 49,420 to 51,568 tokens a second (best at 32 in flight), the GPU 81 to 83% busy.
   5,901 tokens a second around the clock costs the same as the L4, so it pays off above 11.4% busy.
-- **Verdict:** Miss, in the reader's favour: the L4 is faster than we estimated, so it pays off
+- **Verdict:** Miss. In the reader's favour: the L4 is faster than we estimated, so it pays off
   sooner.
 
 ### Results
@@ -151,7 +162,7 @@ memory, a second GPU for redundancy and someone to run it, all of which push the
 Put your own GPU price and per-call price in `rules.yaml`, run it with inputs that look like yours,
 and compare the break-even with how busy you expect the GPU to be. A nightly re-index of 50 million
 tokens is about 1.5 billion tokens a month, about 1% of what the L4 can embed on this mix: pay per
-call. Steady traffic of more than a few thousand tokens a second, around the clock: rent the GPU.
+call. Steady traffic of more than about 6,000 tokens a second, around the clock: rent the GPU.
 
 ## Potential improvements
 
@@ -182,7 +193,7 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: starts the server, drives the load and works out the break-even
-- `selfcheck.py`: plain asserts on the mixes and the break-even arithmetic, no GPU (`uv run selfcheck.py`)
-- `rules.yaml`: image, model, mixes, load, GPU price and per-call price
+- `selfcheck.py`: plain asserts on the mixes, the per-cell sums, the break-even arithmetic and the verdicts, no GPU (`uv run selfcheck.py`)
+- `rules.yaml`: image, model, GPU, mixes, load, GPU price, per-call price and the expected outcomes
 - `fetch_data.py`, `data/queries.json`, `data/passages.json`: the inputs
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
