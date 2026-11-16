@@ -49,8 +49,10 @@ waiting off, each `503 PROVISIONING` raises `ProvisioningError`, the recipe note
 the burst with a thread pool.
 
 If the reranker happens to be warm when you run this (someone else just used it), the first call
-comes back in under 5 seconds with no `503`, and the recipe says it found the model warm instead of
-reporting a cold start.
+comes back in under 5 seconds with no `503`. The recipe then prints "model was already warm, no cold
+start measured", and the cold verdict in `summary.json` has `passed: null` instead of a pass. For a
+real cold start, the cold verdict also counts how many `503`s carried a `Retry-After`, and fails if
+any didn't.
 
 ## Picking the models
 
@@ -98,7 +100,8 @@ uv run selfcheck.py    # optional: offline checks, no SIE call
 
 Each run writes `runs/<timestamp>/summary.json` and `burst.jsonl` (one line per call);
 `--output DIR` changes that. `--calls` and `--callers` change the burst, and `--skip-cold` sends only
-the burst. A run makes 2,002 answered SIE calls plus one per `503`, and takes about 2 minutes when
+the burst and checks only the burst. The run exits with status 1 when any measurement misses what
+`rules.yaml` expects, so you can run it from a scheduled job. A run makes 2,002 answered SIE calls plus one per `503`, and takes about 2 minutes when
 the reranker is cold and about 30 seconds when it's warm.
 
 ## What came out
@@ -171,8 +174,8 @@ call measures that load. The table gives the SIE image each model runs on, from 
 
 | `rules.yaml` key | Model | Image | Tested on |
 | --- | --- | --- | --- |
-| `cold.model` | `Qwen/Qwen3-VL-Reranker-2B` | `cuda12-default` | L4 |
-| `burst.model` | `BAAI/bge-m3` | `cuda12-default` | L4 |
+| `cold.model` | `Qwen/Qwen3-VL-Reranker-2B` | `cuda12-default` | not tested on SIE Local |
+| `burst.model` | `BAAI/bge-m3` | `cuda12-default` | not tested on SIE Local |
 
 One container serves both:
 
@@ -186,6 +189,6 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 
 - `recipe.py`: the calls, the timing and the summary
 - `selfcheck.py`: plain asserts on the summary and verdict functions, no SIE call (`uv run selfcheck.py`)
-- `rules.yaml`: models, burst size, and the outcome each example expects
+- `rules.yaml`: models, burst size, the client timeout, and the outcome each example expects
 - `data/passages.json`: the 20 synthetic passages
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies

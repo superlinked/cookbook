@@ -1,5 +1,8 @@
 # What the recipe measures, and what counts as the expected outcome.
 
+client:
+  timeout_s: 600         # how long one HTTP call may take before the client gives up
+
 cold:
   # A model that is often at zero on SIE Serverless, so the first call is likely to find it cold.
   model: Qwen/Qwen3-VL-Reranker-2B

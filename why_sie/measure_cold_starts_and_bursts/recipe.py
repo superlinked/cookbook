@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
@@ -26,10 +27,9 @@ from sie_sdk import ProvisioningError, SIEClient
 from sie_sdk.types import Item
 
 HERE = Path(__file__).resolve().parent
-WAIT_S = 600.0
 
 
-def make_client() -> SIEClient:
+def make_client(timeout_s: float) -> SIEClient:
     """Build an SIE client from the API key and SIE_BASE_URL in the environment or `.env`."""
     load_dotenv()
     api_key = os.environ.get("SIE_API_KEY", "").strip()
@@ -37,7 +37,7 @@ def make_client() -> SIEClient:
     if not api_key and not base_url:
         raise RuntimeError("Set SIE_API_KEY, or SIE_BASE_URL for SIE Cluster or SIE Local, in .env")
     base_url = base_url or "https://api.superlinked.com"
-    return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=WAIT_S)
+    return SIEClient(api_key=api_key or None, base_url=base_url, timeout_s=timeout_s)
 
 
 def load_rules(path: Path) -> dict[str, Any]:
@@ -93,7 +93,8 @@ def call_until_answered(
             refusals.append(Refusal(round(elapsed, 2), exc.retry_after))
             if elapsed >= budget_s:
                 return ColdResult(model, False, round(elapsed, 2), refusals, "budget used up")
-            time.sleep(min(exc.retry_after or 60.0, max(budget_s - elapsed, 1.0)))
+            wait_s = 60.0 if exc.retry_after is None else exc.retry_after
+            time.sleep(min(wait_s, max(budget_s - elapsed, 1.0)))
         except Exception as exc:
             error = f"{type(exc).__name__}: {str(exc)[:200]}"
             return ColdResult(model, False, round(time.monotonic() - t0, 2), refusals, error)
@@ -144,10 +145,10 @@ def summarize_burst(calls: list[Call]) -> dict[str, Any]:
     finished = max((c.sent_s + c.seconds for c in calls), default=0.0)
     return {
         "calls": len(calls),
+        "finished_in_s": round(finished, 1),
+        "calls_per_s": round(len(ok) / finished, 1) if finished else None,
         "errors": len(calls) - len(ok),
         "error_kinds": sorted({(c.error or "")[:60] for c in calls if not c.ok}),
-        "finished_in_s": round(finished, 1),
-        "calls_per_s": round(len(calls) / finished, 1) if finished else None,
         "p50_s": percentile(ok, 0.50),
         "p95_s": percentile(ok, 0.95),
     }
@@ -156,40 +157,80 @@ def summarize_burst(calls: list[Call]) -> dict[str, Any]:
 # --- Verdicts ----------------------------------------------------------------------------------
 
 
+def cold_verdict(cold: ColdResult, rules: dict[str, Any]) -> dict[str, Any]:
+    """The cold call against rules.yaml, or not measured when the model was already running."""
+    within_s = rules["expect_answer_within_s"]
+    with_retry_after = sum(1 for r in cold.refusals if r.retry_after_s is not None)
+    verdict: dict[str, Any] = {
+        "name": "cold",
+        "expected": f"answered within {within_s} s, every 503 with a Retry-After",
+        "refusals": len(cold.refusals),
+        "refusals_with_retry_after": with_retry_after,
+    }
+    if cold.found_warm(rules["found_warm_under_s"]):
+        verdict.update(passed=None, reason="model was already warm; no cold start measured")
+    elif not cold.ok:
+        verdict.update(passed=False, reason=f"no answer: {cold.error}")
+    elif cold.seconds > within_s:
+        verdict.update(passed=False, reason=f"answered after {cold.seconds} s")
+    elif with_retry_after < len(cold.refusals):
+        verdict.update(
+            passed=False,
+            reason=f"{with_retry_after} of {len(cold.refusals)} 503s carried a Retry-After",
+        )
+    else:
+        verdict["passed"] = True
+    return verdict
+
+
 def verdicts(
-    cold: ColdResult, warm: ColdResult, burst: dict[str, Any], rules: dict[str, Any]
+    cold: ColdResult | None,
+    warm: ColdResult | None,
+    burst: dict[str, Any],
+    rules: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Each measurement against the outcome rules.yaml expects."""
-    cold_rules, warm_rules, burst_rules = rules["cold"], rules["warm"], rules["burst"]
-    was_warm = cold.found_warm(cold_rules["found_warm_under_s"])
-    cold_ok = cold.ok and cold.seconds <= cold_rules["expect_answer_within_s"]
+    """Each measurement against what rules.yaml expects; cold and warm are None when skipped."""
+    found: list[dict[str, Any]] = []
+    if cold is not None:
+        found.append(cold_verdict(cold, rules["cold"]))
+    if warm is not None:
+        within_s = rules["warm"]["expect_answer_within_s"]
+        found.append(
+            {
+                "name": "warm",
+                "expected": f"answered within {within_s} s",
+                "passed": warm.ok and warm.seconds <= within_s,
+            }
+        )
+    burst_rules = rules["burst"]
     p95 = burst["p95_s"]
-    burst_ok = (
-        burst["errors"] <= burst_rules["expect_errors"]
-        and p95 is not None
-        and p95 < burst_rules["expect_p95_under_s"]
-    )
-    return [
-        {
-            "name": "cold",
-            "expected": f"answered within {cold_rules['expect_answer_within_s']} s",
-            "found_warm": was_warm,
-            "passed": cold_ok,
-        },
-        {
-            "name": "warm",
-            "expected": f"answered within {warm_rules['expect_answer_within_s']} s",
-            "passed": warm.ok and warm.seconds <= warm_rules["expect_answer_within_s"],
-        },
+    found.append(
         {
             "name": "burst",
             "expected": (
                 f"{burst_rules['expect_errors']} errors, "
                 f"p95 under {burst_rules['expect_p95_under_s']} s"
             ),
-            "passed": burst_ok,
-        },
-    ]
+            "passed": (
+                burst["errors"] <= burst_rules["expect_errors"]
+                and p95 is not None
+                and p95 < burst_rules["expect_p95_under_s"]
+            ),
+        }
+    )
+    return found
+
+
+def describe_cold(cold: ColdResult, rules: dict[str, Any]) -> str:
+    if cold.found_warm(rules["found_warm_under_s"]):
+        return (
+            f"cold: answered in {cold.seconds} s with no 503; "
+            "model was already warm, no cold start measured"
+        )
+    with_retry_after = sum(1 for r in cold.refusals if r.retry_after_s is not None)
+    return (
+        f"cold: {cold.seconds} s, {len(cold.refusals)} 503s ({with_retry_after} with a Retry-After)"
+    )
 
 
 def main() -> None:
@@ -210,15 +251,15 @@ def main() -> None:
     passages = load_passages(args.passages)
     out = args.output or HERE / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
-    client = make_client()
+    client = make_client(rules["client"]["timeout_s"])
     summary: dict[str, Any] = {
         "started_at": datetime.now().astimezone().isoformat(timespec="seconds")
     }
     try:
         cold_rules = rules["cold"]
-        if args.skip_cold:
-            cold = warm = ColdResult(cold_rules["model"], False, 0.0, error="skipped")
-        else:
+        cold: ColdResult | None = None
+        warm: ColdResult | None = None
+        if not args.skip_cold:
             some = passages[: cold_rules["passages"]]
             print(
                 f"cold: calling {cold_rules['model']} until it answers "
@@ -227,7 +268,7 @@ def main() -> None:
             cold = call_until_answered(
                 client, cold_rules["model"], cold_rules["query"], some, cold_rules["budget_s"]
             )
-            print(f"cold: {cold.seconds} s, {len(cold.refusals)} 503s")
+            print(describe_cold(cold, cold_rules))
             warm = call_until_answered(
                 client, cold_rules["model"], cold_rules["query"], some, cold_rules["budget_s"]
             )
@@ -244,12 +285,20 @@ def main() -> None:
         for call in burst_calls:
             fh.write(json.dumps(asdict(call)) + "\n")
     burst = summarize_burst(burst_calls)
-    summary.update({"cold": asdict(cold), "warm": asdict(warm), "burst": burst})
-    if not args.skip_cold:
-        summary["verdicts"] = verdicts(cold, warm, burst, rules)
+    found = verdicts(cold, warm, burst, rules)
+    summary.update(
+        {
+            "cold": asdict(cold) if cold else None,
+            "warm": asdict(warm) if warm else None,
+            "burst": burst,
+            "verdicts": found,
+        }
+    )
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2))
     print(f"wrote {out}")
+    if any(v["passed"] is False for v in found):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
