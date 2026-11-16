@@ -22,11 +22,15 @@ traffic:
 
 minutes: 15                   # per setup
 
+# The "fit" setup fails when more than this share of all its requests fail.
+max_failed_share: 0.01
+
+# Label sets for the extractors; each extract model below names one with `labels:`.
 labels:
   gliner: [person, email, phone number, address, organization]
   zero_shot: [billing, technical support, account access, medical question, other]
 
-# The models that fit: ten small encoders, about 11 GB at their peak, under the unload point.
+# The nine models that, with the pinned bge-m3, fit: about 11 GB at their peak, under the unload point.
 fit:
   - {model: intfloat/e5-large-v2, kind: encode}
   - {model: mixedbread-ai/mxbai-embed-large-v1, kind: encode}
@@ -34,15 +38,15 @@ fit:
   - {model: intfloat/multilingual-e5-large-instruct, kind: encode}
   - {model: Snowflake/snowflake-arctic-embed-l-v2.0, kind: encode}
   - {model: BAAI/bge-reranker-v2-m3, kind: score}
-  - {model: urchade/gliner_multi_pii-v1, kind: extract}
-  - {model: gliner-community/gliner_large-v2.5, kind: extract}
-  - {model: MoritzLaurer/deberta-v3-base-zeroshot-v2.0, kind: extract}
+  - {model: urchade/gliner_multi_pii-v1, kind: extract, labels: gliner}
+  - {model: gliner-community/gliner_large-v2.5, kind: extract, labels: gliner}
+  - {model: MoritzLaurer/deberta-v3-base-zeroshot-v2.0, kind: extract, labels: zero_shot}
 
 # Six more, so the set no longer fits.
 overflow:
-  - {model: MoritzLaurer/deberta-v3-large-zeroshot-v2.0, kind: extract}
-  - {model: gliner-community/gliner_medium-v2.5, kind: extract}
-  - {model: urchade/gliner_multi-v2.1, kind: extract}
-  - {model: urchade/gliner_large-v2.1, kind: extract}
+  - {model: MoritzLaurer/deberta-v3-large-zeroshot-v2.0, kind: extract, labels: zero_shot}
+  - {model: gliner-community/gliner_medium-v2.5, kind: extract, labels: gliner}
+  - {model: urchade/gliner_multi-v2.1, kind: extract, labels: gliner}
+  - {model: urchade/gliner_large-v2.1, kind: extract, labels: gliner}
   - {model: BAAI/bge-reranker-large, kind: score}
   - {model: intfloat/e5-base-v2, kind: encode}

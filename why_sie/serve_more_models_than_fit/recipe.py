@@ -10,13 +10,15 @@ log and reports unloads an hour, how long a request waits when its model has to 
 of everything else, and whether the pinned model ever had to load again.
 
 Run it on the machine with the GPU. `--launcher docker` (the default) starts the server from the
-SIE image; `--launcher process` runs the server from a local environment.
+SIE image; `--launcher process` runs `--server-python -m sie_server.cli`, so point
+`--server-python` at the interpreter of an environment with SIE installed.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import datetime as dt
 import json
 import os
@@ -24,11 +26,14 @@ import random
 import re
 import shutil
 import signal
+import socket
 import statistics
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,9 +43,14 @@ from sie_sdk import SIEAsyncClient, SIEClient
 from sie_sdk.types import Item
 
 HERE = Path(__file__).resolve().parent
-LOG_LINE = re.compile(
-    r"^(\d\d:\d\d:\d\d) .*?(Model '([^']+)' loaded successfully|Unloading model '([^']+)')"
-)
+CLOCK = re.compile(r"^(\d\d:\d\d:\d\d) ")
+EVENT = re.compile(r"Model '([^']+)' loaded successfully|Unloading model '([^']+)'")
+SETUPS = ("fit", "overflow")
+EXPECTED = {
+    "fit": "no unloads once the models are loaded, and few failed requests",
+    "overflow": "SIE unloads to make room, and requests whose model was unloaded wait",
+    "pinned": "the pinned model never has to load again, and none of its requests fail",
+}
 
 
 def load_rules(path: Path) -> dict[str, Any]:
@@ -74,7 +84,19 @@ class Server:
         return self.process.poll() is None
 
 
-def start_server(launcher: str, rules: dict[str, Any], log: Path, name: str) -> Server:
+def port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def start_server(
+    launcher: str, server_python: str, rules: dict[str, Any], log: Path, name: str
+) -> Server:
     port = str(rules["port"])
     env = {
         "SIE_PINNED_MODELS": rules["pinned"]["model"],
@@ -94,7 +116,7 @@ def start_server(launcher: str, rules: dict[str, Any], log: Path, name: str) -> 
         cmd += [rules["image"], *args, "--models-dir", "/app/models"]
         process_env = None
     else:
-        cmd = ["python", "-m", "sie_server.cli", *args]
+        cmd = [server_python, "-m", "sie_server.cli", *args]
         process_env = {**os.environ, **env}
     with log.open("wb") as fh:
         process = subprocess.Popen(
@@ -105,18 +127,21 @@ def start_server(launcher: str, rules: dict[str, Any], log: Path, name: str) -> 
 
 def stop_server(server: Server) -> None:
     if server.container:
-        subprocess.run(
-            ["docker", "rm", "-f", server.container],
-            capture_output=True,
-            check=False,
+        done = subprocess.run(
+            ["docker", "rm", "-f", server.container], capture_output=True, text=True, check=False
         )
-    if server.running():
-        os.killpg(server.process.pid, signal.SIGTERM)
+        if done.returncode != 0:
+            print(f"docker rm -f {server.container} failed: {done.stderr.strip()}", file=sys.stderr)
+    for sig, wait_s in ((signal.SIGTERM, 30), (signal.SIGKILL, 15)):
+        if not server.running():
+            return
         try:
-            server.process.wait(timeout=30)
+            os.killpg(server.process.pid, sig)
+            server.process.wait(timeout=wait_s)
+        except ProcessLookupError:
+            return
         except subprocess.TimeoutExpired:
-            os.killpg(server.process.pid, signal.SIGKILL)
-            server.process.wait(timeout=15)
+            print(f"server {server.process.pid} still running after {sig.name}", file=sys.stderr)
 
 
 def wait_healthy(server: Server, url: str, timeout_s: float = 900.0) -> bool:
@@ -144,8 +169,8 @@ class GpuSampler:
     """Highest GPU memory in use, sampled once a second with nvidia-smi."""
 
     def __init__(self) -> None:
-        self.peak_mib = 0
-        self.total_mib = 0
+        self.peak_mib: int | None = None
+        self.total_mib: int | None = None
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -158,12 +183,14 @@ class GpuSampler:
             "--format=csv,noheader,nounits",
         ]
         while not self._stop.is_set():
-            out = subprocess.run(query, capture_output=True, text=True, check=False).stdout
-            first = out.strip().splitlines()[:1]
-            if first:
-                used, total = (int(x) for x in first[0].split(","))
-                self.peak_mib = max(self.peak_mib, used)
-                self.total_mib = total
+            try:
+                out = subprocess.run(query, capture_output=True, text=True, check=False).stdout
+                used, total = (int(x) for x in out.strip().splitlines()[0].split(","))
+            except (OSError, ValueError, IndexError):
+                self._stop.wait(1.0)
+                continue
+            self.peak_mib = used if self.peak_mib is None else max(self.peak_mib, used)
+            self.total_mib = total
             self._stop.wait(1.0)
 
     def __enter__(self) -> GpuSampler:
@@ -201,14 +228,21 @@ async def call(
     elif kind == "score":
         await client.score(name, Item(text=text[:200]), [Item(text=text), Item(text=text[::-1])])
     else:
-        chosen = labels["gliner"] if "gliner" in name else labels["zero_shot"]
-        await client.extract(name, Item(text=text), labels=chosen)
+        await client.extract(name, Item(text=text), labels=labels[model["labels"]])
 
 
 async def drive(
-    url: str, rules: dict[str, Any], models: list[dict[str, Any]], texts: list[str], seconds: float
-) -> list[dict[str, Any]]:
-    """Send the pinned stream and the Zipf traffic for `seconds`; one record per request."""
+    url: str,
+    rules: dict[str, Any],
+    models: list[dict[str, Any]],
+    texts: list[str],
+    seconds: float,
+    alive: Callable[[], bool],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Send the pinned stream and the Zipf traffic for `seconds`; one record per request.
+
+    Stops early, with an error, if `alive()` turns false.
+    """
     traffic = rules["traffic"]
     pinned = {**rules["pinned"], "pinned": True}
     weights = zipf_weights(len(models), traffic["zipf_s"])
@@ -243,41 +277,58 @@ async def drive(
     k = 0
     next_other = rng.expovariate(traffic["rate_per_s"])
     next_pinned = 0.0
-    while True:
-        due = min(next_other, next_pinned)
-        if due >= seconds:
-            break
-        delay = due - (time.monotonic() - start)
-        if delay > 0:
-            await asyncio.sleep(delay)
-        if next_pinned <= next_other:
-            launch(k, pinned)
-            next_pinned += 1 / pinned["rate_per_s"]
-        else:
-            order = ranking_at(models, next_other, traffic["rotate_every_s"])
-            launch(k, rng.choices(order, weights=weights)[0])
-            next_other += rng.expovariate(traffic["rate_per_s"])
-        k += 1
-    if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
-    await client.close()
-    return records
+    error = None
+    try:
+        while True:
+            due = min(next_other, next_pinned)
+            if due >= seconds:
+                break
+            if not alive():
+                error = f"the server process exited {time.monotonic() - start:.0f} s into the run"
+                break
+            delay = due - (time.monotonic() - start)
+            if delay > 0:
+                await asyncio.sleep(delay)
+            if next_pinned <= next_other:
+                launch(k, pinned)
+                next_pinned += 1 / pinned["rate_per_s"]
+            else:
+                order = ranking_at(models, next_other, traffic["rotate_every_s"])
+                launch(k, rng.choices(order, weights=weights)[0])
+                next_other += rng.expovariate(traffic["rate_per_s"])
+            k += 1
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+    finally:
+        await client.close()
+    return records, error
 
 
 # --- What happened -----------------------------------------------------------------------------
 
 
 def log_events(log_text: str, day: dt.date) -> list[tuple[float, str, str]]:
-    """(UTC timestamp, "load" or "unload", model) for every load and unload in the server log."""
+    """(UTC timestamp, "load" or "unload", model) for every load and unload in the server log.
+
+    `day` is the UTC date the server started on. The log prints only HH:MM:SS, so a clock
+    earlier than the line before it means the log crossed midnight.
+    """
     events = []
+    previous: dt.time | None = None
     for line in log_text.splitlines():
-        match = LOG_LINE.match(line)
+        clock_match = CLOCK.match(line)
+        if not clock_match:
+            continue
+        clock = dt.time.fromisoformat(clock_match.group(1))
+        if previous is not None and clock < previous:
+            day += dt.timedelta(days=1)
+        previous = clock
+        match = EVENT.search(line)
         if not match:
             continue
-        clock = dt.time.fromisoformat(match.group(1))
         stamp = dt.datetime.combine(day, clock, tzinfo=dt.UTC).timestamp()
-        kind = "load" if match.group(3) else "unload"
-        events.append((stamp, kind, match.group(3) or match.group(4)))
+        kind = "load" if match.group(1) else "unload"
+        events.append((stamp, kind, match.group(1) or match.group(2)))
     return events
 
 
@@ -291,32 +342,37 @@ def quantile(values: list[float], q: float) -> float | None:
 
 @dataclass
 class Summary:
-    minutes: float
-    requests: int
-    failed: int
-    loads: int
-    unloads: int
-    unloads_per_hour: float | None
-    waited_for_load: int
-    waited_p50_ms: float | None
-    waited_p95_ms: float | None
-    other_p50_ms: float | None
-    other_p95_ms: float | None
-    pinned_requests: int
-    pinned_cold_starts: int
-    pinned_failed: int
-    pinned_p50_ms: float | None
-    pinned_p99_ms: float | None
-    peak_gpu_mib: int = 0
-    gpu_total_mib: int = 0
+    minutes: float = 0.0
+    requests: int = 0
+    failed: int = 0
+    loads: int = 0
+    unloads: int = 0
+    unloads_per_hour: float | None = None
+    waited_for_load: int = 0
+    waited_p50_ms: float | None = None
+    waited_p95_ms: float | None = None
+    other_p50_ms: float | None = None
+    other_p95_ms: float | None = None
+    pinned_log_loads: int = 0
+    pinned_requests: int = 0
+    pinned_cold_starts: int = 0
+    pinned_failed: int = 0
+    pinned_p50_ms: float | None = None
+    pinned_p99_ms: float | None = None
+    peak_gpu_mib: int | None = None
+    gpu_total_mib: int | None = None
     errors: list[str] = field(default_factory=list)
 
 
 def summarize(
-    records: list[dict[str, Any]], events: list[tuple[float, str, str]], warmup_s: float
+    records: list[dict[str, Any]],
+    events: list[tuple[float, str, str]],
+    warmup_s: float,
+    pinned_model: str,
 ) -> Summary:
+    pinned_log_loads = sum(kind == "load" and model == pinned_model for _, kind, model in events)
     if not records:
-        return Summary(0, 0, 0, 0, 0, None, 0, None, None, None, None, 0, 0, 0, None, None)
+        return Summary(pinned_log_loads=pinned_log_loads)
     start = min(r["wall"] for r in records)
     end = max(r["wall"] + r["ms"] / 1000 for r in records)
     hours = (end - start) / 3600
@@ -348,6 +404,7 @@ def summarize(
         waited_p95_ms=quantile(cold, 0.95),
         other_p50_ms=quantile(warm, 0.50),
         other_p95_ms=quantile(warm, 0.95),
+        pinned_log_loads=pinned_log_loads,
         pinned_requests=len(pinned),
         pinned_cold_starts=sum(waited(r) for r in pinned_ok),
         pinned_failed=len(pinned) - len(pinned_ok),
@@ -357,59 +414,87 @@ def summarize(
     )
 
 
-def verdicts(results: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    fit, overflow = results.get("fit"), results.get("overflow")
-    if fit:
-        out.append(
-            {
-                "name": "fit",
-                "expected": "no unloads once the models are loaded",
-                "passed": fit["unloads"] == 0,
-            }
-        )
-    if overflow:
-        out.append(
-            {
-                "name": "overflow",
-                "expected": "SIE unloads to make room, and requests whose model was unloaded wait",
-                "passed": overflow["unloads"] > 0 and overflow["waited_for_load"] > 0,
-            }
-        )
-    for name, result in results.items():
-        out.append(
-            {
-                "name": f"{name}: pinned",
-                "expected": "the pinned model never has to load again",
-                "passed": result["pinned_cold_starts"] == 0 and result["pinned_requests"] > 0,
-            }
-        )
-    return out
+def setup_verdicts(
+    setup: str, result: dict[str, Any], max_failed_share: float
+) -> list[dict[str, Any]]:
+    """The setup's own verdict and its pinned-model verdict."""
+    named = [(setup, EXPECTED[setup]), (f"{setup}: pinned", EXPECTED["pinned"])]
+    reason = None
+    if "error" in result:
+        reason = f"not measured: {result['error']}"
+    elif result["pinned_log_loads"] == 0:
+        reason = "no load events parsed; check the log format"
+    if reason:
+        return [
+            {"name": name, "expected": expected, "passed": False, "reason": reason}
+            for name, expected in named
+        ]
+    requests = result["requests"]
+    failed_share = result["failed"] / requests if requests else 1.0
+    if setup == "fit":
+        passed = result["unloads"] == 0 and requests > 0 and failed_share <= max_failed_share
+    else:
+        passed = result["unloads"] > 0 and result["waited_for_load"] > 0
+    pinned_passed = (
+        result["pinned_requests"] > 0
+        and result["pinned_cold_starts"] == 0
+        and result["pinned_failed"] == 0
+    )
+    return [
+        {"name": name, "expected": expected, "passed": ok}
+        for (name, expected), ok in zip(named, [passed, pinned_passed], strict=True)
+    ]
+
+
+def verdicts(results: dict[str, dict[str, Any]], max_failed_share: float) -> list[dict[str, Any]]:
+    return [v for setup, r in results.items() for v in setup_verdicts(setup, r, max_failed_share)]
+
+
+def write_records(path: Path, records: list[dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8") as fh:
+        for record in records:
+            fh.write(json.dumps(record) + "\n")
 
 
 def run_setup(
-    setup: str, launcher: str, rules: dict[str, Any], texts: list[str], out: Path, minutes: float
+    setup: str,
+    launcher: str,
+    server_python: str,
+    rules: dict[str, Any],
+    texts: list[str],
+    out: Path,
+    minutes: float,
 ) -> dict[str, Any]:
-    url = f"http://127.0.0.1:{rules['port']}"
+    port = int(rules["port"])
+    if not port_free(port):
+        return {"error": f"port {port} is already in use"}
+    url = f"http://127.0.0.1:{port}"
     log = out / f"server-{setup}.log"
-    server = start_server(launcher, rules, log, setup)
+    models = models_for(rules, setup)
+    records: list[dict[str, Any]] = []
+    error: str | None = None
+    gpu = GpuSampler()
+    day = dt.datetime.now(dt.UTC).date()
+    server = start_server(launcher, server_python, rules, log, setup)
     try:
         if not wait_healthy(server, url):
             return {"error": "the server did not start", "log": log.name}
         warm_pinned(url, rules["pinned"]["model"])
-        with GpuSampler() as gpu:
-            records = asyncio.run(drive(url, rules, models_for(rules, setup), texts, minutes * 60))
-        day = dt.datetime.fromtimestamp(min(r["wall"] for r in records), tz=dt.UTC).date()
-        events = log_events(log.read_text(encoding="utf-8", errors="replace"), day)
+        with gpu:
+            records, error = asyncio.run(
+                drive(url, rules, models, texts, minutes * 60, server.running)
+            )
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {str(exc)[:200]}", "log": log.name}
     finally:
         stop_server(server)
-    with (out / f"requests-{setup}.jsonl").open("w", encoding="utf-8") as fh:
-        for record in records:
-            fh.write(json.dumps(record) + "\n")
-    summary = summarize(records, events, rules["traffic"]["warmup_s"])
+        write_records(out / f"requests-{setup}.jsonl", records)
+    events = log_events(log.read_text(encoding="utf-8", errors="replace"), day)
+    summary = summarize(records, events, rules["traffic"]["warmup_s"], rules["pinned"]["model"])
     summary.peak_gpu_mib, summary.gpu_total_mib = gpu.peak_mib, gpu.total_mib
-    result = summary.__dict__
-    result["models"] = 1 + len(models_for(rules, setup))
+    result = dataclasses.asdict(summary) | {"models": 1 + len(models), "log": log.name}
+    if error:
+        result["error"] = error
     return result
 
 
@@ -419,31 +504,54 @@ def main() -> None:
     )
     parser.add_argument("--rules", type=Path, default=HERE / "rules.yaml")
     parser.add_argument("--launcher", choices=["docker", "process"], default="docker")
+    parser.add_argument(
+        "--server-python",
+        default="python",
+        help="with --launcher process: the interpreter of an environment with SIE installed",
+    )
     parser.add_argument("--setups", default="fit,overflow", help="comma-separated: fit,overflow")
     parser.add_argument("--minutes", type=float, help="per setup (default from rules.yaml)")
     parser.add_argument("--output", type=Path, help="run folder (default runs/<timestamp>)")
     args = parser.parse_args()
 
+    setups = args.setups.split(",")
+    unknown = sorted(set(setups) - set(SETUPS))
+    if unknown:
+        parser.error(f"unknown setups: {', '.join(unknown)}")
     rules = load_rules(args.rules)
     texts = load_texts(HERE / "data" / "passages.json")
     out = (args.output or HERE / "runs" / dt.datetime.now().strftime("%Y%m%d-%H%M%S")).resolve()
     out.mkdir(parents=True, exist_ok=True)
     minutes = args.minutes or rules["minutes"]
+    started_at = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     results: dict[str, dict[str, Any]] = {}
-    for setup in args.setups.split(","):
-        count = 1 + len(models_for(rules, setup))
-        print(f"{setup}: {count} models, {minutes:g} minutes")
-        results[setup] = run_setup(setup, args.launcher, rules, texts, out, minutes)
-        print(json.dumps(results[setup], indent=2))
-    summary = {
-        "started_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
-        "launcher": args.launcher,
-        "results": results,
-        "verdicts": verdicts({k: v for k, v in results.items() if "error" not in v}),
-    }
-    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(summary["verdicts"], indent=2))
-    print(f"wrote {out}")
+
+    def write_summary() -> list[dict[str, Any]]:
+        checks = verdicts(results, rules["max_failed_share"])
+        summary = {
+            "started_at": started_at,
+            "launcher": args.launcher,
+            "results": results,
+            "verdicts": checks,
+        }
+        (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        return checks
+
+    try:
+        for setup in setups:
+            count = 1 + len(models_for(rules, setup))
+            print(f"{setup}: {count} models, {minutes:g} minutes")
+            results[setup] = run_setup(
+                setup, args.launcher, args.server_python, rules, texts, out, minutes
+            )
+            print(json.dumps(results[setup], indent=2))
+            write_summary()
+    finally:
+        checks = write_summary()
+        print(json.dumps(checks, indent=2))
+        print(f"wrote {out}")
+    if not all(v["passed"] for v in checks):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

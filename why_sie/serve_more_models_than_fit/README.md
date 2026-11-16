@@ -33,7 +33,8 @@ your models. Running your traffic against them will.
 ### Examples
 
 The passages are the first 500 documents of NFCorpus (BeIR/nfcorpus, CC BY-SA 4.0, revision
-`b5026a0e`), cut to 1,000 characters, in `data/passages.json`; `fetch_data.py` rebuilds them.
+`b5026a0e`), in `data/passages.json`; `fetch_data.py` rebuilds them. `recipe.py` cuts each one to
+its first 1,000 characters when it reads them.
 
 1. **Ten models that fit.** `BAAI/bge-m3` (pinned) and nine more small encoders, rerankers and
    extractors. Nothing should be unloaded once they're all loaded.
@@ -54,9 +55,10 @@ Traffic, for 15 minutes per setup:
   (s = 1.1), so the top model gets about a third of them and the bottom ones a few percent. Every 150
   seconds the ranking shifts by one model, so the popular models keep changing.
 
-A request counts as "waited for a load" when a load of its model started while it was in flight,
-according to the server's log. It's an approximation, and a close one: a request that waits for a
-load takes seconds, and one that doesn't takes milliseconds.
+A request counts as "waited for a load" when the server's log shows a load of its model finishing
+while the request was in flight, give or take a second: the recipe matches the "loaded successfully"
+line, and the log only stamps whole seconds. It's an approximation, and a close one: a request that
+waits for a load takes seconds, and one that doesn't takes milliseconds.
 
 ## Picking the models
 
@@ -91,7 +93,12 @@ All of it is Python and `rules.yaml`.
 | Loads and unloads | `log_events` | Every "loaded successfully" and "Unloading model" line in the server log |
 | Summary | `summarize`, `verdicts` | Unloads an hour, waits for a load, other latency, the pinned model, against what each example expects |
 
-The model lists, rates, rotation, threshold and timeout are in `rules.yaml`.
+The model lists, the label set each extractor uses, rates, rotation, threshold, timeout and the
+share of failed requests the "fit" setup allows (`max_failed_share`) are in `rules.yaml`. The
+pinned verdict fails if any request to the pinned model fails. Both of a setup's verdicts fail when
+the setup crashes or its server stops early (the reason says "not measured"), and when the recipe
+finds no load of the pinned model in the server log, which means the log format changed. The recipe
+writes `summary.json` after each setup and exits non-zero when any verdict fails.
 
 ## Run it
 
@@ -107,8 +114,11 @@ uv run recipe.py --setups overflow --minutes 5
 uv run selfcheck.py                    # optional: offline checks, no GPU
 ```
 
-`--launcher process` runs the same server without Docker, for a machine that already has
-`sie-server` installed. Each run writes `runs/<timestamp>/summary.json`, one `requests-<setup>.jsonl`
+`--launcher process` runs the same server without Docker. It needs the Python interpreter of an
+environment with SIE installed, passed as `--server-python`, for example
+`uv run recipe.py --launcher process --server-python /path/to/sie/.venv/bin/python`; this recipe's
+own environment doesn't have the server. The recipe checks that the port in `rules.yaml` is free
+before it starts the server. Each run writes `runs/<timestamp>/summary.json`, one `requests-<setup>.jsonl`
 per setup and the server logs; `--output DIR` changes that. The sixteen models download into
 `~/.cache/huggingface` on the first run.
 
@@ -200,8 +210,8 @@ docker run --gpus all -p 8080:8080 -v sie-hf-cache:/app/.cache/huggingface \
 ## Files
 
 - `recipe.py`: starts the server, sends the traffic, reads the log and writes the summary
-- `selfcheck.py`: plain asserts on the model lists, the Zipf split, the log parser and the summary,
-  no GPU (`uv run selfcheck.py`)
+- `selfcheck.py`: plain asserts on the shape of the model lists, the Zipf split, the log parser,
+  the summary and the verdicts, no GPU (`uv run selfcheck.py`)
 - `rules.yaml`: image, threshold, pinned model, traffic, the two model lists
 - `fetch_data.py`, `data/passages.json`: the inputs
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
