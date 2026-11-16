@@ -1,0 +1,42 @@
+# Two GPU workers serving bge-m3, put behind SIE's queue or behind a round-robin with a health check.
+
+images:
+  server: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
+  sglang_server: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-sglang
+  sidecar: ghcr.io/superlinked/sie-server-sidecar:v0.11.1
+  gateway: ghcr.io/superlinked/sie-gateway:v0.11.1
+  nats: nats:2.12-alpine
+
+model: BAAI/bge-m3
+texts_per_request: 8
+gpus: [0, 1]                    # one worker per GPU
+request_timeout_s: 120
+
+capacity:
+  # Requests a second per GPU, stepped up; the highest step whose p95 stays under the target is the capacity.
+  per_gpu_steps: [40, 50, 55, 60, 65]
+  step_s: 60
+  warmup_s: 10
+  p95_target_ms: 500
+
+kill:
+  # Steady Poisson load while worker 1 is killed with SIGKILL and started again a few seconds later.
+  per_gpu_rate: 32               # about half of one A10's measured capacity (60 to 65), so one worker can't carry both shares
+  seconds: 600
+  kill_at_s: [120, 300, 480]
+  restart_after_s: 5
+  round_robin_fail_timeout_s: 10 # how long the round-robin skips a worker after a connection error
+  slow_ms: 5000
+
+engine:
+  # One SIE server with an SGLang guard model; its SGLang process is killed while requests keep coming.
+  model: Qwen/Qwen3Guard-Gen-0.6B
+  rate: 4
+  seconds: 540
+  kill_at_s: [120, 300]
+  max_tokens: 16
+
+expect:
+  queue_lost_requests: 0
+  engine_back_within_s: 120     # every engine kill: answering again within this long
+  engine_fail_fast_ms: 10000    # every request that fails meanwhile fails within this long

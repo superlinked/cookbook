@@ -1,0 +1,36 @@
+# How much bge-m3 one GPU embeds, and when renting that GPU beats paying per call.
+
+image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
+model: BAAI/bge-m3
+port: 8080
+gpu_index: 0                    # the one GPU the server gets and nvidia-smi samples
+
+load:
+  texts_per_request: 8
+  mixes:                        # share of short queries in each mix; the rest are passages
+    short: 1.0
+    long: 0.0
+    mixed: 0.7
+  in_flight: [4, 8, 16, 32]     # requests in flight, one cell each
+  cell_s: 60                    # seconds per cell
+  warmup_s: 15                  # the first seconds of each cell are not counted
+  texts_per_mix: 4000
+  seed: 20261111
+  start_timeout_s: 900
+  error_pause_s: 0.5            # a worker waits this long after a failed request
+  max_bad_share: 0.01           # a cell with more errors plus responses without usage is left out of the best
+
+cost:
+  gpu: L4
+  gpu_price_per_hour: 0.80      # typical on-demand list price, October 2026
+  hours_per_month: 730
+  # SIE Serverless list price for BAAI/bge-m3, effective 13 October 2026.
+  per_call_price_per_million_tokens: 0.03765895876
+  break_even_mix: mixed         # the mix the headline break-even uses
+
+expect:                         # what the README expects; each run prints Pass or Miss for each
+  short_mix: short
+  long_mix: long
+  short_below_share_of_long: 0.5      # short mix's best tokens/s below this share of the long mix's
+  long_cells_within: 0.1              # every long-mix cell within this share of its best: saturated at 4 in flight
+  break_even_busy_share: [0.12, 0.16] # break_even_mix pays off within this busy-share range

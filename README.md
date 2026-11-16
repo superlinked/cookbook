@@ -191,6 +191,21 @@ model it started from. Serve the result with SIE Local or SIE Cluster.
 | [Turn messages into calendar holds, payments, replies and to-dos](personal/turn_messages_into_actions) | parakeet-tdt-0.6b-v3, LightOnOCR-3-4B, GLiNER2.5-Decide, gliner2-large-v1 | 30 | 11 s |
 | [Keep a fact sheet current from your notes, voice memos and scans](personal/keep_facts_current_from_notes) | parakeet-tdt-0.6b-v3, LightOnOCR-3-4B, Qwen3-Embedding-4B, Qwen3-Reranker-4B, Qwen3.8-27B-FP8 | 38 | 26 s |
 
+### Why SIE
+
+These recipes measure SIE itself. Each one does a serving job the way you'd build it by hand, then
+does the same job on SIE, and prints the numbers. [why_sie/](why_sie) says what each one found,
+including where SIE doesn't win.
+
+| Recipe | Models | SIE calls | Run time |
+| --- | --- | --- | --- |
+| [Measure what a request sees when its model is cold, and how a burst comes back](why_sie/measure_cold_starts_and_bursts) | Qwen3-VL-Reranker-2B, bge-m3 | 2,002 | 30 s warm; about 2 min with the reranker cold |
+| [Put two SGLang models on one GPU, by hand and with SIE](why_sie/share_one_gpu_between_two_sglang_models) | Qwen3-Embedding-4B, Qwen3Guard-Gen-0.6B | run on your own GPU, no SIE Serverless calls | about 40 min on one L4 |
+| [Pack an agent's five models onto fewer GPUs, and measure what a turn costs](why_sie/pack_five_models_on_one_gpu) | Qwen3Guard-Gen-0.6B, bge-m3, bge-reranker-v2-m3, deberta-v3-base-zeroshot-v2.0, gliner_multi_pii-v1 | run on your own GPUs, no SIE Serverless calls | about 45 min on four 24 GB GPUs |
+| [Serve more small models than fit on one GPU, and see what packing costs](why_sie/serve_more_models_than_fit) | 16 small encoders, rerankers and extractors (bge-m3 pinned) | run on your own GPU, no SIE Serverless calls | about 30 min on one 24 GB GPU |
+| [Find when renting a GPU beats paying per call](why_sie/find_when_a_gpu_pays_off) | bge-m3 | run on your own GPU, no SIE Serverless calls | about 15 min on one L4 |
+| [Kill a GPU worker under load, behind SIE's queue and behind a round-robin](why_sie/kill_a_worker_under_load) | bge-m3, Qwen3Guard-Gen-0.6B | run on your own GPUs, no SIE Serverless calls | about 50 min on two 24 GB GPUs |
+
 ## Contributing a recipe
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). In short: a new folder under its industry with

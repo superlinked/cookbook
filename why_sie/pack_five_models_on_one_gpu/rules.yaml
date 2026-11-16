@@ -1,0 +1,52 @@
+# One agent turn is five calls in a row. The recipe serves the five models three ways and sends the same
+# turns to each: one SIE server per model on its own GPU, SIE on two GPUs, and SIE on one GPU.
+
+models:
+  guard:
+    model: Qwen/Qwen3Guard-Gen-0.6B
+    image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-sglang
+    max_tokens: 8
+  embed:
+    model: BAAI/bge-m3
+    image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
+  rerank:
+    model: BAAI/bge-reranker-v2-m3
+    image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
+    passages: 20
+  classify:
+    model: MoritzLaurer/deberta-v3-base-zeroshot-v2.0
+    image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
+    labels: [billing, technical support, account access, medical question, other]
+  pii:
+    model: urchade/gliner_multi_pii-v1
+    image: ghcr.io/superlinked/sie-server:v0.11.1-cuda12-default
+    labels: [person, email, phone number, address, organization]
+
+# The order of the calls in one turn.
+steps: [guard, embed, rerank, classify, pii]
+
+# Which models each SIE server holds, one server per GPU.
+setups:
+  one_per_model: [[guard], [embed], [rerank], [classify], [pii]]
+  two_gpus: [[guard], [embed, rerank, classify, pii]]
+  one_gpu: [[guard, embed, rerank, classify, pii]]
+
+first_port: 8101
+gpu_month_usd: 584    # an L4 at $0.80 an hour, 730 hours
+
+load:
+  capacity_in_flight: 32  # closed-loop turns used to find the baseline's capacity
+  capacity_s: 60
+  warmup_in_flight: 4     # untimed turns after each setup starts
+  warmup_s: 30
+  loads_pct: [25, 50, 75] # Poisson turn arrivals as a share of the baseline's capacity
+  load_s: 120
+  discard_s: 20           # the first seconds of each load level are not counted
+  timeout_s: 120
+  start_timeout_s: 900
+  seed: 20261113
+
+# The bar: at 50% load, a packed setup's p95 turn stays within this multiple of one server per model.
+p95_ratio_at_50pct: 1.25
+# A setup also fails when more than this share of its turns fail at 50% load.
+max_failed_share: 0.01

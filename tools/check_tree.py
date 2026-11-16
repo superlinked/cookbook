@@ -29,6 +29,7 @@ INDUSTRIES = (
     "retail",
     "security",
     "sre",
+    "why_sie",
 )
 REQUIRED = (
     "recipe.py",

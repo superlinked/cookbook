@@ -63,6 +63,15 @@ The first call can wait minutes while SIE Serverless starts a cold model.
   asserts on its own parsing and rule functions, using hand-written strings,
   the committed `data/` and hand-written stand-in model replies. It never calls
   SIE and never replays a recorded response. CI runs it.
+- Recipes in `why_sie/` measure SIE itself: each runs one serving job on SIE and
+  compares it with the same job built by hand where that's practical to run, or
+  with a baseline its README states (one server per model, an earlier
+  measurement, a GPU rented all month). They report latency, errors and
+  throughput, and they are the one place numbers like these belong. They still
+  run live (no recorded numbers stand in for a run), and their README names the
+  hardware each run used. Recipes there that start their own servers may need
+  local GPUs and Docker instead of only `uv` and an SIE API key, and call SIE
+  through their own servers' URLs instead of `make_client()`.
 - All data is synthetic or from a public dataset that allows redistribution.
   Name the source, revision and license in the recipe README. No real people,
   customers, credentials or live URLs.

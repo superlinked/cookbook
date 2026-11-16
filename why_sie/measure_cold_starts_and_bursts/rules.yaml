@@ -1,0 +1,24 @@
+# What the recipe measures, and what counts as the expected outcome.
+
+client:
+  timeout_s: 600         # how long one HTTP call may take before the client gives up
+
+cold:
+  # A model that is often at zero on SIE Serverless, so the first call is likely to find it cold.
+  model: Qwen/Qwen3-VL-Reranker-2B
+  query: What lowers blood pressure?
+  passages: 5            # the first five passages in data/passages.json
+  budget_s: 900          # give up after this long, like the SDK's default retry budget
+  found_warm_under_s: 5  # an answer this fast with no 503 means the model was already running
+  expect_answer_within_s: 300
+
+warm:
+  # The same call again, right after the cold one.
+  expect_answer_within_s: 2
+
+burst:
+  model: BAAI/bge-m3
+  calls: 2000
+  callers: 32            # requests in flight at once
+  expect_errors: 0
+  expect_p95_under_s: 3
