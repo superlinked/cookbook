@@ -17,7 +17,7 @@ deps:
   # ``qwen3_5_moe`` class; its model card recommends SGLang >=0.5.10, and its
   # H100 FP8 bootstrap keeps NEXTN disabled.
   #
-  # SGLang 0.5.10 was evaluated against CUDA 12.9 + Qwen3.6-27B on Modal
+  # SGLang 0.5.10 was evaluated against CUDA 12.9 + Qwen3.6-27B on a cloud
   # H100 (2026-05-27): server boots, loads weights, but the bundled
   # ``sglang/jit_kernel/csrc/elementwise/activation.cuh`` has a C++
   # template bug (``select_kernel<true>(type)`` is parsed as a class-

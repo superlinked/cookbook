@@ -80,7 +80,7 @@ flowchart LR
 ## How it's built
 
 Everything is Python and `rules.yaml`. The model and bundle configs in `config/` are SIE v0.11.1's
-own, copied unchanged.
+own, copied unchanged except for one reworded comment in `sglang.yaml`.
 
 | Step | Function | What it does |
 | --- | --- | --- |
@@ -89,6 +89,7 @@ own, copied unchanged.
 | Capacity | `capacity`, `capacity_from` | Stepped rates; the highest step with p95 under 500 ms and no errors |
 | Worker kills | `kill_test`, `Stack.kill_worker`, `summarize_kill` | Steady load while worker 1 is killed and restarted |
 | Engine kill | `engine_test`, `engine_recoveries` | Kills the SGLang process; times until a request is answered again |
+| Verdicts | `verdicts` | Judges every kill against `expect:` in `rules.yaml`; a step that didn't run fails |
 | Round-robin | `Targets` | Next server in turn, skipping one for 10 s after a connection error |
 
 ## Run it
@@ -107,10 +108,23 @@ uv run recipe.py --steps kill           # just the worker kills
 uv run selfcheck.py                     # optional: offline checks, no GPU
 ```
 
-`--launcher process` starts the same commands without Docker, for a machine with SIE's Python
-environment, `nats-server`, and the `sie-gateway` and `sie-server-sidecar` binaries in `--bin-dir`.
-Each run writes `runs/<timestamp>/summary.json`, every request of the kill test
-(`kill-queue.jsonl`, `kill-round_robin.jsonl`) and every piece's log; `--output DIR` changes that.
+Every server, the gateway and NATS listen on 127.0.0.1 only, so the pieces the recipe starts aren't
+open to your network, with one exception: the sidecar's probe port (8201 and 8202), which SIE
+v0.11.1 binds on every interface. Before it starts a piece, the recipe checks that the piece's ports are free and
+stops with a clear message if they aren't, so a container left from an earlier run can't answer for
+a new server.
+
+`--launcher process` starts the same commands without Docker, for a machine with `nats-server`,
+and the `sie-gateway` and `sie-server-sidecar` binaries in `--bin-dir`. `uv run` puts this recipe's
+own small environment first on the `PATH`, and that one has no SIE server in it, so pass the Python
+of an environment with SIE installed (and SGLang, for the engine kill):
+`--server-python /path/to/env/bin/python`.
+
+Each run writes `runs/<timestamp>/summary.json` after every step, so a crash keeps what was already
+measured, plus every request of the kill test (`kill-queue.jsonl`, `kill-round_robin.jsonl`) and
+every piece's log; `--output DIR` changes that. The engine verdict judges every kill: SIE has to
+answer again in time after each one, and requests still running when the engine died count as
+failed too. The recipe exits with code 1 when any verdict fails or a step couldn't run.
 
 ## What came out
 
@@ -214,6 +228,6 @@ chart (`deploy/helm/sie-cluster` in the SIE repo) runs the same pieces.
 - `recipe.py`: starts the setups, drives the load, kills workers and the engine, writes the summary
 - `selfcheck.py`: plain asserts on the summaries and verdicts, no GPU (`uv run selfcheck.py`)
 - `rules.yaml`: images, models, GPUs, rates, kill times and the expected outcomes
-- `config/`: SIE v0.11.1's configs for the two models and their bundles, unchanged
+- `config/`: SIE v0.11.1's configs for the two models and their bundles, unchanged but for one comment
 - `fetch_data.py`, `data/texts.json`, `data/prompts.json`: the inputs
 - `pyproject.toml`, `uv.lock`: this recipe's dependencies
