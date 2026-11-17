@@ -180,8 +180,13 @@ will sometimes take ten seconds.
 ## Potential improvements
 
 - Run two servers behind SIE's gateway and queue, as in our cluster test: there, 45% of loads were for
-  a model the other worker already had, because no one places models across workers centrally. One
-  server can't show that.
+  a model the other worker already had, because any worker in a pool can load any model. One server
+  can't show that.
+- Plan the placement first. SIE v0.11.1 added a placement planner
+  ([`sie_placement`](https://github.com/superlinked/sie/tree/main/packages/sie_placement), in the SIE
+  repo and not on PyPI) that works out which models go on which GPUs, and how many to keep warm, from
+  measurements of each model alone and beside its neighbours, GPU prices and hourly demand. We haven't
+  run it in this recipe.
 - Retry requests that fail with "is unloading", since they'd succeed a few seconds later.
 
 ## Try another model
